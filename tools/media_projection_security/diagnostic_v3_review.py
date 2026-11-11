@@ -54,7 +54,7 @@ def review_text(state: str, activity: str, service: str) -> list[dict[str,str]]:
     nested = nested_puts("evidence",body)
     nested_ok = (
         nested==NESTED_VALUES and
-        "JSONObject evidence=new JSONObject()" in _compact(body) and
+        "JSONObjectevidence=newJSONObject()" in _compact(body) and
         "long[]ev=contextEvidence.snapshot()" in _compact(body)
     )
     counters = (
@@ -77,7 +77,7 @@ def review_text(state: str, activity: str, service: str) -> list[dict[str,str]]:
         "LiveCaptureState.safeDiagnosticReport()" in activity[click:clip+250]
     )
     optin = (
-        "if(!sessionAlive(session)) return" in _compact(service) and
+        "if(!sessionAlive(session))return" in _compact(service) and
         "LiveCaptureState.recordContextEvidence(" in service
     )
 
