@@ -69,7 +69,7 @@ public final class BackupCodec {
                 if (val.length() > 200) throw new JSONException("Campo extenso demais: " + key);
             }
             double price = OfferParser.decimal(fields.getString("offerPrice"));
-            if (!Double.isFinite(price) || price <= 0.0 || price > 10000.0)
+            if (Double.isNaN(price) || Double.isInfinite(price) || price <= 0.0 || price > 10000.0)
                 throw new JSONException("Oferta contém valor inválido.");
             JSONArray corrections = rec.getJSONArray("corrections");
             if (corrections.length() > OfferParser.KEYS.length)
