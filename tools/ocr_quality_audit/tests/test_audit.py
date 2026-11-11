@@ -101,5 +101,60 @@ class AuditTests(unittest.TestCase):
             self.assertEqual(result["audit"]["totals"]["errors"], 2)
 
 
+    def test_samples_structure_and_risk_reconciliation(self):
+        """Synthetic report shaped like the Vexo 0.3.3 export."""
+        doc = sample()
+        doc["samples"] = [
+            {"id": "synthetic-A", "tested": 3, "correct": 1,
+             "financialSafety": {"basicFieldsUsable": False},
+             "ocrEvidence": {"offerPrice": {"expectedNumberSeenInRawOCR": True}},
+             "fields": {
+                 "offerPrice": {"expected": 43.09, "actual": "4,09", "status": "wrong"},
+                 "distanceKm": {"expected": 10, "actual": "1", "status": "wrong"},
+                 "platform": {"expected": "99", "actual": "99", "status": "ok"}}},
+            {"id": "synthetic-B", "tested": 3, "correct": 3,
+             "financialSafety": {"basicFieldsUsable": True},
+             "fields": {
+                 "offerPrice": {"expected": 9, "actual": "9,00", "status": "ok"},
+                 "distanceKm": {"expected": 10, "actual": "10", "status": "ok"},
+                 "platform": {"expected": "99", "actual": "99", "status": "ok"}}},
+        ]
+        audit = analyze(doc)
+        self.assertEqual(audit["sampleAudit"]["statusChecked"], 6)
+        self.assertEqual(audit["sampleAudit"]["statusCorrect"], 4)
+        self.assertEqual(audit["sampleAudit"]["financialReviewCount"], 1)
+        self.assertEqual(audit["sampleAudit"]["distanceReviewCount"], 1)
+        self.assertEqual(audit["sampleAudit"]["basicFieldsUnusableCases"], ["synthetic-A"])
+        self.assertEqual(audit["reviewFlags"][0]["absoluteDifference"], "39.00")
+        self.assertTrue(audit["reviewFlags"][0]["reportedExpectedNumberSeenInRawOCR"])
+        self.assertIn("synthetic-A", markdown(audit))
+
+    def test_missing_surge_is_not_assumed_zero(self):
+        doc = {"schema": "vexo-ocr-batch-report-v1", "appVersion": "test-only",
+               "testImages": 1, "summary": {"checked": 1, "correct": 0,
+               "discrepant": 1, "processingErrors": 0, "accuracyPct": 0},
+               "perField": {"surge": {"checked": 1, "correct": 0}},
+               "samples": [{"id": "synthetic-C", "tested": 1, "correct": 0,
+                            "financialSafety": {"basicFieldsUsable": True},
+                            "ocrEvidence": {"surge": {"expectedNumberSeenInRawOCR": False}},
+                            "fields": {"surge": {"expected": 2.8, "actual": "", "status": "missing"}}}]}
+        audit = analyze(doc)
+        flagged = audit["reviewFlags"][0]
+        self.assertTrue(flagged["magnitudeUnquantified"])
+        self.assertNotIn("absoluteDifference", flagged)
+        self.assertEqual(flagged["status"], "critical_review")
+        self.assertEqual(audit["sampleAudit"]["basicFieldsUsableWithRiskIssues"], ["synthetic-C"])
+
+    def test_samples_count_mismatch_warns(self):
+        doc = sample()
+        doc["samples"] = [{"id": "synthetic-incomplete", "tested": 1, "correct": 1,
+                           "fields": {"platform": {"expected": "99", "actual": "99", "status": "ok"}}}]
+        audit = analyze(doc)
+        self.assertTrue(any("samples count differs" in w for w in audit["warnings"]))
+        self.assertTrue(any("sample status totals differ" in w for w in audit["warnings"]))
+        self.assertTrue(any("sample field totals disagree" in w for w in audit["warnings"]))
+
+
+
 if __name__ == "__main__":
     unittest.main()
