@@ -58,7 +58,7 @@ def review_text(state: str, service: str, counter: str,
     nested_keys = [n for n,_ in nested if n == "contextEvidenceCounts"]
     nested_type = (
         "JSONObject evidence=new JSONObject()" in re.sub(r"\s+", " ", report)
-        and "long[] ev=contextEvidence.snapshot()" in re.sub(r"\s+", "", report)
+        and "long[]ev=contextEvidence.snapshot()" in re.sub(r"\s+", "", report)
         and nested_keys == ["contextEvidenceCounts"]
         and ("contextEvidenceCounts", "evidence") in nested
     )
