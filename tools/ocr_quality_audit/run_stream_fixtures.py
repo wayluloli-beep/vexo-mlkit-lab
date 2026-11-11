@@ -10,6 +10,7 @@ EXPECTED_VIOLATIONS = {
     "equal_values_distinct_offers": set(),
     "stop_callback_discarded": set(),
     "stop_callback_applied": {"callback_after_stop_applied"},
+    "long_stable_offer_realerts": {"duplicate_notification"},
 }
 
 
@@ -27,6 +28,7 @@ def run_suite():
                       "frames": summary.get("frames", 0),
                       "offers": summary.get("unique_labeled_offers", 0),
                       "notifications": summary.get("notifications", 0),
+                      "notificationAttempts": summary.get("notification_attempts", 0),
                       "firstCandidateP95Ms": metrics["firstCandidateLatencyP95Ms"],
                       "inferenceP95Ms": metrics["ocrInferenceP95Ms"]})
     return {"scenarios": len(cases), "passed": sum(c["pass"] for c in cases),
