@@ -28,8 +28,12 @@ public final class LiveCaptureActivity {
   copyReport.setOnClickListener(v -> {
    ClipboardManager clipboard=(ClipboardManager)
      getSystemService(Context.CLIPBOARD_SERVICE);
-   clipboard.setPrimaryClip(ClipData.newPlainText(
-      "Diagnóstico Vexo",LiveCaptureState.safeDiagnosticReport()));
+   ClipData clip=ClipData.newPlainText(
+      "Diagnóstico Vexo",LiveCaptureState.safeDiagnosticReport());
+   PersistableBundle extras = new PersistableBundle();
+   extras.putBoolean(ClipDescription.EXTRA_IS_SENSITIVE,true);
+   clip.getDescription().setExtras(extras);
+   clipboard.setPrimaryClip(clip);
   });
  }
 }
@@ -107,6 +111,20 @@ class DiagnosticPrivacyReviewTest(unittest.TestCase):
             " void onResume() { clipboard.setPrimaryClip(other); }\n void onCreate() {"
         )
         self.assertEqual("FAIL", by_code(activity=bad)["CLIPBOARD_EXPLICIT_USER_CLICK"])
+
+    def test_missing_preview_redaction_is_nonblocking_warning(self):
+        bad = ACTIVITY.replace(
+            "extras.putBoolean(ClipDescription.EXTRA_IS_SENSITIVE,true);",
+            "extras.putBoolean(ClipDescription.EXTRA_IS_SENSITIVE,false);"
+        ).replace("ClipDescription.EXTRA_IS_SENSITIVE", "UNRELATED_FLAG")
+        self.assertEqual("WARN", by_code(activity=bad)["CLIPBOARD_PREVIEW_PRIVACY_HINT"])
+
+    def test_preview_redaction_only_after_copy_warns(self):
+        bad = ACTIVITY.replace(
+            "   clip.getDescription().setExtras(extras);\n   clipboard.setPrimaryClip(clip);",
+            "   clipboard.setPrimaryClip(clip);\n   clip.getDescription().setExtras(extras);"
+        )
+        self.assertEqual("WARN", by_code(activity=bad)["CLIPBOARD_PREVIEW_PRIVACY_HINT"])
 
     def test_latency_without_epoch_guard_is_rejected(self):
         bad = SERVICE.replace(
