@@ -149,3 +149,60 @@ jobs:
           else
             echo "Agente 1 indisponível para auditoria de ordem." >> "$GITHUB_STEP_SUMMARY"
           fi
+
+      - name: Revisão integrada PR 24 (apenas leitura, sem merge)
+        shell: bash
+        run: |
+          if git fetch --no-tags --depth=1 origin refs/heads/fix/mediaproj-stop-resize-guards; then
+            git worktree add --detach "$RUNNER_TEMP/vexo-pr24-review" FETCH_HEAD
+            sha=$(git -C "$RUNNER_TEMP/vexo-pr24-review" rev-parse HEAD)
+            root="$RUNNER_TEMP/vexo-pr24-review"
+            set +e
+            python tools/media_projection_security/check_contract.py \
+              --root "$root" --require-capture --json > "$RUNNER_TEMP/pr24-contract.json"
+            contract_code=$?
+            python tools/media_projection_security/lifecycle_review.py \
+              --root "$root" --require-service --json > "$RUNNER_TEMP/pr24-lifecycle.json"
+            lifecycle_code=$?
+            python tools/media_projection_security/memory_review.py \
+              --root "$root" --json > "$RUNNER_TEMP/pr24-memory.json"
+            memory_code=$?
+            python tools/media_projection_security/ordering_review.py \
+              --root "$root" --require-service --json > "$RUNNER_TEMP/pr24-order.json"
+            ordering_code=$?
+            set -e
+            python - "$RUNNER_TEMP" "$sha" "$contract_code" "$lifecycle_code" "$memory_code" "$ordering_code" <<'PY'
+          import json
+          import os
+          from pathlib import Path
+          import sys
+          root = Path(sys.argv[1])
+          labels = ["contract", "lifecycle", "memory", "order"]
+          out = ["### PR #24 — auditoria read-only da implementação integrada",
+                 "HEAD consultado: " + sys.argv[2],
+                 "Escopo: código-fonte; não equivale a execução de uma sessão Android"]
+          total_pass = 0
+          total_fail = 0
+          total_skip = 0
+          for label, status in zip(labels, sys.argv[3:]):
+              path = root / ("pr24-" + label + ".json")
+              data = json.loads(path.read_text(encoding="utf-8"))["checks"]
+              out.append("**" + label + "** (scanner exit=" + status + ")")
+              for item in data:
+                  outcome = item["status"]
+                  total_pass += (outcome == "PASS")
+                  total_fail += (outcome == "FAIL")
+                  total_skip += (outcome == "SKIP")
+                  out.append("- " + outcome + " " + item["code"] + ": " + item["detail"])
+          out.append("**Soma:** " + str(total_pass) + " PASS / " +
+                     str(total_fail) + " FAIL / " + str(total_skip) + " SKIP")
+          out.append("Critérios runtime pendentes: consentimento Android, STOP durante OCR, "
+                     "resize com exceção, ciclo de vida, memória real e app-share sintético.")
+          report = "\n\n".join(out) + "\n"
+          print(report)
+          with open(os.environ["GITHUB_STEP_SUMMARY"], "a", encoding="utf-8") as fd:
+              fd.write(report)
+          PY
+          else
+            echo "PR #24: branch ausente; auditoria integrada não realizada." >> "$GITHUB_STEP_SUMMARY"
+          fi
