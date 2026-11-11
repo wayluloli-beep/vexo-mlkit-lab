@@ -28,7 +28,9 @@ A primeira invocação roda todos os testes sintéticos em `tools/ocr_quality_au
 | ML Kit reconhecendo texto de prints reais | Não | Requer execução Android em dispositivo/emulador configurado | reconhecimento real, desempenho específico do cenário |
 | Captura automática da tela de outros apps | Não | Requer validação Android e permissões reais | confiabilidade e conformidade de captura; não é provada por JSON |
 
-## Pedido de integração ao CI (equipe Android/integração)
+**Coordenação (Issue #8, PR #9):** o agente Android já criou o workflow `digital-lab.yml` na branch `feature/digital-test-lab` (PR #9 em draft). Ele inclui execução opcional de `python -m unittest discover -s tools/ocr_quality_audit/tests -v` **quando esta pasta estiver presente na branch testada**. Portanto, não precisamos criar um segundo workflow. A execução conjunta e sua validação no CI permanecem pendentes de revisão/integração das branches; nenhum merge foi realizado.
+
+## Referência de integração ao CI (equipe Android/integração)
 
 A **equipe proprietária dos workflows** pode colocar um job Python independente no GitHub Actions, sem instalar Android SDK e sem gerar APK:
 
@@ -46,7 +48,7 @@ A **equipe proprietária dos workflows** pode colocar um job Python independente
         run: python tools/ocr_quality_audit/check.py
 ```
 
-Este é um **exemplo para revisão** — não foi aplicado ao workflow e não deve ser interpretado como CI já configurado. Não adicionar relatórios reais nem prints como fixtures ou artefatos de CI. Quando for preciso validar um export, execute `--report` localmente num ambiente controlado e compartilhe apenas indicadores não sensíveis.
+Este é um **exemplo de execução isolada** — não foi aplicado ao workflow deste PR. O PR #9 já propõe uma etapa equivalente que depende da auditoria estar na branch testada. Não adicionar relatórios reais nem prints como fixtures ou artefatos de CI. Quando for preciso validar um export, execute `--report` localmente num ambiente controlado e compartilhe apenas indicadores não sensíveis.
 
 ## O que os testes ainda não provam
 
