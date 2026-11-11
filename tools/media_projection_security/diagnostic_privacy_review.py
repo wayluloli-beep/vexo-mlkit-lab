@@ -135,9 +135,21 @@ def review_text(state: str, activity: str, service: str,
     clip = activity.find("clipboard.setPrimaryClip")
     callback_region = activity[clicked:clip] if clicked >= 0 and clip > clicked else ""
     clipboard_ok = (clicked >= 0 and clip > clicked and button in activity and
-                    "LiveCaptureState.safeDiagnosticReport()" in activity[clip:clip + 300] and
+                    "LiveCaptureState.safeDiagnosticReport()" in activity[clicked:clip + 300] and
                     "getSystemService(Context.CLIPBOARD_SERVICE)" in callback_region and
                     activity.count("setPrimaryClip(") == 1)
+
+    # Android 13+ displays clipboard previews. This is a visual hint, not
+    # encryption and does not prevent clipboard access by other apps.
+    preview_flags = (
+        "ClipDescription.EXTRA_IS_SENSITIVE" in activity or
+        '"android.content.extra.IS_SENSITIVE"' in activity
+    )
+    preview_protected = bool(
+        clip >= 0 and preview_flags and
+        "PersistableBundle" in activity[:clip] and
+        re.search(r"\bgetDescription\s*\(\s*\)\s*\.\s*setExtras\s*\(", activity[:clip])
+    )
 
     # The report method must not use snapshot/candidate/raw text getters.
     raw = bool(re.search(
@@ -175,6 +187,11 @@ def review_text(state: str, activity: str, service: str,
         result("CLIPBOARD_EXPLICIT_USER_CLICK",
                clipboard_ok,
                "Copiar diagnóstico só após clique específico; clipboard é compartilhado e não deve ser automático"),
+        {
+            "code": "CLIPBOARD_PREVIEW_PRIVACY_HINT",
+            "status": "PASS" if preview_protected else "WARN",
+            "detail": "P2: marcar ClipData como sensível antes de copiar para ocultar prévia Android 13+; isso NÃO restringe acesso ao clipboard",
+        },
         result("OCR_LATENCY_CURRENT_SESSION_GUARD",
                protected_latency,
                "Latência OCR só é registrada sob guarda active/stopping/epoch e reset por sessão"),
