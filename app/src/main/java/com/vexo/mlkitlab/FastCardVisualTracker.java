@@ -76,7 +76,11 @@ public final class FastCardVisualTracker {
     }
 
     public synchronized Observation inspect(Pixels pixels,long monotonicMs) {
-        if(!armed || pixels==null || monotonicMs<0 || monotonicMs<lastTimestamp ||
+        // Out-of-order callbacks must not fabricate disappearance or overwrite
+        // a newer visual observation. Caller may ignore this neutral result.
+        if(monotonicMs>=0 && monotonicMs<lastTimestamp)
+            return new Observation(present,false,false,x,y,255);
+        if(!armed || pixels==null || monotonicMs<0 ||
                 pixels.width()<=0 || pixels.height()<=0) {
             boolean was=present;
             present=false;
