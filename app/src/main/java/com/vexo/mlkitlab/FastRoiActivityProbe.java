@@ -17,6 +17,7 @@ public final class FastRoiActivityProbe {
     private static final int COLS=12, ROWS=8, SAMPLES=COLS*ROWS;
     private static final int MIN_CHANGE_MEAN=25;
     private final int[] reference=new int[SAMPLES];
+    private final int[] previous=new int[SAMPLES];
     private FastCardVisualTracker.Box roi;
     private long lastAt=-1;
     private boolean armed=false, active=false;
@@ -25,12 +26,14 @@ public final class FastRoiActivityProbe {
         public final boolean changed;
         public final boolean risingEdge;
         public final boolean returnedToBaseline;
+        public final boolean changedSincePrevious;
         public final int meanDifference;
         Signal(boolean changed,boolean risingEdge,
-               boolean returnedToBaseline,int meanDifference) {
+               boolean returnedToBaseline,boolean changedSincePrevious,int meanDifference) {
             this.changed=changed;
             this.risingEdge=risingEdge;
             this.returnedToBaseline=returnedToBaseline;
+            this.changedSincePrevious=changedSincePrevious;
             this.meanDifference=meanDifference;
         }
     }
@@ -47,7 +50,8 @@ public final class FastRoiActivityProbe {
         for(int row=0;row<ROWS;row++) for(int col=0;col<COLS;col++) {
             int value=sample(pixels,col,row);
             if(value<0 || value>255) {reset();return false;}
-            reference[index++]=value;
+            reference[index]=value;
+            previous[index++]=value;
         }
         armed=true;
         return true;
@@ -60,10 +64,10 @@ public final class FastRoiActivityProbe {
            pixels.height()<((long)roi.y+roi.height)) {
             boolean old=active;
             active=false;
-            return new Signal(false,false,old,255);
+            return new Signal(false,false,old,false,255);
         }
         lastAt=monotonicMs;
-        int sum=0,k=0;
+        int sum=0,deltaSinceLastFrame=0,k=0;
         for(int row=0;row<ROWS;row++) for(int col=0;col<COLS;col++) {
             int value=sample(pixels,col,row);
             if(value<0 || value>255) {
@@ -71,14 +75,17 @@ public final class FastRoiActivityProbe {
                 active=false;
                 return new Signal(false,false,old,255);
             }
-            sum+=Math.abs(reference[k++]-value);
+            sum+=Math.abs(reference[k]-value);
+            deltaSinceLastFrame+=Math.abs(previous[k]-value);
+            previous[k++]=value;
         }
         int diff=sum/SAMPLES;
+        boolean movedOrChanged=deltaSinceLastFrame/SAMPLES>=MIN_CHANGE_MEAN;
         boolean changed=diff>=MIN_CHANGE_MEAN;
         boolean rise=changed&&!active;
         boolean returned=!changed&&active;
         active=changed;
-        return new Signal(changed,rise,returned,diff);
+        return new Signal(changed,rise,returned,movedOrChanged,diff);
     }
 
     private int sample(FastCardVisualTracker.Pixels p,int col,int row) {
@@ -89,6 +96,7 @@ public final class FastRoiActivityProbe {
 
     public synchronized void reset() {
         Arrays.fill(reference,0);
+        Arrays.fill(previous,0);
         armed=false;active=false;roi=null;lastAt=-1;
     }
 
