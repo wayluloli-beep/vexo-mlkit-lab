@@ -111,6 +111,11 @@ public class MainActivity extends Activity {
         append(root,card,10);
         card.setOnClickListener(v -> VexoOfferOverlay.showExample(this));
 
+        Button radarLab=button("Testar radar visual modular (simulação)",0xFF196B4C,Color.WHITE);
+        append(root,radarLab,10);
+        radarLab.setOnClickListener(v ->
+            startActivity(new Intent(this,VisualRadarLabActivity.class)));
+
         Button capture = button("MediaProjection • ler tela com autorização (experimental)",
             0xFF28485A,Color.WHITE);
         append(root,capture,10);
