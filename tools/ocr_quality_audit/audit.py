@@ -129,6 +129,8 @@ def _audit_samples(samples: Any, per_field: dict[str, dict[str, Any]],
     sample_checked = sample_correct = 0
     invalid_basic: list[str] = []
     usable_with_risk: list[str] = []
+    false_positive_cases: list[str] = []
+    false_positive_fields: dict[str, int] = {}
     for index, sample in enumerate(samples):
         if not isinstance(sample, dict) or not isinstance(sample.get("fields"), dict):
             raise ReportError(f"samples[{index}] needs a fields object")
@@ -152,11 +154,21 @@ def _audit_samples(samples: Any, per_field: dict[str, dict[str, Any]],
             if not isinstance(item, dict):
                 raise ReportError(f"sample {case}/{name}: field detail must be an object")
             status = item.get("status")
-            if status not in ("ok", "wrong", "missing"):
+            if status not in ("ok", "wrong", "missing", "false_positive"):
                 warnings.append(f"sample {case}/{name}: unrecognized status {status!r}; excluded from counts")
                 continue
             case_checked += 1
             sums[name][0] += 1
+            if status == "false_positive":
+                # Confirmed against BatchOcrActivity on Android's branch:
+                # unexpected extracted value with no ground truth DOES count.
+                false_positive_fields[name] = false_positive_fields.get(name, 0) + 1
+                if case not in false_positive_cases:
+                    false_positive_cases.append(case)
+                if item.get("expected") is not None:
+                    warnings.append(f"sample {case}/{name}: false_positive expected must be null")
+                if item.get("actual") in (None, ""):
+                    warnings.append(f"sample {case}/{name}: false_positive actual should be non-empty")
             if status == "ok":
                 case_correct += 1
                 sums[name][1] += 1
@@ -181,7 +193,10 @@ def _audit_samples(samples: Any, per_field: dict[str, dict[str, Any]],
                 flag["expectedValue"] = str(x)
             if y is not None:
                 flag["actualValue"] = str(y)
-            if x is not None and y is not None:
+            if status == "false_positive":
+                flag["magnitudeUnquantified"] = True
+                flag["diagnosticCaution"] = "Unexpected extracted field with absent ground truth; no numeric delta"
+            if x is not None and y is not None and status != "false_positive":
                 flag["absoluteDifference"] = str(abs(x - y))
                 if x != 0:
                     flag["differencePercentOfExpected"] = round(float(abs(x - y) / abs(x) * 100), 2)
@@ -222,6 +237,9 @@ def _audit_samples(samples: Any, per_field: dict[str, dict[str, Any]],
         "statusCorrect": sample_correct, "statusErrors": sample_checked - sample_correct,
         "basicFieldsUnusableCases": invalid_basic,
         "basicFieldsUsableWithRiskIssues": usable_with_risk,
+        "falsePositiveCount": sum(false_positive_fields.values()),
+        "falsePositiveFields": false_positive_fields,
+        "falsePositiveCases": false_positive_cases,
         "financialReviewCount": sum(x["riskCategory"] == FINANCIAL_DIRECT for x in review),
         "distanceReviewCount": sum(x["riskCategory"] == DISTANCE for x in review),
         "evidenceOrigin": "status/expected/actual supplied by the generator; screenshots not independently reviewed",
@@ -419,6 +437,7 @@ def markdown(audit: dict[str, Any], comparison: dict[str, Any] | None = None) ->
         info = audit["sampleAudit"]
         lines.append(f"Sample statuses: {info['statusCorrect']}/{info['statusChecked']} correct")
         lines.append(f"Review flags: {info['financialReviewCount']} financial, {info['distanceReviewCount']} distance")
+        lines.append(f"False positives: {info['falsePositiveCount']} (included in checked and errors)")
         if info["basicFieldsUnusableCases"]:
             lines.append("Basic-field safety failed: " + ", ".join(info["basicFieldsUnusableCases"]))
         if info["basicFieldsUsableWithRiskIssues"]:
