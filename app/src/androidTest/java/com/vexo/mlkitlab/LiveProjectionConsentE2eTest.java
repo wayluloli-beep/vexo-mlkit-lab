@@ -120,7 +120,13 @@ public final class LiveProjectionConsentE2eTest {
 
             boolean recognized=awaitCounts(2,2,1,OCR_TIMEOUT_MS);
             long[] observed=LiveCaptureState.counts();
+            long[] stages=LiveCaptureState.stageCounts();
             String visibility=LiveCaptureState.captureVisibility();
+            String stageSummary=" contextOffer="+stages[0]+
+                ", contextUncertain="+stages[1]+
+                ", contextRejected="+stages[2]+
+                ", financialGuardBlocked="+stages[3]+
+                ", waitingStableReads="+stages[4];
             boolean correctPrice=LiveCaptureState.snapshot().contains("Preço R$40,70");
 
             // TESTAR STOP MESMO QUANDO A LEITURA FALHA; caso contrário
@@ -147,7 +153,7 @@ public final class LiveProjectionConsentE2eTest {
                 ", janela="+visibility,observed[1]>=2);
             assertTrue("ML Kit concluiu, mas nenhuma oferta segura foi emitida; "+
                 "frames="+observed[0]+", OCR="+observed[1]+
-                ", avisos="+observed[2]+", janela="+visibility,
+                ", avisos="+observed[2]+", janela="+visibility+stageSummary,
                 observed[2]>=1 && recognized);
             assertTrue("Oferta fictícia reconhecida mas preço não exibido",
                 correctPrice);
