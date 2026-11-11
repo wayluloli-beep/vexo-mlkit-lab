@@ -16,8 +16,8 @@ public final class CaptureThrottle {
 
     public synchronized boolean begin(long monotonicMs) {
         if(busy) return false;
-        if(lastStart>=0 && monotonicMs>=lastStart &&
-            monotonicMs-lastStart<minimumIntervalMs) return false;
+        if(lastStart>=0 && monotonicMs<lastStart) return false;
+        if(lastStart>=0 && monotonicMs-lastStart<minimumIntervalMs) return false;
         busy=true;
         lastStart=monotonicMs;
         return true;
