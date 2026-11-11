@@ -151,8 +151,6 @@ public final class LiveCaptureService extends Service {
         captureThread.start();
         captureHandler=new Handler(captureThread.getLooper());
         recognizer=TextRecognition.getClient(TextRecognizerOptions.DEFAULT_OPTIONS);
-        LiveCaptureState.begin();
-
         WindowManager wm=(WindowManager)getSystemService(WINDOW_SERVICE);
         DisplayMetrics dm=getResources().getDisplayMetrics();
         densityDpi=Math.max(1,dm.densityDpi);
@@ -203,6 +201,8 @@ public final class LiveCaptureService extends Service {
             if(stopping || epoch.get()!=session)
                 throw new IllegalStateException("Projeção encerrada antes do primeiro frame");
             active=true;
+            // Não anunciar 'captura ativa' antes do display existir de fato.
+            LiveCaptureState.begin();
         }
     }
 
@@ -258,6 +258,7 @@ public final class LiveCaptureService extends Service {
             if(image==null || !active || stopping || !capturedVisible ||
                 epoch.get()!=session || localGate==null) return;
             seen++;
+            LiveCaptureState.frameReceived();
             started=localGate.begin(SystemClock.elapsedRealtime());
             if(!started) return; // só uma inferência em andamento
             pixels=extract(image);
@@ -283,6 +284,7 @@ public final class LiveCaptureService extends Service {
                     if(done.isSuccessful() && active && !stopping &&
                         epoch.get()==session && capturedVisible) {
                         read++;
+                        LiveCaptureState.ocrCompleted();
                         evaluate(done.getResult().getText(),session);
                     }
                 } finally {
