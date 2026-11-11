@@ -67,10 +67,25 @@ public final class ScreenContextClassifier {
         return has(t,"(?<![\\p{L}\\d.,$])99(?![\\p{L}\\d.,])");
     }
 
+    /**
+     * O logo "99" nem sempre sobrevive ao OCR de ofertas rápidas.
+     * Aceitamos também sinais textuais específicos da interface 99, mas
+     * APENAS após todas as demais guardas (preço, 2 etapas, botão, FinancialGuard,
+     * duas leituras iguais). Não usar um preço R$0,99 como marca.
+     */
+    public static boolean has99OfferCue(String raw) {
+        if(has99PlatformMarker(raw)) return true;
+        String t=norm(raw);
+        // Sem 99 explícito, a presença de Uber indica outro app.
+        if(has(t,"\\buber(?:x)?\\b|\\bcomfort\\b")) return false;
+        return has(t,"\\bnegocia\\b|\\bsolicitacoes\\b|\\bpgto\\s+no\\s+app\\b");
+    }
+
     public static int diagnosticEvidenceMask(String raw) {
         String t=norm(raw);
         int bits=0;
-        boolean price=PRICE.matcher(t).find();
+        boolean price=PRICE.matcher(t).find() ||
+            has(t,"\\baceitar\\s+por\\s+(?:r\\s*\\$\\s*)?\\d{1,4}[.,]\\d{2}\\b");
         boolean action=has(t,"\\baceitar\\b|\\bescolher\\b");
         boolean modality=has(t,"(?<![\\p{L}\\d.,$])99(?![\\p{L}\\d.,])|\\b(?:moto|negocia|prioritario|solicitacoes|pgto|entrega)\\b");
         int distanceCount=0;
@@ -147,7 +162,8 @@ public final class ScreenContextClassifier {
         while(m.find()) minutes++;
         boolean modality=has(t,"(?<![\\p{L}\\d.,$])99(?![\\p{L}\\d.,])|\\b(?:moto|negocia|prioritario|solicitacoes|pgto|entrega)\\b");
         boolean action=has(t,"\\baceitar\\b|\\bescolher\\b");
-        boolean price=PRICE.matcher(t).find();
+        boolean price=PRICE.matcher(t).find() ||
+            has(t,"\\baceitar\\s+por\\s+(?:r\\s*\\$\\s*)?\\d{1,4}[.,]\\d{2}\\b");
 
         // Ambas as etapas de rota e preco sao necessarios para reconhecer
         // candidato; nao forca classificacao de tela parcialmente visivel.
