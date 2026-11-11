@@ -190,6 +190,15 @@ def _audit_samples(samples: Any, per_field: dict[str, dict[str, Any]],
                 y = _number(item.get("actual"))
                 if x is not None and y is not None and x != y:
                     warnings.append(f"sample {case}/{name}: status ok but numeric expected/actual differ")
+                if name == "offerType":
+                    expected_type, actual_type = item.get("expected"), item.get("actual")
+                    if isinstance(expected_type, str) and isinstance(actual_type, str):
+                        # Catch permissive Android evaluator (e.g. Entrega Moto == Moto).
+                        if " ".join(expected_type.casefold().split()) != " ".join(actual_type.casefold().split()):
+                            warnings.append(
+                                f"sample {case}/offerType: status ok but type labels differ; "
+                                "verify strict subtype matching (e.g. Entrega Moto vs Moto)"
+                            )
                 continue
             kind = per_field[name]["riskCategory"]
             if kind == OTHER:
