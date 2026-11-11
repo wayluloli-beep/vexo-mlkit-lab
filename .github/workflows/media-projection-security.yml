@@ -387,3 +387,40 @@ jobs:
             fi
           done
           set -e
+
+
+      - name: Revisão contexto v2 PR34 (somente leitura)
+        shell: bash
+        run: |
+          if git fetch --no-tags --depth=1 origin refs/heads/feature/capture-context-evidence-counters; then
+            git worktree add --detach "$RUNNER_TEMP/vexo-pr34-review" FETCH_HEAD
+            sha=$(git -C "$RUNNER_TEMP/vexo-pr34-review" rev-parse HEAD)
+            set +e
+            python tools/media_projection_security/context_evidence_v2_review.py \
+              --root "$RUNNER_TEMP/vexo-pr34-review" --json \
+              > "$RUNNER_TEMP/pr34-v2-review.json"
+            scan_code=$?
+            set -e
+            python - "$sha" "$scan_code" "$RUNNER_TEMP/pr34-v2-review.json" <<'PY'
+          import json
+          import os
+          from pathlib import Path
+          import sys
+          sha, exit_code, src = sys.argv[1:]
+          checks = json.loads(Path(src).read_text(encoding="utf-8"))["checks"]
+          counts = {k: sum(x["status"] == k for x in checks) for k in ("PASS", "FAIL")}
+          lines = ["### PR #34 — privacidade, schema v2 e epoch de telemetria",
+                   "HEAD auditado: " + sha,
+                   "Scanner exit=" + exit_code + "; " +
+                   ", ".join(str(counts[k]) + " " + k for k in counts)]
+          for item in checks:
+              lines.append("- " + item["status"] + " " + item["code"] + ": " + item["detail"])
+          lines.append("Ler código fonte não prova ausência de race em execução nem resultado no replay.")
+          report = "\n\n".join(lines) + "\n"
+          print(report)
+          with open(os.environ["GITHUB_STEP_SUMMARY"], "a", encoding="utf-8") as out:
+              out.write(report)
+          PY
+          else
+            echo "PR34 não disponível, nenhuma homologação de telemetria." >> "$GITHUB_STEP_SUMMARY"
+          fi
