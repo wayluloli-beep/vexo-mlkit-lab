@@ -2,6 +2,7 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PROJECTION" />
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
     <application
         android:label="Vexo Captura 0.4 (teste)"
         android:theme="@android:style/Theme.Material.NoActionBar"
@@ -20,6 +21,7 @@
             android:foregroundServiceType="mediaProjection"
             android:stopWithTask="false" />
         <activity android:name="com.vexo.mlkitlab.LiveCaptureActivity" android:exported="false" />
+        <activity android:name="com.vexo.mlkitlab.DemoOfferActivity" android:exported="false" />
         <activity android:name="com.vexo.mlkitlab.BatchOcrActivity" android:exported="false" />
         <activity android:name="com.vexo.mlkitlab.MainActivity" android:exported="true">
             <intent-filter>

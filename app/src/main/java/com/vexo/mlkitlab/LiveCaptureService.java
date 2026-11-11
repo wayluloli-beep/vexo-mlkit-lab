@@ -52,6 +52,9 @@ public final class LiveCaptureService extends Service {
     private static final long NOTIFY_INTERVAL_MS=25000;
 
     private final AtomicLong epoch=new AtomicLong(0);
+    // Serializa STOP e publicação de resultado: nenhuma notificação após onStop.
+    private final Object sessionLock=new Object();
+    private boolean cleanupDone=false; // usado apenas no thread principal
     private final Handler main=new Handler(Looper.getMainLooper());
     private HandlerThread captureThread;
     private Handler captureHandler;
@@ -156,14 +159,17 @@ public final class LiveCaptureService extends Service {
         WindowManager wm=(WindowManager)getSystemService(WINDOW_SERVICE);
         DisplayMetrics dm=getResources().getDisplayMetrics();
         densityDpi=Math.max(1,dm.densityDpi);
+        int requestedWidth,requestedHeight;
         if(Build.VERSION.SDK_INT>=30 && wm!=null) {
             Rect bounds=wm.getMaximumWindowMetrics().getBounds();
-            width=Math.max(1,bounds.width());
-            height=Math.max(1,bounds.height());
+            requestedWidth=bounds.width();
+            requestedHeight=bounds.height();
         } else {
-            width=Math.max(1,dm.widthPixels);
-            height=Math.max(1,dm.heightPixels);
+            requestedWidth=dm.widthPixels;
+            requestedHeight=dm.heightPixels;
         }
+        int[] fitted=CaptureDimensions.fit(requestedWidth,requestedHeight);
+        width=fitted[0];height=fitted[1];
 
         MediaProjectionManager mgr=(MediaProjectionManager)
             getSystemService(Context.MEDIA_PROJECTION_SERVICE);
@@ -174,7 +180,9 @@ public final class LiveCaptureService extends Service {
 
         projection.registerCallback(new MediaProjection.Callback() {
             @Override public void onStop() {
-                main.post(() -> shutdown());
+                // Importante: callback roda fora da main. Invalidar a sessão
+                // AGORA, não esperar a mensagem de cleanup na fila principal.
+                invalidateStoppedSession(session);
             }
             @Override public void onCapturedContentResize(int w,int h) {
                 if(Build.VERSION.SDK_INT>=34 && w>0 && h>0) {
@@ -194,24 +202,52 @@ public final class LiveCaptureService extends Service {
             width,height,densityDpi,DisplayManager.VIRTUAL_DISPLAY_FLAG_AUTO_MIRROR,
             imageReader.getSurface(),null,captureHandler);
         if(virtualDisplay==null) throw new IllegalStateException("Display virtual indisponível");
-        active=true;
+        synchronized(sessionLock) {
+            if(stopping || epoch.get()!=session)
+                throw new IllegalStateException("Projeção encerrada antes do primeiro frame");
+            active=true;
+        }
+    }
+
+    private void invalidateStoppedSession(long session) {
+        synchronized(sessionLock) {
+            if(epoch.get()!=session) return;
+            stopping=true;
+            active=false;
+            capturedVisible=false;
+            epoch.incrementAndGet(); // callback OCR da sessão antiga é inválido
+            lastFingerprint="";consecutive=0;
+            LiveCaptureState.end("Captura encerrada pelo Android.");
+        }
+        main.post(this::shutdown); // cleanup é idempotente, independente do guard
     }
 
     private void resize(long session,int w,int h) {
         if(!active || epoch.get()!=session || virtualDisplay==null) return;
         if(w==width && h==height) return;
+        ImageReader replacement=null;
         try {
-            ImageReader replacement=ImageReader.newInstance(w,h,PixelFormat.RGBA_8888,3);
-            replacement.setOnImageAvailableListener(r -> consumeFrame(r,session),captureHandler);
+            int[] fitted=CaptureDimensions.fit(w,h);
+            w=fitted[0];h=fitted[1];
+            if(w==width && h==height) return;
+            replacement=ImageReader.newInstance(w,h,PixelFormat.RGBA_8888,3);
+            final ImageReader newReader=replacement;
+            newReader.setOnImageAvailableListener(r -> consumeFrame(r,session),captureHandler);
             virtualDisplay.resize(w,h,densityDpi);
-            virtualDisplay.setSurface(replacement.getSurface()); // não criar segundo display
+            virtualDisplay.setSurface(newReader.getSurface()); // sem segunda createVirtualDisplay
             ImageReader old=imageReader;
-            imageReader=replacement;
+            imageReader=newReader;
+            replacement=null; // ownership do novo reader foi transferido
             width=w;height=h;
             if(old!=null) old.close();
             lastFingerprint="";consecutive=0;
         } catch(Exception ex) {
-            main.post(() -> shutdown());
+            // Se resize/setSurface falhar antes de transferir ownership,
+            // liberar o reader provisório que shutdown() ainda não conhece.
+            if(replacement!=null) {
+                try { replacement.close(); } catch(Exception ignored) {}
+            }
+            invalidateStoppedSession(session);
         }
     }
 
@@ -276,6 +312,7 @@ public final class LiveCaptureService extends Service {
         if(paddedW<w || paddedW>8192 || h>8192) return null;
         Bitmap full=Bitmap.createBitmap(paddedW,h,Bitmap.Config.ARGB_8888);
         Bitmap result=null;
+        boolean ready=false;
         try {
             full.copyPixelsFromBuffer(buffer);
             result=Bitmap.createBitmap(full,0,0,w,h);
@@ -289,53 +326,84 @@ public final class LiveCaptureService extends Service {
                     result=scaled;
                 }
             }
+            ready=true;
             return result;
         } finally {
-            if(full!=result) full.recycle();
+            // Uma exceção durante createScaledBitmap não pode reter o crop.
+            // Em sucesso, result permanece vivo até a conclusão do ML Kit.
+            if(!ready && result!=null && result!=full) result.recycle();
+            if(!ready || full!=result) full.recycle();
+        }
+    }
+
+    private boolean sessionAlive(long session) {
+        return active && !stopping && capturedVisible && epoch.get()==session;
+    }
+
+    private void clearCandidateIfCurrent(long session) {
+        synchronized(sessionLock) {
+            if(sessionAlive(session)) {
+                lastFingerprint="";
+                consecutive=0;
+            }
         }
     }
 
     private void evaluate(String text,long session) {
-        // Somente 99 + contexto de oferta com dois trechos. Mapa/post/histórico ignorados.
+        // Não publicar mapa, post, histórico nem número financeiro incerto.
         if(text==null || !text.contains("99") ||
             ScreenContextClassifier.classify(text)!=
                 ScreenContextClassifier.Kind.OFFER_CANDIDATE) {
-            lastFingerprint="";consecutive=0;
+            clearCandidateIfCurrent(session);
             return;
         }
         OfferParser.Offer offer=OfferParser.parse(text);
         if(!FinancialGuard.assess(offer).canCalculate) {
-            lastFingerprint="";consecutive=0;
+            clearCandidateIfCurrent(session);
             return;
         }
         String price=offer.get("offerPrice");
         String trip=offer.get("tripKm");
         String duration=offer.get("tripMin");
         String pickup=offer.get("pickupKm");
-        if(price.isEmpty()||trip.isEmpty()||duration.isEmpty()||pickup.isEmpty()) return;
+        if(price.isEmpty()||trip.isEmpty()||duration.isEmpty()||pickup.isEmpty()) {
+            clearCandidateIfCurrent(session);
+            return;
+        }
         String fingerprint=String.join("|",offer.get("offerType"),price,trip,
-            duration,pickup,offer.get("pickupMin")); // fica apenas em RAM
-        if(fingerprint.equals(lastFingerprint)) consecutive++;
-        else {lastFingerprint=fingerprint;consecutive=1;}
-        if(consecutive<2 || epoch.get()!=session || !active) return;
-
-        long now=SystemClock.elapsedRealtime();
-        if(fingerprint.equals(lastNotified) && lastNotificationAt>=0 &&
-            now-lastNotificationAt<NOTIFY_INTERVAL_MS) return;
-        lastNotified=fingerprint;
-        lastNotificationAt=now;
-        LiveCaptureState.candidate("Preço R$"+price+" • viagem "+trip+
-            " km / "+duration+" min (confira na tela)");
-        // Sem preço/endereço na notificação de sistema. É só sugestão para conferir.
-        NotificationManager nm=(NotificationManager)getSystemService(NOTIFICATION_SERVICE);
-        if(nm!=null) nm.notify(NOTIFICATION_ID,notification(true));
+            duration,pickup,offer.get("pickupMin")); // apenas RAM
+        // A interrupção e a publicação usam o MESMO lock para impedir que
+        // uma conclusão atrasada publique depois do STOP.
+        synchronized(sessionLock) {
+            if(!sessionAlive(session)) return;
+            if(fingerprint.equals(lastFingerprint)) consecutive++;
+            else {lastFingerprint=fingerprint;consecutive=1;}
+            if(consecutive<2) return;
+            long now=SystemClock.elapsedRealtime();
+            if(fingerprint.equals(lastNotified) && lastNotificationAt>=0 &&
+                now-lastNotificationAt<NOTIFY_INTERVAL_MS) return;
+            if(!sessionAlive(session)) return;
+            lastNotified=fingerprint;
+            lastNotificationAt=now;
+            LiveCaptureState.candidate("Preço R$"+price+" • viagem "+trip+
+                " km / "+duration+" min (confira na tela)");
+            // Notificação sem valores, nomes ou endereços do passageiro.
+            NotificationManager nm=(NotificationManager)getSystemService(NOTIFICATION_SERVICE);
+            if(nm!=null) nm.notify(NOTIFICATION_ID,notification(true));
+        }
     }
 
     private void shutdown() {
-        if(stopping) return;
-        stopping=true;
-        active=false;
-        epoch.incrementAndGet(); // descarta callbacks OCR do consentimento anterior
+        if(cleanupDone) return; // cleanup na thread principal, uma vez por Service
+        cleanupDone=true;
+        synchronized(sessionLock) {
+            stopping=true;
+            active=false;
+            capturedVisible=false;
+            epoch.incrementAndGet(); // bloqueia callbacks antes de liberar recursos
+            lastFingerprint="";lastNotified="";consecutive=0;
+            LiveCaptureState.end("Captura parada. Uma nova sessão exige autorização.");
+        }
         final CaptureThrottle prev=gate;
         gate=null;
         if(prev!=null) prev.reset();
@@ -362,8 +430,6 @@ public final class LiveCaptureService extends Service {
             captureThread=null;
         }
         captureHandler=null;
-        lastFingerprint="";lastNotified="";consecutive=0;
-        LiveCaptureState.end("Captura parada. Uma nova sessão exige autorização.");
         if(Build.VERSION.SDK_INT>=24) stopForeground(STOP_FOREGROUND_REMOVE);
         else stopForeground(true);
         stopSelf();

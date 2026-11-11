@@ -26,6 +26,16 @@ public final class CaptureThrottleTest {
         assertTrue(next.begin(1008));
     }
 
+    @Test public void rejectsRegressingTimestamp() {
+        CaptureThrottle g=new CaptureThrottle(1400);
+        assertTrue(g.begin(10000));
+        g.finish();
+        assertFalse("Timestamp menor não pode furar limite",g.begin(9000));
+        assertFalse(g.begin(10500));
+        assertTrue(g.begin(11401));
+        g.finish();
+    }
+
     @Test(expected=IllegalArgumentException.class)
     public void refusesDangerouslyFastFrameLoop() {
         new CaptureThrottle(100);
