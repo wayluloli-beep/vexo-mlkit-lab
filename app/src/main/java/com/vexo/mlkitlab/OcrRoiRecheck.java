@@ -77,7 +77,7 @@ public final class OcrRoiRecheck {
                     reason -> reason.contains("velocidade implícita"));
         boolean suspectSurge=parsed.get("surge").isEmpty();
         boolean suspectRate=parsed.get("perKm").isEmpty();
-        Rect lastTrip=null, firstSurge=null, firstRate=null;
+        Rect lastTrip=null, firstLeg=null, firstSurge=null, firstRate=null;
         Rect firstPriceAnchor=null, firstRiderAnchor=null;
         // Ordem visual e coordenadas: sem depender de enderecos ou texto inteiro.
         for (Text.TextBlock block:scan.getTextBlocks()) {
@@ -93,7 +93,8 @@ public final class OcrRoiRecheck {
                 if (suspectSurge && firstRiderAnchor==null &&
                     RIDER_ANCHOR.matcher(value).find()) firstRiderAnchor=new Rect(rect);
                 if (suspectTrip && KM_LINE.matcher(value).find()) {
-                    if (lastTrip==null || rect.top>lastTrip.top) lastTrip=rect;
+                    if (firstLeg==null || rect.top<firstLeg.top) firstLeg=new Rect(rect);
+                    if (lastTrip==null || rect.top>lastTrip.top) lastTrip=new Rect(rect);
                 }
                 if (suspectSurge && firstSurge==null && SURGE_LINE.matcher(value).find()) firstSurge=rect;
                 if (suspectRate && firstRate==null && RATE_LINE.matcher(value).find()) firstRate=rect;
@@ -119,7 +120,14 @@ public final class OcrRoiRecheck {
                     firstSurge=new Rect(left,top,right,bottom);
             }
         }
-        if (lastTrip!=null) found.add(new Region("tripKm",padded(lastTrip,image)));
+        // Nunca usar a unica distancia visivel como viagem: pode ser a busca!
+        // Na amostra real com sobreposicao social (0.3.5) o ROI sugeriu
+        // pickupKm 1,9 / 5,7 quando tripKm 161,3 / 4,9 estava oculto.
+        // Exigir duas linhas espaciais separadas. Caso contrario: abster.
+        if (firstLeg!=null && lastTrip!=null &&
+            lastTrip.top>=firstLeg.bottom+4) {
+            found.add(new Region("tripKm",padded(lastTrip,image)));
+        }
         if (firstSurge!=null) found.add(new Region("surge",
             // Fallback ja tem margem controlada; sem estender para GPS.
             padded(firstSurge,image)));
