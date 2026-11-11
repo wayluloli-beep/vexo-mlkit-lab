@@ -559,3 +559,37 @@ jobs:
           else
             echo "PR #37 não acessível — schema v3 não aprovado." >> "$GITHUB_STEP_SUMMARY"
           fi
+
+
+      - name: Revisão notificação obsoleta PR37 na perda de visibilidade
+        shell: bash
+        run: |
+          root="$RUNNER_TEMP/vexo-overlay-pr37"
+          if [[ -f "$root/app/src/main/java/com/vexo/mlkitlab/LiveCaptureService.java" ]]; then
+            sha=$(git -C "$root" rev-parse HEAD)
+            set +e
+            python tools/media_projection_security/notification_visibility_review.py \
+              --root "$root" --json > "$RUNNER_TEMP/pr37-notification-visibility.json"
+            status=$?
+            set -e
+            python - "$sha" "$status" "$RUNNER_TEMP/pr37-notification-visibility.json" <<'PY'
+          import json
+          import os
+          from pathlib import Path
+          import sys
+          sha, status, src = sys.argv[1:]
+          checks=json.loads(Path(src).read_text(encoding="utf-8"))["checks"]
+          lines=["### PR #37 — evitar notificação de oferta antiga após perda de visibilidade",
+                 "HEAD: "+sha+" | scanner exit="+status]
+          for item in checks:
+              lines.append("- "+item["status"]+" "+item["code"]+": "+item["detail"])
+          lines.append("A falha indica risco de notificação obsoleta na fonte, não "
+                       "demonstração em aparelho. Exige teste Android com visibilidade=false.")
+          report="\n\n".join(lines)+"\n"
+          print(report)
+          with open(os.environ["GITHUB_STEP_SUMMARY"],"a",encoding="utf-8") as out:
+              out.write(report)
+          PY
+          else
+            echo "PR #37 sem serviço: checagem de notificação não executada." >> "$GITHUB_STEP_SUMMARY"
+          fi
