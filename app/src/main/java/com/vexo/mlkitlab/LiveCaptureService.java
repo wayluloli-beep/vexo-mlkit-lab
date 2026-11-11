@@ -49,7 +49,6 @@ public final class LiveCaptureService extends Service {
     private static final String CHANNEL="vexo_capture_status";
     private static final int NOTIFICATION_ID=812;
     private static final long FRAME_INTERVAL_MS=1400; // ~0.7 inferência/s no máximo
-    private static final long NOTIFY_INTERVAL_MS=25000;
 
     private final AtomicLong epoch=new AtomicLong(0);
     // Serializa STOP e publicação de resultado: nenhuma notificação após onStop.
@@ -68,9 +67,7 @@ public final class LiveCaptureService extends Service {
     private volatile boolean stopping=false;
     private volatile boolean capturedVisible=true;
     private long seen=0,read=0;
-    private String lastFingerprint="",lastNotified="";
-    private int consecutive=0;
-    private long lastNotificationAt=-1;
+    private final OfferEpisodeGate episodes=new OfferEpisodeGate();
 
     @Override public void onCreate() {
         super.onCreate();
@@ -148,7 +145,7 @@ public final class LiveCaptureService extends Service {
         long session=epoch.incrementAndGet();
         stopping=false;
         capturedVisible=true;
-        seen=0;read=0;lastFingerprint="";lastNotified="";consecutive=0;
+        seen=0;read=0;episodes.reset();
         gate=new CaptureThrottle(FRAME_INTERVAL_MS);
         captureThread=new HandlerThread("vexo-frame-processor");
         captureThread.start();
@@ -216,7 +213,7 @@ public final class LiveCaptureService extends Service {
             active=false;
             capturedVisible=false;
             epoch.incrementAndGet(); // callback OCR da sessão antiga é inválido
-            lastFingerprint="";consecutive=0;
+            episodes.reset();
             LiveCaptureState.end("Captura encerrada pelo Android.");
         }
         main.post(this::shutdown); // cleanup é idempotente, independente do guard
@@ -240,7 +237,7 @@ public final class LiveCaptureService extends Service {
             replacement=null; // ownership do novo reader foi transferido
             width=w;height=h;
             if(old!=null) old.close();
-            lastFingerprint="";consecutive=0;
+            episodes.reset();
         } catch(Exception ex) {
             // Se resize/setSurface falhar antes de transferir ownership,
             // liberar o reader provisório que shutdown() ainda não conhece.
@@ -343,8 +340,14 @@ public final class LiveCaptureService extends Service {
     private void clearCandidateIfCurrent(long session) {
         synchronized(sessionLock) {
             if(sessionAlive(session)) {
-                lastFingerprint="";
-                consecutive=0;
+                if(episodes.nonOffer()) {
+                    LiveCaptureState.clearCandidate();
+                    // Nunca manter alerta antigo na notificação quando o
+                    // motorista já voltou ao mapa ou a outra tela.
+                    NotificationManager nm=(NotificationManager)getSystemService(
+                        NOTIFICATION_SERVICE);
+                    if(nm!=null) nm.notify(NOTIFICATION_ID,notification(false));
+                }
             }
         }
     }
@@ -376,15 +379,11 @@ public final class LiveCaptureService extends Service {
         // uma conclusão atrasada publique depois do STOP.
         synchronized(sessionLock) {
             if(!sessionAlive(session)) return;
-            if(fingerprint.equals(lastFingerprint)) consecutive++;
-            else {lastFingerprint=fingerprint;consecutive=1;}
-            if(consecutive<2) return;
-            long now=SystemClock.elapsedRealtime();
-            if(fingerprint.equals(lastNotified) && lastNotificationAt>=0 &&
-                now-lastNotificationAt<NOTIFY_INTERVAL_MS) return;
+            // O mesmo card pode ficar 30+ frames visível: alertar UMA vez.
+            // Quando mapa/outro contexto aparece por dois frames, um novo card
+            // com os mesmos valores também pode ser notificado.
+            if(!episodes.observe(fingerprint)) return;
             if(!sessionAlive(session)) return;
-            lastNotified=fingerprint;
-            lastNotificationAt=now;
             LiveCaptureState.candidate("Preço R$"+price+" • viagem "+trip+
                 " km / "+duration+" min (confira na tela)");
             // Notificação sem valores, nomes ou endereços do passageiro.
@@ -401,7 +400,7 @@ public final class LiveCaptureService extends Service {
             active=false;
             capturedVisible=false;
             epoch.incrementAndGet(); // bloqueia callbacks antes de liberar recursos
-            lastFingerprint="";lastNotified="";consecutive=0;
+            episodes.reset();
             LiveCaptureState.end("Captura parada. Uma nova sessão exige autorização.");
         }
         final CaptureThrottle prev=gate;

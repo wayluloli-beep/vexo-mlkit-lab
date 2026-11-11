@@ -22,6 +22,12 @@ public final class LiveCaptureState {
         status="Possível oferta reconhecida. Confira os dados.";
     }
 
+    static void clearCandidate() {
+        if(!active) return;
+        lastCandidate="";
+        status="Aguardando uma nova oferta confiável.";
+    }
+
     static void end(String reason) {
         active=false;
         lastCandidate="";
