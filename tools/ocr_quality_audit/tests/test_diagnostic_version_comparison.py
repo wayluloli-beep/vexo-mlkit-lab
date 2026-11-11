@@ -112,8 +112,8 @@ class DiagnosticVersionAndComparisonTests(unittest.TestCase):
 
     def test_cross_snapshot_counter_inconsistency_detected(self):
         a = report()
-        b = report(framesReceived=24, ocrAttempts=4, ocrCompleted=4,
-                   offerContextCandidates=3, screenContextUncertain=1,
+        b = report(framesReceived=24, ocrAttempts=5, ocrCompleted=5,
+                   offerContextCandidates=3, screenContextUncertain=2,
                    offersAlerted=3)
         self.assertIn("NEW_ALERTS_EXCEED_NEW_CONTEXT_CANDIDATES",
                       compare(a, b)["crossSnapshotAnomalies"])
