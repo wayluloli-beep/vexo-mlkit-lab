@@ -21,11 +21,12 @@ public final class ScreenContextClassifier {
         COMPLETED_TRIP,
         MAP_WITHOUT_OFFER,
         ARCHIVED_OFFER_SCREENSHOT,
+        SOCIAL_POST_WITH_SCREENSHOT,
         UNCERTAIN;
 
         public boolean definitelyNotLiveOffer() {
             return this==COMPLETED_TRIP || this==MAP_WITHOUT_OFFER ||
-                this==ARCHIVED_OFFER_SCREENSHOT;
+                this==ARCHIVED_OFFER_SCREENSHOT || this==SOCIAL_POST_WITH_SCREENSHOT;
         }
     }
 
@@ -48,6 +49,13 @@ public final class ScreenContextClassifier {
     public static Kind classify(String raw) {
         String t=norm(raw);
         if(t.isEmpty()) return Kind.UNCERTAIN;
+
+        // Uma postagem com print de oferta nao e uma oferta disponivel agora.
+        // Detectar duas evidencias da interface de publicacao, nao a palavra
+        // "posts" isoladamente; bloquear apenas quando ambas existirem.
+        if (has(t,"\\bposts\\b") &&
+            has(t,"escreva um comentario publico|escreva comentario publico"))
+            return Kind.SOCIAL_POST_WITH_SCREENSHOT;
 
         // Ordem deliberada: tela de historico com foto de oferta embutida
         // nao deve tornar-se oferta atual.
