@@ -380,6 +380,10 @@ public final class LiveCaptureService extends Service {
     }
 
     private void evaluate(String text,long session) {
+        // Todas as alterações de contadores e do episódio pertencem à
+        // mesma sessão. Callback antigo não pode contaminar novo teste.
+        synchronized(sessionLock) {
+            if(!sessionAlive(session)) return;
         // Somente bits agregados de evidência: sem log ou retenção do OCR.
         LiveCaptureState.recordContextEvidence(
             ScreenContextClassifier.diagnosticEvidenceMask(text));
@@ -439,6 +443,7 @@ public final class LiveCaptureService extends Service {
             NotificationManager nm=(NotificationManager)getSystemService(NOTIFICATION_SERVICE);
             if(nm!=null) nm.notify(NOTIFICATION_ID,notification(true));
         }
+        } // fim do lock único de sessão para toda a avaliação
     }
 
     private void shutdown() {
