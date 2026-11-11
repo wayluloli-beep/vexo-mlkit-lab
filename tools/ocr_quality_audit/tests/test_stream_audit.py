@@ -1,5 +1,8 @@
 """Fixtures 100% fictícios, sem dados de corridas reais."""
 import unittest
+import sys
+from pathlib import Path
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from stream_audit import Event as E, audit_stream
 
 class StreamAuditTests(unittest.TestCase):
