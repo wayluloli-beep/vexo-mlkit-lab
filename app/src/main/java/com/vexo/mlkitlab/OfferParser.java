@@ -160,7 +160,7 @@ public final class OfferParser {
         out.set("platform",is99?"99":isUber?"Uber":"");
 
         if (deliveryMoto) out.set("offerType","Entrega Moto");
-        if (moto && negotiate) out.set("offerType","Moto Negocia");
+        else if (moto && negotiate) out.set("offerType","Moto Negocia");
         else if (moto) out.set("offerType","Moto");
         else if (priority) out.set("offerType","Prioritário");
         else if (negotiate) out.set("offerType","99 Negocia");
