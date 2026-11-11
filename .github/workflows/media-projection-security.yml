@@ -329,7 +329,7 @@ jobs:
           number, sha, exit_code, path = sys.argv[1:]
           items = json.loads(Path(path).read_text(encoding="utf-8"))["checks"]
           counts = {key: sum(c["status"] == key for c in items)
-                    for key in ("PASS", "FAIL", "SKIP")}
+                    for key in ("PASS", "FAIL", "WARN", "SKIP")}
           lines = [
               "### PR #" + number + " — exportação voluntária e métricas (inspeção fonte)",
               "SHA inspecionado: " + sha,
