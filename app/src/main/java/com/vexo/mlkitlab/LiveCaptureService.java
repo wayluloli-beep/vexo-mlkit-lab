@@ -49,6 +49,7 @@ public final class LiveCaptureService extends Service {
     private static final String CHANNEL="vexo_capture_status";
     private static final int NOTIFICATION_ID=812;
     private static final long FRAME_INTERVAL_MS=1400; // ~0.7 inferência/s no máximo
+    private static final long MAX_FRAME_AGE_MS=3000; // limite experimental; não garantia de prazo
 
     private final AtomicLong epoch=new AtomicLong(0);
     // Serializa STOP e publicação de resultado: nenhuma notificação após onStop.
@@ -268,6 +269,8 @@ public final class LiveCaptureService extends Service {
     }
 
     private void consumeFrame(ImageReader reader,long session) {
+        // Referência monotônica de aquisição da imagem: sem timestamp pessoal.
+        final long frameAcquiredAt=SystemClock.elapsedRealtime();
         Image image=null;
         Bitmap pixels=null;
         boolean started=false;
@@ -311,7 +314,13 @@ public final class LiveCaptureService extends Service {
                         epoch.get()==session && capturedVisible) {
                         read++;
                         LiveCaptureState.ocrCompleted();
-                        evaluate(done.getResult().getText(),session);
+                        if(!CaptureFrameFreshness.isFresh(
+                            frameAcquiredAt,SystemClock.elapsedRealtime(),MAX_FRAME_AGE_MS)) {
+                            LiveCaptureState.staleOcrFrame();
+                            markFrameUnusable(session,false);
+                        } else {
+                            evaluate(done.getResult().getText(),session);
+                        }
                     } else if(!done.isSuccessful() && active &&
                         !stopping && epoch.get()==session) {
                         LiveCaptureState.ocrFailed();
