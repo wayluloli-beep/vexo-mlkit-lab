@@ -111,6 +111,19 @@ class SyntheticTimingTests(unittest.TestCase):
         self.assertEqual(m["firstCandidateLatencyP95Ms"], 450)
         self.assertEqual(m["firstAlertLatencyP95Ms"], 450)
 
+    def test_reject_regressing_synthetic_event_clock(self):
+        from stream_fixtures import event
+        trace = [event("start", epoch=1, t=0),
+                 event("frame", epoch=1, seq=0, t=200),
+                 event("callback", epoch=1, seq=0, t=150)]
+        self.assertIn("timestamp_regression", [v[1] for v in audit_stream(trace)["violations"]])
+
+    def test_new_epoch_may_reset_relative_test_clock(self):
+        from stream_fixtures import event
+        trace = [event("start", epoch=1, t=1000), event("stop", epoch=1, t=1100),
+                 event("start", epoch=2, t=0), event("frame", epoch=2, seq=0, t=20)]
+        self.assertEqual(audit_stream(trace)["violations"], [])
+
     def test_synthetic_scenario_count(self):
         self.assertEqual(len(all_scenarios()), 7)
 
