@@ -41,9 +41,10 @@ def parse_events(doc):
             raise StreamInputError(f"event {i}: missing required fields")
         if set(row) - ALLOWED_FIELDS:
             raise StreamInputError(f"event {i}: forbidden or unknown fields")
-        if row["kind"] not in VALID_KINDS:
+        if not isinstance(row["kind"], str) or row["kind"] not in VALID_KINDS:
             raise StreamInputError(f"event {i}: invalid kind")
-        if "context" in row and row["context"] not in VALID_CONTEXTS:
+        if "context" in row and (not isinstance(row["context"], str) or
+                                 row["context"] not in VALID_CONTEXTS):
             raise StreamInputError(f"event {i}: invalid context")
         if "group" in row and (not isinstance(row["group"], str) or
                                (row["group"] and not GROUP_RE.fullmatch(row["group"]))):
