@@ -179,8 +179,11 @@ public final class LiveCaptureActivity extends Activity {
     private void toggleOverlay() {
         if(VexoOfferOverlay.allowed(this)) {
             VexoOfferOverlay.setOptIn(this,false);
-            info.setText("Janelinha desativada. Para remover se ainda estiver " +
-                "na tela, pare a captura ou volte ao Vexo.");
+            Intent off=new Intent(this,LiveCaptureService.class);
+            off.setAction(LiveCaptureService.ACTION_HIDE_OVERLAY);
+            try { startService(off); } catch(Exception ignored) {}
+            info.setText("Janelinha desativada e pedido de remoção enviado. " +
+                "A captura pode continuar sem a janela.");
             updateOverlayLabel();
             return;
         }
