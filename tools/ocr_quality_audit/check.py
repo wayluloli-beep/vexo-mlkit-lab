@@ -29,6 +29,7 @@ INCONSISTENCY_PREFIXES = (
     "unexpected field",
     "false_positive expected must be null",
     "false_positive actual should be non-empty",
+    "status ok but numeric expected/actual differ",
 )
 
 
@@ -45,6 +46,11 @@ def check_report(path: Path) -> int:
         f"{totals['correct']}/{totals['checked']} fields, "
         f"{totals['errors']} reported errors"
     )
+    if result["sampleAudit"]:
+        risk = result["sampleAudit"]["offerRisk"]
+        print(f"Offers with decision-relevant reported errors: "
+              f"{risk['offersWithDecisionRelevantError']}/{risk['evaluatedOffers']} "
+              "(checked fields only)")
     issues = [w for w in result["warnings"]
               if any(w.startswith(prefix) or prefix in w for prefix in INCONSISTENCY_PREFIXES)]
     if issues:
