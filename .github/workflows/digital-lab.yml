@@ -1,0 +1,105 @@
+name: Vexo — Laboratório Digital (sem celular)
+
+# Cada PR pode iniciar testes automáticos. O agendamento diário só
+# ficará ativo na branch padrão DEPOIS da revisão e do merge.
+on:
+  pull_request:
+  push:
+    branches: [main]
+  schedule:
+    - cron: '37 7 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: vexo-digital-lab-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  unit-tests:
+    name: Parser, segurança e APK
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - name: Baixar código
+        uses: actions/checkout@v4
+      - name: Extrair projeto base sem sobrescrever arquivos
+        run: unzip -nq Vexo_Leitor_MLKit_Projeto_Android.zip
+      - name: Java 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - name: SDK Android 35
+        run: |
+          SDK_MANAGER=$(find "$ANDROID_HOME/cmdline-tools" -type f -path '*/bin/sdkmanager' | sort -V | tail -n 1)
+          test -n "$SDK_MANAGER"
+          "$SDK_MANAGER" --install 'platforms;android-35' 'build-tools;35.0.0'
+      - name: Gradle 8.11.1
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.11.1'
+      - name: Testar parser, guardas e compilar APK
+        run: gradle --no-daemon :app:testDebugUnitTest :app:assembleDebug
+      - name: Guardar resultados dos testes e APK
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: vexo-laboratorio-digital-unit
+          path: |
+            app/build/test-results/testDebugUnitTest/
+            app/build/reports/tests/testDebugUnitTest/
+            app/build/outputs/apk/debug/app-debug.apk
+          if-no-files-found: warn
+      - name: Auditoria Python independente (quando integrada)
+        shell: bash
+        run: |
+          if [[ -d tools/ocr_quality_audit/tests ]]; then
+            python -m unittest discover -s tools/ocr_quality_audit/tests -v
+          else
+            echo 'Auditoria Python ainda está em PR separado; não foi executada.'
+          fi
+
+  android-emulator:
+    name: ML Kit real no emulador Android 35
+    runs-on: ubuntu-latest
+    timeout-minutes: 50
+    steps:
+      - name: Baixar código
+        uses: actions/checkout@v4
+      - name: Extrair projeto base
+        run: unzip -nq Vexo_Leitor_MLKit_Projeto_Android.zip
+      - name: Java 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - name: Gradle 8.11.1
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.11.1'
+      - name: Aceleração do Android virtual
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+      - name: Ligar emulador e executar OCR ML Kit real (imagem sintética)
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 35
+          target: google_apis
+          arch: x86_64
+          profile: pixel_6
+          disable-animations: true
+          script: gradle --no-daemon :app:connectedDebugAndroidTest
+      - name: Anexar evidências do Android virtual
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: vexo-laboratorio-digital-emulator
+          path: |
+            app/build/outputs/androidTest-results/connected/
+            app/build/reports/androidTests/connected/
+          if-no-files-found: warn
