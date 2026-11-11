@@ -9,7 +9,7 @@ public class OfferParserTest {
             +"R$/Km\nR$/Hora\n99 0h5m . 1.50km\n|5.13 92.404.94\n"
             +"5min (1,1km)\nPagamento no app\nNota Educação Unificada José...\n"
             +"R$7,70\nR$5,10/km\nTaxa de deslocamento R$1,67\n"
-            +"0min (449m)\n4,94 936 corridas Perfil Premium\nGigu";
+            +"Omin (449m)\n4,94 936 corridas Perfil Premium\nGigu";
         OfferParser.Offer a=OfferParser.parse(ocr);
         assertEquals("99",a.get("platform"));
         assertEquals("7,70",a.get("offerPrice"));
@@ -21,6 +21,20 @@ public class OfferParserTest {
         assertEquals("4,94",a.get("rating"));
         assertEquals("936",a.get("rides"));
         assertEquals("",a.get("negotiations"));
+    }
+
+    @Test public void zeroMinutesWithDigitStillWorks() {
+        OfferParser.Offer a=OfferParser.parse(
+            "99 Pagamento no app R$7,70 5min (1,1km) 0min (449m)");
+        assertEquals("0", a.get("tripMin"));
+        assertEquals("0,449", a.get("tripKm"));
+    }
+
+    @Test public void isolatedNavigationTimeIsNotATrip() {
+        OfferParser.Offer a=OfferParser.parse(
+            "99 Pagamento no app R$7,70 Omin 350 m 5min (1,1km)");
+        assertEquals("", a.get("tripMin"));
+        assertEquals("", a.get("tripKm"));
     }
 
     @Test public void longRideKeepsNegotiationsSeparate() {
