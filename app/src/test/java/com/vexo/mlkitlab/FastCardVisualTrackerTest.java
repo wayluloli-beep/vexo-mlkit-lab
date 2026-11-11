@@ -121,10 +121,29 @@ public final class FastCardVisualTrackerTest {
         assertFalse(tracker.inspect(new PatternPixels(65,44,true,0),100).present);
     }
 
-    @Test public void backwardClockCannotShowCard() {
+    @Test public void olderFrameCannotFabricateDisappearance() {
         FastCardVisualTracker tracker=make();
         tracker.inspect(new PatternPixels(65,44,true,0),100);
-        assertTrue(tracker.inspect(new PatternPixels(65,44,true,0),99).disappeared);
+        FastCardVisualTracker.Observation old=tracker.inspect(
+            new PatternPixels(65,44,false,0),99);
+        assertTrue(old.present);
+        assertFalse(old.disappeared);
+        assertFalse(old.appeared);
+        assertTrue(tracker.isPresent());
+        assertTrue(tracker.inspect(new PatternPixels(65,44,true,0),101).present);
+    }
+
+    @Test public void olderCardCannotResurrectAfterNewerDisappearance() {
+        FastCardVisualTracker tracker=make();
+        tracker.inspect(new PatternPixels(65,44,true,0),100);
+        assertTrue(tracker.inspect(new PatternPixels(65,44,false,0),102).disappeared);
+        FastCardVisualTracker.Observation old=tracker.inspect(
+            new PatternPixels(65,44,true,0),101);
+        assertFalse(old.present);
+        assertFalse(old.appeared);
+        assertFalse(old.disappeared);
+        assertFalse(tracker.isPresent());
+        assertTrue(tracker.inspect(new PatternPixels(65,44,true,0),103).appeared);
     }
 
     @Test public void reacquireSameReferenceAfterBriefOcclusion() {

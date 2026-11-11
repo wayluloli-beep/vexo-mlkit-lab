@@ -94,9 +94,25 @@ public final class FastRoiActivityProbeTest {
         assertFalse(p.inspect(new Pixels(230),33).changed);
     }
 
-    @Test public void staleTimestampDoesNotMakeNewOffer() {
+    @Test public void staleTimestampCannotResetActiveRegion() {
         FastRoiActivityProbe p=start();
         assertTrue(p.inspect(new Pixels(230),100).risingEdge);
-        assertFalse(p.inspect(new Pixels(230),99).risingEdge);
+        FastRoiActivityProbe.Signal stale=p.inspect(new Pixels(120),99);
+        assertTrue(stale.changed);
+        assertFalse(stale.returnedToBaseline);
+        assertFalse(stale.risingEdge);
+        assertFalse(p.inspect(new Pixels(230),101).risingEdge);
+    }
+
+    @Test public void staleChangedFrameCannotRearmAfterReturn() {
+        FastRoiActivityProbe p=start();
+        p.inspect(new Pixels(230),100);
+        assertTrue(p.inspect(new Pixels(120),102).returnedToBaseline);
+        FastRoiActivityProbe.Signal stale=p.inspect(new Pixels(230),101);
+        assertFalse(stale.changed);
+        assertFalse(stale.risingEdge);
+        assertFalse(stale.returnedToBaseline);
+        assertFalse(p.inspect(new Pixels(120),103).risingEdge);
+        assertTrue(p.inspect(new Pixels(230),104).risingEdge);
     }
 }

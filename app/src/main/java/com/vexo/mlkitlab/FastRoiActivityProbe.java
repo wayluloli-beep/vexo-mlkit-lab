@@ -59,7 +59,11 @@ public final class FastRoiActivityProbe {
 
     public synchronized Signal inspect(
             FastCardVisualTracker.Pixels pixels,long monotonicMs) {
-        if(!armed || pixels==null || monotonicMs<0 || monotonicMs<lastAt ||
+        // A delayed frame is not evidence that the ROI returned to baseline.
+        // Keep the latest state and avoid a spurious next-frame rising edge.
+        if(monotonicMs>=0 && monotonicMs<lastAt)
+            return new Signal(active,false,false,false,0);
+        if(!armed || pixels==null || monotonicMs<0 ||
            pixels.width()<((long)roi.x+roi.width) ||
            pixels.height()<((long)roi.y+roi.height)) {
             boolean old=active;
