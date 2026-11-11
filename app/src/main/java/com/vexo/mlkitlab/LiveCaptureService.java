@@ -186,7 +186,10 @@ public final class LiveCaptureService extends Service {
                 }
             }
             @Override public void onCapturedContentVisibilityChanged(boolean visible) {
-                if(Build.VERSION.SDK_INT>=34) capturedVisible=visible;
+                if(Build.VERSION.SDK_INT>=34) {
+                    capturedVisible=visible;
+                    LiveCaptureState.capturedContentVisibility(visible);
+                }
             }
         },captureHandler);
 
@@ -255,10 +258,11 @@ public final class LiveCaptureService extends Service {
         final CaptureThrottle localGate=gate;
         try {
             image=reader.acquireLatestImage(); // joga fora imagens antigas
-            if(image==null || !active || stopping || !capturedVisible ||
+            if(image==null || !active || stopping ||
                 epoch.get()!=session || localGate==null) return;
             seen++;
-            LiveCaptureState.frameReceived();
+            LiveCaptureState.frameReceived(); // contar pixels chegando antes da pausa
+            if(!capturedVisible) return;
             started=localGate.begin(SystemClock.elapsedRealtime());
             if(!started) return; // só uma inferência em andamento
             pixels=extract(image);
@@ -278,6 +282,7 @@ public final class LiveCaptureService extends Service {
             localGate.finish();frame.recycle();return;
         }
         try {
+            LiveCaptureState.ocrAttempted();
             Task<Text> task=recognizer.process(InputImage.fromBitmap(frame,0));
             task.addOnCompleteListener(done -> {
                 try {
@@ -286,6 +291,9 @@ public final class LiveCaptureService extends Service {
                         read++;
                         LiveCaptureState.ocrCompleted();
                         evaluate(done.getResult().getText(),session);
+                    } else if(!done.isSuccessful() && active &&
+                        !stopping && epoch.get()==session) {
+                        LiveCaptureState.ocrFailed();
                     }
                 } finally {
                     frame.recycle();
@@ -293,6 +301,7 @@ public final class LiveCaptureService extends Service {
                 }
             });
         } catch(Exception ex) {
+            LiveCaptureState.ocrFailed();
             frame.recycle();
             localGate.finish();
         }
