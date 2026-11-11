@@ -1,0 +1,71 @@
+name: Vexo backup privado completo para Claude
+on:
+  push:
+    branches:
+      - export/claude-full-package-20261111
+
+permissions:
+  contents: read
+  issues: read
+  pull-requests: read
+  actions: read
+
+jobs:
+  backup:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Exportar todas as branches e metadados
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p export/CODIGO_POR_BRANCH export/PR_DIFFS export/METADADOS export/HISTORICO_GIT
+          git fetch origin '+refs/heads/*:refs/remotes/origin/*' --prune
+          git fetch origin '+refs/pull/*/head:refs/remotes/pr/*' || true
+          git for-each-ref --format='%(refname:short) %(objectname)' refs/remotes/origin > export/METADADOS/BRANCHES_SHA.txt
+          git for-each-ref --format='%(refname:short) %(objectname)' refs/remotes/pr > export/METADADOS/PR_HEADS_SHA.txt
+          git log --all --date=iso --format='%h | %ad | %s' > export/HISTORICO_GIT/COMMITS.txt
+          git for-each-ref --format='%(refname:short)' refs/remotes/origin | while IFS= read -r ref; do
+            [ "$ref" = "origin/HEAD" ] && continue
+            dest="export/CODIGO_POR_BRANCH/$(echo "$ref" | sed 's|^origin/||')"
+            mkdir -p "$dest"
+            git archive "$ref" | tar -xf - -C "$dest"
+          done
+          git bundle create export/HISTORICO_GIT/VEXO_COMPLETO.bundle --all
+          git bundle verify export/HISTORICO_GIT/VEXO_COMPLETO.bundle > export/HISTORICO_GIT/BUNDLE_VERIFICATION.txt 2>&1 || true
+          gh api "repos/$GITHUB_REPOSITORY/pulls?state=all&per_page=100" --jq '[.[] | {number,title,state,draft,html_url,created_at,updated_at,base:.base.ref,head:.head.ref,head_sha:.head.sha,body}]' > export/METADADOS/PULL_REQUESTS.json || echo '[]' > export/METADADOS/PULL_REQUESTS.json
+          gh api "repos/$GITHUB_REPOSITORY/issues?state=all&per_page=100" --jq '[.[] | {number,title,state,html_url,created_at,updated_at,body}]' > export/METADADOS/ISSUES.json || echo '[]' > export/METADADOS/ISSUES.json
+          for issue in 8 21; do
+            gh api "repos/$GITHUB_REPOSITORY/issues/$issue/comments?per_page=100" --jq '[.[] | {created_at,html_url,body}]' > "export/METADADOS/ISSUE_$issue.json" || true
+          done
+          gh api "repos/$GITHUB_REPOSITORY/actions/runs?per_page=100" --jq '[.workflow_runs[] | {id,name,head_sha,head_branch,status,conclusion,html_url,created_at,updated_at}]' > export/METADADOS/CI_RUNS.json || true
+          jq -r '.[].number' export/METADADOS/PULL_REQUESTS.json | while read -r number; do
+            gh pr diff "$number" --repo "$GITHUB_REPOSITORY" > "export/PR_DIFFS/PR_$number.diff" || true
+          done
+          cat > export/COMECE_AQUI.md <<'TXT'
+          # VEXO — pacote completo para Claude
+          Fonte: repositório privado wayluloli-beep/vexo-mlkit-lab.
+          CODIGO_POR_BRANCH/ contém TODAS as branches, inclusive main e versões experimentais Android.
+          PR_DIFFS/ contém patches; METADADOS/ contém status de PRs, Issues 8 e 21 e CI.
+          HISTORICO_GIT/VEXO_COMPLETO.bundle permite navegar pelo histórico Git offline.
+          COMEÇAR: verifique METADADOS/BRANCHES_SHA.txt, PRs 35-37 e os branches
+          feature/overlay-metrics-and-offer-recall, fix/require-offer-transition,
+          feature/ocr-quality-audit, audit/media-projection-security-gates.
+          Main NÃO contém as novidades experimentais. Não combinar branches sem avaliar.
+          PROTEÇÃO: código privado; não publicar; não enviar tokens nem vídeos privados.
+          Não afirmar que a leitura da 99 esteja homologada. Motorista aceita/recusa.
+          TXT
+      - name: Upload privado
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: VEXO-CODIGO-COMPLETO-CLAUDE
+          path: export/
+          if-no-files-found: error
+          retention-days: 7
+          compression-level: 6
