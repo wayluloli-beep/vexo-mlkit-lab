@@ -174,7 +174,7 @@ public final class LiveCaptureState {
         try {
             JSONObject report=new JSONObject();
             report.put("schema","vexo-live-capture-diagnostic-v3");
-            report.put("app","Vexo Captura 0.4.2 Janela experimental");
+            report.put("app","Vexo Captura 0.4.3 Janela experimental");
             report.put("status",active?"CAPTURE_ACTIVE":"CAPTURE_STOPPED");
             report.put("diagnosticStage",stage);
             report.put("diagnosticExplanation",CaptureHealthAnalyzer.explanation(stage));

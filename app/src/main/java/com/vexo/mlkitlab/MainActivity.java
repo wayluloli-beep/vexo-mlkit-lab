@@ -107,6 +107,10 @@ public class MainActivity extends Activity {
         append(root,batch,10);
         batch.setOnClickListener(v -> startActivity(new Intent(this,BatchOcrActivity.class)));
 
+        Button card = button("Ver exemplo do card da 99",0xFF147441,Color.WHITE);
+        append(root,card,10);
+        card.setOnClickListener(v -> VexoOfferOverlay.showExample(this));
+
         Button capture = button("MediaProjection • ler tela com autorização (experimental)",
             0xFF28485A,Color.WHITE);
         append(root,capture,10);

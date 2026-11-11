@@ -26,8 +26,8 @@ final class VexoOfferOverlay {
     static final String PREFS="vexo_live_display";
     static final String OPT_IN="floating_window_enabled";
 
-    private static final int GREEN=0xff2fc866;
-    private static final int GRAY=0xff9d9d9d;
+    private static final int GREEN=0xff20bf5a;
+    private static final int GRAY=0xff777a78;
     private static final int DARK=0xff131313;
 
     private final Context context;
@@ -74,14 +74,14 @@ final class VexoOfferOverlay {
         return t;
     }
 
-    private LinearLayout metricRow(LinearLayout parent,String initial,String suffix,boolean disabled) {
+    private void metricRow(LinearLayout parent,String initial,String suffix) {
         LinearLayout row=new LinearLayout(context);
         row.setOrientation(LinearLayout.HORIZONTAL);
         row.setGravity(Gravity.CENTER_VERTICAL);
         LinearLayout.LayoutParams rowParams=new LinearLayout.LayoutParams(-1,dp(41));
         parent.addView(row,rowParams);
         View marker=new View(context);
-        marker.setBackground(round(disabled?0xffd2d2d2:GREEN,4));
+        marker.setBackground(round(GREEN,4));
         LinearLayout.LayoutParams markParams=new LinearLayout.LayoutParams(dp(5),dp(27));
         markParams.rightMargin=dp(9);
         row.addView(marker,markParams);
@@ -90,9 +90,9 @@ final class VexoOfferOverlay {
         values.setOrientation(LinearLayout.HORIZONTAL);
         values.setGravity(Gravity.CENTER_VERTICAL);
         row.addView(values);
-        TextView big=text(initial,25,DARK,true);
+        TextView big=text(initial,28,DARK,true);
         values.addView(big);
-        TextView unit=text(suffix,14,GRAY,false);
+        TextView unit=text(suffix,15,GRAY,false);
         LinearLayout.LayoutParams up=new LinearLayout.LayoutParams(-2,-2);
         up.leftMargin=dp(3);
         values.addView(unit,up);
@@ -101,18 +101,14 @@ final class VexoOfferOverlay {
         else if(perHour==null) perHour=big;
         else if(rating==null) rating=big;
         else profit=big;
-        return row;
     }
 
-    private boolean ensureWindow() {
-        if(!allowed(context) || wm==null) {hide();return false;}
-        if(window!=null) return true;
-
+    private LinearLayout createCard() {
         LinearLayout root=new LinearLayout(context);
         root.setOrientation(LinearLayout.VERTICAL);
         root.setPadding(dp(11),dp(8),dp(11),dp(9));
         GradientDrawable bg=round(Color.WHITE,15);
-        bg.setStroke(dp(3),GREEN);
+        bg.setStroke(dp(4),GREEN);
         root.setBackground(bg);
         root.setMinimumWidth(dp(205));
         root.setElevation(dp(3));
@@ -124,10 +120,10 @@ final class VexoOfferOverlay {
         metricsContainer.setOrientation(LinearLayout.VERTICAL);
         metricsContainer.setVisibility(View.GONE);
         root.addView(metricsContainer);
-        metricRow(metricsContainer,"—","/km",false);
-        metricRow(metricsContainer,"—","/hr",false);
-        metricRow(metricsContainer,"—","★",false);
-        metricRow(metricsContainer,"—","lucro",true);
+        metricRow(metricsContainer,"—","/km");
+        metricRow(metricsContainer,"—","/hr");
+        metricRow(metricsContainer,"—","★");
+        metricRow(metricsContainer,"—","lucro");
 
         LinearLayout footer=new LinearLayout(context);
         footer.setOrientation(LinearLayout.HORIZONTAL);
@@ -138,7 +134,7 @@ final class VexoOfferOverlay {
 
         TextView orange=text("99",17,0xff260c00,true);
         orange.setGravity(Gravity.CENTER);
-        orange.setBackground(round(0xffff9a3b,5));
+        orange.setBackground(round(0xffff910e,5));
         LinearLayout.LayoutParams op=new LinearLayout.LayoutParams(dp(34),dp(31));
         op.rightMargin=dp(8);
         footer.addView(orange,op);
@@ -148,7 +144,31 @@ final class VexoOfferOverlay {
         footer.addView(sep);
         distance=text("—",16,DARK,true);
         footer.addView(distance);
+        return root;
+    }
 
+    static void showExample(Context activity) {
+        VexoOfferOverlay preview=new VexoOfferOverlay(activity);
+        LinearLayout card=preview.createCard();
+        preview.setNumbers("3,31","148,60","5,00","69%","1h32m","68.9km");
+        android.widget.FrameLayout holder=new android.widget.FrameLayout(activity);
+        int padding=preview.dp(16);
+        holder.setPadding(padding,padding,padding,padding);
+        holder.addView(card,new android.widget.FrameLayout.LayoutParams(
+            android.view.ViewGroup.LayoutParams.WRAP_CONTENT,
+            android.view.ViewGroup.LayoutParams.WRAP_CONTENT,Gravity.CENTER));
+        new android.app.AlertDialog.Builder(activity)
+            .setTitle("Exemplo do card")
+            .setMessage("Valores de demonstração")
+            .setView(holder)
+            .setPositiveButton("Fechar",null)
+            .show();
+    }
+
+    private boolean ensureWindow() {
+        if(!allowed(context) || wm==null) {hide();return false;}
+        if(window!=null) return true;
+        LinearLayout root=createCard();
         WindowManager.LayoutParams params=new WindowManager.LayoutParams(
             WindowManager.LayoutParams.WRAP_CONTENT,
             WindowManager.LayoutParams.WRAP_CONTENT,
@@ -183,14 +203,20 @@ final class VexoOfferOverlay {
     void offer(VexoOverlaySummary.Metrics numbers) {
         if(numbers==null || !numbers.valid) {searching();return;}
         if(!ensureWindow()) return;
+        setNumbers(numbers.perKm,numbers.perHour,numbers.rating,numbers.profit,
+            numbers.totalTime,numbers.totalKm);
+    }
+
+    private void setNumbers(String kmRate,String hourRate,String stars,String margin,
+            String duration,String km) {
         waiting.setVisibility(View.GONE);
         metricsContainer.setVisibility(View.VISIBLE);
-        perKm.setText(numbers.perKm);
-        perHour.setText(numbers.perHour);
-        rating.setText(numbers.rating);
-        profit.setText(numbers.profit); // “—”: lucro precisa de custo configurado
-        time.setText(numbers.totalTime);
-        distance.setText(numbers.totalKm);
+        perKm.setText(kmRate);
+        perHour.setText(hourRate);
+        rating.setText(stars);
+        profit.setText(margin);
+        time.setText(duration);
+        distance.setText(km);
     }
 
     void hide() {

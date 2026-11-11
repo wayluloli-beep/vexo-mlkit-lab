@@ -36,6 +36,7 @@ import com.google.mlkit.vision.text.latin.TextRecognizerOptions;
 import java.nio.ByteBuffer;
 import java.util.Locale;
 import java.util.concurrent.atomic.AtomicLong;
+import java.util.concurrent.atomic.AtomicReference;
 
 /**
  * Laboratório local MediaProjection. Nunca persiste pixels, tokens, OCR bruto,
@@ -50,9 +51,9 @@ public final class LiveCaptureService extends Service {
     private static final String CHANNEL="vexo_capture_status";
     private static final int NOTIFICATION_ID=812;
     private static final long FRAME_INTERVAL_MS=700; // ~1.4 inferências/s se ML Kit acompanhar
-    private static final long MAX_FRAME_AGE_MS=3000; // limite experimental; não garantia de prazo
 
     private final AtomicLong epoch=new AtomicLong(0);
+    private final AtomicReference<CaptureFrameRecheck> pendingRecheck=new AtomicReference<>();
     // Serializa STOP e publicação de resultado: nenhuma notificação após onStop.
     private final Object sessionLock=new Object();
     private boolean cleanupDone=false; // usado apenas no thread principal
@@ -204,6 +205,7 @@ public final class LiveCaptureService extends Service {
                         capturedVisible=visible;
                         LiveCaptureState.capturedContentVisibility(visible);
                         if(!visible) {
+                            pendingRecheck.set(null);
                             episodes.uncertain();
                             LiveCaptureState.clearCandidate();
                         }
@@ -238,6 +240,7 @@ public final class LiveCaptureService extends Service {
             active=false;
             capturedVisible=false;
             epoch.incrementAndGet(); // callback OCR da sessão antiga é inválido
+            pendingRecheck.set(null);
             episodes.reset();
             LiveCaptureState.end("Captura encerrada pelo Android.");
         }
@@ -253,6 +256,10 @@ public final class LiveCaptureService extends Service {
             int[] fitted=CaptureDimensions.fit(w,h);
             w=fitted[0];h=fitted[1];
             if(w==width && h==height) return;
+            synchronized(sessionLock) {
+                if(!active || epoch.get()!=session) return;
+                pendingRecheck.set(null);
+            }
             replacement=ImageReader.newInstance(w,h,PixelFormat.RGBA_8888,3);
             final ImageReader newReader=replacement;
             newReader.setOnImageAvailableListener(r -> consumeFrame(r,session),captureHandler);
@@ -275,75 +282,93 @@ public final class LiveCaptureService extends Service {
     }
 
     private void consumeFrame(ImageReader reader,long session) {
-        // Referência monotônica de aquisição da imagem: sem timestamp pessoal.
-        final long frameAcquiredAt=SystemClock.elapsedRealtime();
         Image image=null;
         Bitmap pixels=null;
         boolean started=false;
+        CaptureFrameRecheck recheck=null;
         final CaptureThrottle localGate=gate;
         try {
-            image=reader.acquireLatestImage(); // joga fora imagens antigas
-            if(image==null || !active || stopping ||
-                epoch.get()!=session || localGate==null) return;
+            image=reader.acquireLatestImage();
+            if(image==null || !sessionAlive(session) || localGate==null) return;
+            final long acquiredAt=SystemClock.elapsedRealtime();
             seen++;
-            LiveCaptureState.frameReceived(); // contar pixels chegando antes da pausa
-            if(!capturedVisible) return;
-            started=localGate.begin(SystemClock.elapsedRealtime());
-            if(!started) return; // só uma inferência em andamento
-            pixels=extract(image);
+            LiveCaptureState.frameReceived();
+            CaptureFrameRecheck pending=pendingRecheck.get();
+            if(pending!=null && pending.shouldSample(acquiredAt)) {
+                pending.observe(acquiredAt,image.getTimestamp(),fingerprint(image));
+            }
+            started=localGate.begin(acquiredAt);
+            if(!started) return;
+
+            recheck=new CaptureFrameRecheck(acquiredAt,image.getTimestamp(),fingerprint(image));
+            synchronized(sessionLock) {
+                if(sessionAlive(session)) pendingRecheck.set(recheck);
+            }
+            if(pendingRecheck.get()==recheck) pixels=extract(image);
         } catch(Exception ex) {
-            if(started && localGate!=null) localGate.finish();
             if(pixels!=null) pixels.recycle();
-            return;
+            pixels=null;
         } finally {
-            if(image!=null) image.close(); // cada frame liberação garantida
+            if(image!=null) image.close();
         }
-        if(pixels==null) {
-            if(started) localGate.finish();
+        if(!started) return;
+        if(pixels==null || !sessionAlive(session) || pendingRecheck.get()!=recheck) {
+            if(pixels!=null) pixels.recycle();
+            pendingRecheck.compareAndSet(recheck,null);
+            localGate.finish();
             return;
         }
+
         final Bitmap frame=pixels;
-        if(epoch.get()!=session || !active) {
-            localGate.finish();frame.recycle();return;
-        }
+        final CaptureFrameRecheck attempt=recheck;
         final long startedAt=SystemClock.elapsedRealtime();
         try {
             LiveCaptureState.ocrAttempted();
             Task<Text> task=recognizer.process(InputImage.fromBitmap(frame,0));
             task.addOnCompleteListener(done -> {
                 try {
-                    if(active && !stopping && epoch.get()==session) {
-                        LiveCaptureState.ocrLatency(
-                            Math.max(0, SystemClock.elapsedRealtime()-startedAt));
-                    }
-                    if(done.isSuccessful() && active && !stopping &&
-                        epoch.get()==session && capturedVisible) {
+                    synchronized(sessionLock) {
+                        if(!sessionAlive(session) || pendingRecheck.get()!=attempt) return;
+                        final long now=SystemClock.elapsedRealtime();
+                        LiveCaptureState.ocrLatency(Math.max(0,now-startedAt));
+                        if(!done.isSuccessful()) {
+                            LiveCaptureState.ocrFailed();
+                            return;
+                        }
                         read++;
                         LiveCaptureState.ocrCompleted();
-                        if(!CaptureFrameFreshness.isFresh(
-                            frameAcquiredAt,SystemClock.elapsedRealtime(),MAX_FRAME_AGE_MS)) {
+                        if(attempt.canPublish(now)) {
+                            evaluate(done.getResult().getText(),session);
+                        } else {
                             LiveCaptureState.staleOcrFrame();
                             markFrameUnusable(session,false);
-                        } else {
-                            evaluate(done.getResult().getText(),session);
                         }
-                    } else if(!done.isSuccessful() && active &&
-                        !stopping && epoch.get()==session) {
-                        LiveCaptureState.ocrFailed();
                     }
                 } finally {
+                    pendingRecheck.compareAndSet(attempt,null);
                     frame.recycle();
-                    localGate.finish(); // gate por SESSÃO; callback antigo não libera o novo
+                    localGate.finish();
                 }
             });
         } catch(Exception ex) {
-            if(active && !stopping && epoch.get()==session)
-                LiveCaptureState.ocrLatency(
-                    Math.max(0,SystemClock.elapsedRealtime()-startedAt));
-            LiveCaptureState.ocrFailed();
+            synchronized(sessionLock) {
+                if(sessionAlive(session) && pendingRecheck.get()==attempt) {
+                    LiveCaptureState.ocrLatency(Math.max(0,SystemClock.elapsedRealtime()-startedAt));
+                    LiveCaptureState.ocrFailed();
+                }
+            }
+            pendingRecheck.compareAndSet(attempt,null);
             frame.recycle();
             localGate.finish();
         }
+    }
+
+    private static CaptureFrameRecheck.Fingerprint fingerprint(Image image) {
+        Image.Plane[] planes=image.getPlanes();
+        if(planes.length==0) return null;
+        Image.Plane plane=planes[0];
+        return CaptureFrameRecheck.fingerprint(plane.getBuffer(),image.getWidth(),
+            image.getHeight(),plane.getRowStride(),plane.getPixelStride());
     }
 
     private static Bitmap extract(Image image) {
@@ -535,6 +560,7 @@ public final class LiveCaptureService extends Service {
             active=false;
             capturedVisible=false;
             epoch.incrementAndGet(); // bloqueia callbacks antes de liberar recursos
+            pendingRecheck.set(null);
             episodes.reset();
             LiveCaptureState.end("Captura parada. Uma nova sessão exige autorização.");
         }
