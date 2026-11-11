@@ -26,6 +26,7 @@ def audit_stream(events):
     used_epochs = set()
     last_seq = -1
     last_applied_seq = -1
+    last_event_at_ms = None
     frames = set()
     fixture_frame_truth = {}
     callbacks = set()
@@ -46,6 +47,7 @@ def audit_stream(events):
                 errors.append((index, "invalid_start"))
             else:
                 active, last_seq, last_applied_seq = e.epoch, -1, -1
+                last_event_at_ms = e.at_ms
                 used_epochs.add(e.epoch)
                 frames.clear()
                 fixture_frame_truth.clear()
@@ -53,6 +55,12 @@ def audit_stream(events):
                 inflight.clear()
                 counts["sessions"] += 1
             continue
+        # Optional monotonic event clock, scoped to the current session.
+        if active == e.epoch and e.at_ms is not None:
+            if last_event_at_ms is not None and e.at_ms < last_event_at_ms:
+                errors.append((index, "timestamp_regression"))
+            else:
+                last_event_at_ms = e.at_ms
         if e.kind == "stop":
             if active != e.epoch:
                 errors.append((index, "invalid_stop"))
