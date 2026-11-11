@@ -8,7 +8,7 @@ Este PR é deliberadamente um **PROTÓTIPO ISOLADO E SEM EFEITO NO APK**. Adicio
 
 1. \`FastCardVisualTracker.java\`: recebe um provedor de **luminância amostrada** (não cria bitmap/cópia da tela), guarda 96 valores efêmeros em RAM de uma região **já confirmada** como card por um detector independente, e procura a mesma região dentro de ~24 pixels a cada frame recebido. Busca grosseira + refinamento de 1 pixel. Se o card some ou não corresponde, retorna \`disappeared\` **no próprio frame**, para que a integração oculte números antigos imediatamente. Se a região reaparecer, retorna \`appeared\`; não envia notificação, não considera foto da Galeria oferta real nem fornece ID de corrida.
 2. \`FastOcrScheduler.java\`: um OCR por vez, só para um card presente, sem fila de frames antigos; por exemplo, janela mínima de 120 ms **não é duração de leitura ML Kit nem promessa de 8 FPS OCR**. Um callback antigo, após desaparecimento/STOP/restart, não pode concluir o ticket atual. A sessão \`epoch\` e a validação de frescor/FinancialGuard do serviço Android continuam obrigatórias.
-3. **37 testes JUnit sintéticos escritos no total** (\`FastCardVisualTrackerTest\`: 12, \`FastOcrSchedulerTest\`: 9). Verificam drift 1px, 9 deslocamentos, ausência em primeiro frame, não piscar com 301 frames, rejeição de fundo sem textura, STOP/reset, tempo monotônico, um só OCR em voo e invalidação imediata de resultado antigo. Resultados precisam de CI no SHA da branch; testes unitários não são medição de FPS/latência nem prova da 99.
+3. **48 testes JUnit sintéticos escritos no total** (\`FastCardVisualTrackerTest\`: 12, \`FastOcrSchedulerTest\`: 9). Verificam drift 1px, 9 deslocamentos, ausência em primeiro frame, não piscar com 301 frames, rejeição de fundo sem textura, STOP/reset, tempo monotônico, um só OCR em voo e invalidação imediata de resultado antigo. Resultados precisam de CI no SHA da branch; testes unitários não são medição de FPS/latência nem prova da 99.
 
 ## Arquitetura solicitada, da mais rápida à mais cara
 
@@ -36,6 +36,21 @@ MediaProjection (com permissão Android) -> ImageReader (frames contínuos)
 - \`FastRoiActivityProbeTest.java\` (10 casos) e \`RgbaLumaPixelsTest.java\` (6 casos) completam a prova sintética. Total na branch: **35 testes JUnit escritos** (12 visual + 9 scheduler + 10 probe + 6 RGBA). Só chamar de PASS depois da conclusão do CI no HEAD exato.
 
 *Fluxo recomendado para a primeira oferta:* o ROI fixo, posicionado a partir de perfil de tela/ancoragem e validado em configuração de laboratório, detecta visualmente alteração. Isso dispara OCR da região. Depois que o parser/classificador confirma o card, \`FastCardVisualTracker.armFromVerifiedCard\` passa a segui-lo com ±24px sem depender de novas inferências. Se o card some, esconder números e invalidar callbacks; se apenas mudou o mapa, o classificador deve recusar o alerta. Não existe garantia universal de ROI na 99 sem testes de variantes/densidades/rotação.
+
+## NOVO: descoberta automática adaptativa e laboratório visual dentro do APK
+
+- \`AdaptiveCardRegionDetector.java\` varre a tela em grade de resolução LIMITADA (até 72×128 pontos), com tamanho proporcional à tela e sem posições fixas. Uma tela anterior confirmada **sem oferta** estabelece referência; mudanças em componentes conectados geram propostas de regiões retangulares. Captura de app inteiro, mapa animado, banner, Galeria ou pop-up podem produzir o mesmo sinal: **NÃO é detector semântico da 99 nem autorização de notificação**. Mudança de orientação/tamanho invalida a referência, que só pode ser reconstruída quando uma nova tela sem oferta for confirmada.
+- \`AdaptiveCardRegionDetectorTest.java\`: 11 testes artificiais para posições distintas, paisagem, A→B sem mapa, card estável, desaparecimento, fullscreen, resize, STOP e relógio monotônico.
+- \`VisualRadarLabActivity.java\`: experiência visual sintética no Android: card A surge, desloca, card B substitui, some e reaparece; contadores de frames e região detectada, com caixa de tracking. É acessível pelo botão **“Testar radar visual modular (simulação)”** na tela inicial. Essa tela usa pixels **gerados em memória** para exercitar as classes verdadeiras do rastreador, **não usa câmera, MediaProjection, OCR, fotos pessoais ou conexão com o app 99**. Não informa FPS preciso; a função de desenho pede quadros a cada 33 ms mas o sistema operacional pode executar menos.
+- O Android Manifest registra a Activity experimental sem exportar para outros aplicativos. **48 testes Java sintéticos escritos (37 anteriores + 11 novos)**, que precisam passar no CI do HEAD correspondente.
+
+### Teste no telefone (DEPOIS da compilação no CI)
+
+1. Instalar apenas o APK **experimental** do PR #43, mantendo versão anterior instalada se os IDs diferirem; nunca usar esta versão como assistente de decisão em corrida.
+2. Abrir **VEXO → “Testar radar visual modular (simulação)”** com carro parado. Observe caixa verde durante o card em movimento, troca A→B, sumiço e retorno. Não é necessário ligar MediaProjection.
+3. Verifique que não aparece cálculo/alerta de oferta real. Faça vídeo de tela **somente da simulação**, se desejar comparar velocidade; nenhuma imagem real de passageiro deve ser enviada.
+4. Para aferição real, integrar detector ao \`LiveCaptureService\` antes do OCR throttle, testar com consentimento Android e confirmar tempos/P95 no hardware. O experimento não prova a captura automática da 99.
+
 
 ## Próxima integração, isolada pelo agente Android
 
