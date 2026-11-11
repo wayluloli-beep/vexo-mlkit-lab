@@ -1,0 +1,638 @@
+name: Vexo — MediaProjection Safety Gate
+
+on:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  safety-contract:
+    name: Auditoria MediaProjection (Python offline)
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - name: Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Testes de regressão com fixtures sintéticas
+        run: python -m unittest discover -s tools/media_projection_security/tests -p 'test_*.py' -v
+      - name: Checar notificação obsoleta no HEAD Android PR38 (read-only)
+        shell: bash
+        run: |
+          git fetch --no-tags --depth=1 origin refs/heads/fix/require-offer-transition
+          git worktree add --detach "$RUNNER_TEMP/vexo-pr38" FETCH_HEAD
+          python - "$RUNNER_TEMP/vexo-pr38" <<'PY'
+          from pathlib import Path
+          import sys
+          root=Path(sys.argv[1])
+          source=(root/"app/src/main/java/com/vexo/mlkitlab/LiveCaptureService.java").read_text()
+          a=source.index("onCapturedContentVisibilityChanged(boolean visible)")
+          b=source.index("},captureHandler);",a)
+          callback=source[a:b]
+          print("PR38 HEAD notification contract:",
+                "PASS" if "notification(false)" in callback else "FAIL P1")
+          if "notification(false)" not in callback:
+              with open(__import__("os").environ["GITHUB_STEP_SUMMARY"],"a") as out:
+                  out.write("P1: PR38 visibility=false clears candidate but leaves foreground offer notification stale.\\n")
+          PY
+      - name: Revisar proveniência Galeria versus 99 no Android atual (read-only)
+        shell: bash
+        run: |
+          git fetch --no-tags --depth=1 origin refs/heads/fix/require-offer-transition
+          git worktree add --detach "$RUNNER_TEMP/vexo-gallery-scope" FETCH_HEAD
+          python - "$RUNNER_TEMP/vexo-gallery-scope" <<'PY'
+          from pathlib import Path
+          import os,sys
+          root=Path(sys.argv[1])
+          svc=(root/"app/src/main/java/com/vexo/mlkitlab/LiveCaptureService.java").read_text()
+          activity=(root/"app/src/main/java/com/vexo/mlkitlab/LiveCaptureActivity.java").read_text()
+          sys.path.insert(0,str(Path("tools/media_projection_security/tests").resolve()))
+          from test_gallery_capture_scope_contract import inspect_gallery_guard
+          safe=inspect_gallery_guard(svc,activity)
+          sha=__import__("subprocess").check_output(
+              ["git","-C",str(root),"rev-parse","HEAD"],text=True).strip()
+          msg=("PASS explicit provenance guard" if safe else
+               "P1 BLOCK: no explicit lab/gallery provenance gate before live offer alert")
+          print("Android branch",sha,msg)
+          with open(os.environ["GITHUB_STEP_SUMMARY"],"a") as out:
+              out.write("### Galeria versus 99 live (static read-only)\\n\\n"
+                        +sha+" — "+msg+"\\n\\n"
+                        +"Requires native consent-scope E2E; source scan is not approval.\\n")
+          PY
+      - name: Verificar Manifest e caminho de captura presente no PR
+        run: python tools/media_projection_security/check_contract.py --root .
+      - name: Diagnóstico sem escrita da branch Android do Agente 1
+        shell: bash
+        run: |
+          # A branch Android pode estar incompleta: esse diagnóstico informa, não bloqueia
+          # os testes independentes do Agente 3 e não envia dados de tela.
+          if git fetch --no-tags --depth=1 origin refs/heads/feature/media-projection-lab; then
+            git worktree add --detach "$RUNNER_TEMP/vexo-agent1" FETCH_HEAD
+            set +e
+            python tools/media_projection_security/check_contract.py \
+              --root "$RUNNER_TEMP/vexo-agent1" --require-capture --json \
+              > "$RUNNER_TEMP/agent1-contract.json"
+            audit_code=$?
+            set -e
+            python - "$RUNNER_TEMP/agent1-contract.json" "$audit_code" <<'PY'
+          import json
+          import os
+          import sys
+          from pathlib import Path
+          checks = json.loads(Path(sys.argv[1]).read_text(encoding="utf-8"))["checks"]
+          fails = [x["code"] for x in checks if x["status"] == "FAIL"]
+          passes = [x["code"] for x in checks if x["status"] == "PASS"]
+          summary = "Agente 1 / MediaProjection: {} PASS, {} FAIL; status scanner {}. Falhas: {}".format(
+              len(passes), len(fails), sys.argv[2], ", ".join(fails) or "nenhuma")
+          print(summary)
+          with open(os.environ["GITHUB_STEP_SUMMARY"], "a", encoding="utf-8") as out:
+              out.write("### Diagnóstico de integração (read-only, branch do Agente 1)\n\n" + summary + "\n\n")
+          PY
+          else
+            echo "Branch do Agente 1 ainda não disponível; nenhuma validação de integração." >> "$GITHUB_STEP_SUMMARY"
+          fi
+      - name: Testar auditoria de ciclo de vida na branch de auditoria
+        run: python tools/media_projection_security/lifecycle_review.py --root .
+      - name: Revisar onStop e resize do Agente 1 sem alterar código
+        shell: bash
+        run: |
+          if git fetch --no-tags --depth=1 origin refs/heads/feature/media-projection-lab; then
+            git worktree add --detach "$RUNNER_TEMP/vexo-lifecycle-readonly" FETCH_HEAD
+            head_sha=$(git -C "$RUNNER_TEMP/vexo-lifecycle-readonly" rev-parse HEAD)
+            set +e
+            python tools/media_projection_security/lifecycle_review.py \
+              --root "$RUNNER_TEMP/vexo-lifecycle-readonly" --require-service --json \
+              > "$RUNNER_TEMP/vexo-lifecycle-result.json"
+            scan_code=$?
+            set -e
+            python - "$RUNNER_TEMP/vexo-lifecycle-result.json" "$scan_code" "$head_sha" <<'PY'
+          import json
+          import os
+          import sys
+          from pathlib import Path
+          checks = json.loads(Path(sys.argv[1]).read_text(encoding="utf-8"))["checks"]
+          summary = ["### Agente 1 — revisão conservadora de stop/resize",
+                     "Commit analisado: " + sys.argv[3],
+                     "Status da inspeção: " + sys.argv[2]]
+          for c in checks:
+              summary.append("- " + c["status"] + " " + c["code"] + " — " + c["detail"])
+          summary.append("Somente análise estática: falhas pedem revisão humana, não provam exploit.")
+          report = "\n\n".join(summary) + "\n"
+          print(report)
+          with open(os.environ["GITHUB_STEP_SUMMARY"], "a", encoding="utf-8") as out:
+              out.write(report)
+          PY
+          else
+            echo "Agente 1 sem branch acessível; diagnóstico temporal não realizado." >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+      - name: Revisar orçamento de memória do ImageReader no Agente 1
+        shell: bash
+        run: |
+          if git fetch --no-tags --depth=1 origin refs/heads/feature/media-projection-lab; then
+            git worktree add --detach "$RUNNER_TEMP/vexo-memory-readonly" FETCH_HEAD
+            head_sha=$(git -C "$RUNNER_TEMP/vexo-memory-readonly" rev-parse HEAD)
+            set +e
+            python tools/media_projection_security/memory_review.py \
+              --root "$RUNNER_TEMP/vexo-memory-readonly" --json \
+              > "$RUNNER_TEMP/vexo-memory-result.json"
+            scan_code=$?
+            set -e
+            python - "$RUNNER_TEMP/vexo-memory-result.json" "$scan_code" "$head_sha" <<'PY'
+          import json
+          import os
+          import sys
+          from pathlib import Path
+          checks = json.loads(Path(sys.argv[1]).read_text(encoding="utf-8"))["checks"]
+          report = "### Agente 1 — memória ImageReader (análise estática)\\n\\n"
+          report += "Commit: " + sys.argv[3] + "; scanner exit: " + sys.argv[2] + "\\n\\n"
+          for c in checks:
+              report += "- " + c["status"] + " " + c["code"] + ": " + c["detail"] + "\\n"
+          report += "\\nLimite real de memória exige emulador e dispositivo.\\n"
+          print(report)
+          with open(os.environ["GITHUB_STEP_SUMMARY"], "a", encoding="utf-8") as out:
+              out.write(report)
+          PY
+          else
+            echo "Branch Android indisponível para scanner de memória." >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+      - name: Auditar ordem de consentimento, foreground e callback do Agente 1
+        shell: bash
+        run: |
+          if git fetch --no-tags --depth=1 origin refs/heads/feature/media-projection-lab; then
+            git worktree add --detach "$RUNNER_TEMP/vexo-order-readonly" FETCH_HEAD
+            sha=$(git -C "$RUNNER_TEMP/vexo-order-readonly" rev-parse HEAD)
+            set +e
+            python tools/media_projection_security/ordering_review.py \
+              --root "$RUNNER_TEMP/vexo-order-readonly" --require-service --json \
+              > "$RUNNER_TEMP/vexo-order-results.json"
+            exit_code=$?
+            set -e
+            python - "$RUNNER_TEMP/vexo-order-results.json" "$sha" "$exit_code" <<'PY'
+          import json
+          import os
+          import sys
+          from pathlib import Path
+          checks = json.loads(Path(sys.argv[1]).read_text(encoding="utf-8"))["checks"]
+          lines = ["### Ordem MediaProjection / Agente 1 (inspeção estática)",
+                   "Commit: " + sys.argv[2] + " ; exit: " + sys.argv[3]]
+          for item in checks:
+              lines.append("- " + item["status"] + " " + item["code"] + ": " + item["detail"])
+          lines.append("A ordem lexical não prova sucesso do consentimento nem comportamento runtime.")
+          report = "\n\n".join(lines) + "\n"
+          print(report)
+          with open(os.environ["GITHUB_STEP_SUMMARY"], "a", encoding="utf-8") as out:
+              out.write(report)
+          PY
+          else
+            echo "Agente 1 indisponível para auditoria de ordem." >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+      - name: Revisão integrada PR 24 (apenas leitura, sem merge)
+        shell: bash
+        run: |
+          if git fetch --no-tags --depth=1 origin refs/heads/fix/mediaproj-stop-resize-guards; then
+            git worktree add --detach "$RUNNER_TEMP/vexo-pr24-review" FETCH_HEAD
+            sha=$(git -C "$RUNNER_TEMP/vexo-pr24-review" rev-parse HEAD)
+            root="$RUNNER_TEMP/vexo-pr24-review"
+            set +e
+            python tools/media_projection_security/check_contract.py \
+              --root "$root" --require-capture --json > "$RUNNER_TEMP/pr24-contract.json"
+            contract_code=$?
+            python tools/media_projection_security/lifecycle_review.py \
+              --root "$root" --require-service --json > "$RUNNER_TEMP/pr24-lifecycle.json"
+            lifecycle_code=$?
+            python tools/media_projection_security/memory_review.py \
+              --root "$root" --json > "$RUNNER_TEMP/pr24-memory.json"
+            memory_code=$?
+            python tools/media_projection_security/ordering_review.py \
+              --root "$root" --require-service --json > "$RUNNER_TEMP/pr24-order.json"
+            ordering_code=$?
+            set -e
+            python - "$RUNNER_TEMP" "$sha" "$contract_code" "$lifecycle_code" "$memory_code" "$ordering_code" <<'PY'
+          import json
+          import os
+          from pathlib import Path
+          import sys
+          root = Path(sys.argv[1])
+          labels = ["contract", "lifecycle", "memory", "order"]
+          out = ["### PR #24 — auditoria read-only da implementação integrada",
+                 "HEAD consultado: " + sys.argv[2],
+                 "Escopo: código-fonte; não equivale a execução de uma sessão Android"]
+          total_pass = 0
+          total_fail = 0
+          total_skip = 0
+          for label, status in zip(labels, sys.argv[3:]):
+              path = root / ("pr24-" + label + ".json")
+              data = json.loads(path.read_text(encoding="utf-8"))["checks"]
+              out.append("**" + label + "** (scanner exit=" + status + ")")
+              for item in data:
+                  outcome = item["status"]
+                  total_pass += (outcome == "PASS")
+                  total_fail += (outcome == "FAIL")
+                  total_skip += (outcome == "SKIP")
+                  out.append("- " + outcome + " " + item["code"] + ": " + item["detail"])
+          out.append("**Soma:** " + str(total_pass) + " PASS / " +
+                     str(total_fail) + " FAIL / " + str(total_skip) + " SKIP")
+          out.append("Critérios runtime pendentes: consentimento Android, STOP durante OCR, "
+                     "resize com exceção, ciclo de vida, memória real e app-share sintético.")
+          report = "\n\n".join(out) + "\n"
+          print(report)
+          with open(os.environ["GITHUB_STEP_SUMMARY"], "a", encoding="utf-8") as fd:
+              fd.write(report)
+          PY
+          else
+            echo "PR #24: branch ausente; auditoria integrada não realizada." >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+      - name: Revisão integrada PR 25 (limpeza de alertas, somente leitura)
+        shell: bash
+        run: |
+          if git fetch --no-tags --depth=1 origin refs/heads/fix/live-offer-episode-dedup; then
+            git worktree add --detach "$RUNNER_TEMP/vexo-pr25-review" FETCH_HEAD
+            sha=$(git -C "$RUNNER_TEMP/vexo-pr25-review" rev-parse HEAD)
+            root="$RUNNER_TEMP/vexo-pr25-review"
+            set +e
+            python tools/media_projection_security/check_contract.py \
+              --root "$root" --require-capture --json > "$RUNNER_TEMP/pr25-contract.json"
+            python tools/media_projection_security/lifecycle_review.py \
+              --root "$root" --require-service --json > "$RUNNER_TEMP/pr25-lifecycle.json"
+            python tools/media_projection_security/memory_review.py \
+              --root "$root" --json > "$RUNNER_TEMP/pr25-memory.json"
+            python tools/media_projection_security/ordering_review.py \
+              --root "$root" --require-service --json > "$RUNNER_TEMP/pr25-order.json"
+            python tools/media_projection_security/notification_review.py \
+              --root "$root" --require-service --json > "$RUNNER_TEMP/pr25-notification.json"
+            set -e
+            python - "$RUNNER_TEMP" "$sha" <<'PY'
+          import json
+          import os
+          import sys
+          from pathlib import Path
+          root = Path(sys.argv[1])
+          names = ("contract", "lifecycle", "memory", "order", "notification")
+          out = ["### PR #25 — reauditoria read-only",
+                 "HEAD auditado: " + sys.argv[2]]
+          counter = {"PASS": 0, "FAIL": 0, "SKIP": 0}
+          for name in names:
+              checks = json.loads((root / ("pr25-" + name + ".json")).read_text(encoding="utf-8"))["checks"]
+              out.append("**" + name + "**")
+              for item in checks:
+                  counter[item["status"]] = counter.get(item["status"], 0) + 1
+                  out.append("- " + item["status"] + " " + item["code"] + ": " + item["detail"])
+          out.append("TOTAL: " + ", ".join(str(counter[k]) + " " + k for k in ("PASS", "FAIL", "SKIP")))
+          out.append("Checks estáticos apenas; teste STOP x OCR e sessão MediaProjection e2e ainda necessários.")
+          report = "\n\n".join(out) + "\n"
+          print(report)
+          with open(os.environ["GITHUB_STEP_SUMMARY"], "a", encoding="utf-8") as out_file:
+              out_file.write(report)
+          PY
+          else
+            echo "PR #25 indisponível; revisão integrada não executada." >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+      - name: Revisão PR 26 (consentimento e prova E2E, somente leitura)
+        shell: bash
+        run: |
+          if git fetch --no-tags --depth=1 origin refs/heads/feature/mediaproj-runtime-proof; then
+            git worktree add --detach "$RUNNER_TEMP/vexo-pr26-review" FETCH_HEAD
+            sha=$(git -C "$RUNNER_TEMP/vexo-pr26-review" rev-parse HEAD)
+            root="$RUNNER_TEMP/vexo-pr26-review"
+            set +e
+            python tools/media_projection_security/check_contract.py \
+              --root "$root" --require-capture --json > "$RUNNER_TEMP/pr26-contract.json"
+            python tools/media_projection_security/lifecycle_review.py \
+              --root "$root" --require-service --json > "$RUNNER_TEMP/pr26-lifecycle.json"
+            python tools/media_projection_security/memory_review.py \
+              --root "$root" --json > "$RUNNER_TEMP/pr26-memory.json"
+            python tools/media_projection_security/ordering_review.py \
+              --root "$root" --require-service --json > "$RUNNER_TEMP/pr26-order.json"
+            python tools/media_projection_security/notification_review.py \
+              --root "$root" --require-service --json > "$RUNNER_TEMP/pr26-notification.json"
+            python tools/media_projection_security/e2e_evidence_review.py \
+              --root "$root" --require-test --json > "$RUNNER_TEMP/pr26-e2e.json"
+            set -e
+            python - "$RUNNER_TEMP" "$sha" <<'PY'
+          import json
+          import os
+          import sys
+          from pathlib import Path
+          root = Path(sys.argv[1])
+          names = ("contract", "lifecycle", "memory", "order", "notification", "e2e")
+          out = ["### PR #26 — E2E consent + segurança (somente análise fonte)",
+                 "Commit consultado: " + sys.argv[2]]
+          totals = {"PASS": 0, "FAIL": 0, "SKIP": 0}
+          for name in names:
+              checks = json.loads((root / ("pr26-" + name + ".json")).read_text(encoding="utf-8"))["checks"]
+              out.append("**" + name + "**")
+              for x in checks:
+                  totals[x["status"]] = totals.get(x["status"], 0) + 1
+                  out.append("- " + x["status"] + " " + x["code"] + ": " + x["detail"])
+          out.append("TOTAL " + ", ".join(str(totals[k]) + " " + k for k in ("PASS", "FAIL", "SKIP")))
+          out.append("Revisão de qualidade do teste é conservadora: confirmar qualquer FAIL no código; "
+                     "somente o CI Android pode confirmar captura real MediaProjection.")
+          report = "\n\n".join(out) + "\n"
+          print(report)
+          with open(os.environ["GITHUB_STEP_SUMMARY"], "a", encoding="utf-8") as out_file:
+              out_file.write(report)
+          PY
+          else
+            echo "PR #26 indisponível; revisão de consentimento/E2E não executada." >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+      - name: Revisar diagnóstico clipboard PR28 e latência PR29 (read-only)
+        shell: bash
+        run: |
+          set +e
+          for pair in "28:feature/share-safe-capture-diagnostics" "29:feature/live-ocr-latency-metrics"; do
+            IFS=: read -r number branch <<< "$pair"
+            dest="$RUNNER_TEMP/vexo-pr$number-privacy"
+            echo "Inspecionando PR #$number (somente fonte, sem dados de corrida)"
+            if git fetch --no-tags --depth=1 origin "refs/heads/$branch" && \
+               git worktree add --detach "$dest" FETCH_HEAD; then
+              sha=$(git -C "$dest" rev-parse HEAD)
+              if [[ "$number" == "29" ]]; then
+                python tools/media_projection_security/diagnostic_privacy_review.py \
+                  --root "$dest" --require-export --require-latency --json > "$RUNNER_TEMP/pr$number-privacy.json"
+              else
+                python tools/media_projection_security/diagnostic_privacy_review.py \
+                  --root "$dest" --require-export --json > "$RUNNER_TEMP/pr$number-privacy.json"
+              fi
+              scan_status=$?
+              python - "$number" "$sha" "$scan_status" "$RUNNER_TEMP/pr$number-privacy.json" <<'PY'
+          import json
+          import os
+          from pathlib import Path
+          import sys
+          number, sha, exit_code, path = sys.argv[1:]
+          items = json.loads(Path(path).read_text(encoding="utf-8"))["checks"]
+          counts = {key: sum(c["status"] == key for c in items)
+                    for key in ("PASS", "FAIL", "WARN", "SKIP")}
+          lines = [
+              "### PR #" + number + " — exportação voluntária e métricas (inspeção fonte)",
+              "SHA inspecionado: " + sha,
+              "Status da ferramenta: " + exit_code + "; " +
+              ", ".join(str(counts[k]) + " " + k for k in counts),
+          ]
+          for item in items:
+              lines.append("- " + item["status"] + " " + item["code"] + ": " + item["detail"])
+          lines.append("Contadores técnicos ainda são metadados. O clipboard é compartilhado: "
+                       "exigir clique consciente, aviso de privacidade e teste Android.")
+          report = "\n\n".join(lines) + "\n"
+          print(report)
+          with open(os.environ["GITHUB_STEP_SUMMARY"], "a", encoding="utf-8") as out:
+              out.write(report)
+          PY
+            else
+              echo "PR #$number indisponível; não aprovado." >> "$GITHUB_STEP_SUMMARY"
+            fi
+          done
+          set -e
+
+      - name: Revisar expiração, lista e callback atrasado (PR29/PR30 read-only)
+        shell: bash
+        run: |
+          set +e
+          for pair in "29:feature/live-ocr-latency-metrics" "30:fix/demo-first-mediaproj-e2e"; do
+            IFS=: read -r number branch <<< "$pair"
+            dest="$RUNNER_TEMP/vexo-pr$number-temporal"
+            if git fetch --no-tags --depth=1 origin "refs/heads/$branch" && \
+               git worktree add --detach "$dest" FETCH_HEAD; then
+              sha=$(git -C "$dest" rev-parse HEAD)
+              python tools/media_projection_security/temporal_offer_safety.py \
+                --root "$dest" --json > "$RUNNER_TEMP/vexo-pr$number-temporal.json"
+              scan_status=$?
+              python - "$number" "$sha" "$scan_status" "$RUNNER_TEMP/vexo-pr$number-temporal.json" <<'PY'
+          import json
+          import os
+          import sys
+          from pathlib import Path
+          number, sha, status, path = sys.argv[1:]
+          checks = json.loads(Path(path).read_text(encoding="utf-8"))["checks"]
+          lines = ["### PR #" + number + " — política temporal e privacidade de replay",
+                   "SHA: " + sha + " ; scanner exit: " + status]
+          for item in checks:
+              lines.append("- " + item["status"] + " " + item["code"] + ": " + item["detail"])
+          lines.append("Gaps de fonte não são teste de Android: vídeo real NÃO foi "
+                       "baixado/enviado e nenhuma precisão foi medida. Nenhum APK é liberado.")
+          report = "\n\n".join(lines) + "\n"
+          print(report)
+          with open(os.environ["GITHUB_STEP_SUMMARY"], "a", encoding="utf-8") as out:
+              out.write(report)
+          PY
+            else
+              echo "PR #$number ausente; auditoria temporal não executada." >> "$GITHUB_STEP_SUMMARY"
+            fi
+          done
+          set -e
+
+
+      - name: Revisão contexto v2 PR34 (somente leitura)
+        shell: bash
+        run: |
+          if git fetch --no-tags --depth=1 origin refs/heads/feature/capture-context-evidence-counters; then
+            git worktree add --detach "$RUNNER_TEMP/vexo-pr34-review" FETCH_HEAD
+            sha=$(git -C "$RUNNER_TEMP/vexo-pr34-review" rev-parse HEAD)
+            set +e
+            python tools/media_projection_security/context_evidence_v2_review.py \
+              --root "$RUNNER_TEMP/vexo-pr34-review" --json \
+              > "$RUNNER_TEMP/pr34-v2-review.json"
+            scan_code=$?
+            set -e
+            python - "$sha" "$scan_code" "$RUNNER_TEMP/pr34-v2-review.json" <<'PY'
+          import json
+          import os
+          from pathlib import Path
+          import sys
+          sha, exit_code, src = sys.argv[1:]
+          checks = json.loads(Path(src).read_text(encoding="utf-8"))["checks"]
+          counts = {k: sum(x["status"] == k for x in checks) for k in ("PASS", "FAIL")}
+          lines = ["### PR #34 — privacidade, schema v2 e epoch de telemetria",
+                   "HEAD auditado: " + sha,
+                   "Scanner exit=" + exit_code + "; " +
+                   ", ".join(str(counts[k]) + " " + k for k in counts)]
+          for item in checks:
+              lines.append("- " + item["status"] + " " + item["code"] + ": " + item["detail"])
+          lines.append("Ler código fonte não prova ausência de race em execução nem resultado no replay.")
+          report = "\n\n".join(lines) + "\n"
+          print(report)
+          with open(os.environ["GITHUB_STEP_SUMMARY"], "a", encoding="utf-8") as out:
+              out.write(report)
+          PY
+          else
+            echo "PR34 não disponível, nenhuma homologação de telemetria." >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+
+      - name: Revisão callback visibilidade epoch PR34 read-only
+        shell: bash
+        run: |
+          root="$RUNNER_TEMP/vexo-pr34-review"
+          if [[ -f "$root/app/src/main/java/com/vexo/mlkitlab/LiveCaptureService.java" ]]; then
+            sha=$(git -C "$root" rev-parse HEAD)
+            set +e
+            python tools/media_projection_security/visibility_callback_review.py \
+              --root "$root" --json > "$RUNNER_TEMP/pr34-visibility.json"
+            scan_status=$?
+            set -e
+            python - "$sha" "$scan_status" "$RUNNER_TEMP/pr34-visibility.json" <<'PY'
+          import json
+          import os
+          import sys
+          from pathlib import Path
+          sha, exit_code, path = sys.argv[1:]
+          checks = json.loads(Path(path).read_text(encoding="utf-8"))["checks"]
+          lines = ["### PR #34 — MediaProjection visibility callback e epoch",
+                   "HEAD inspecionado: " + sha, "scanner exit: " + exit_code]
+          for c in checks:
+              lines.append("- " + c["status"] + " " + c["code"] + ": " + c["detail"])
+          lines.append("A inspeção lexical não substitui concorrência real com STOP+restart.")
+          report = "\n\n".join(lines) + "\n"
+          print(report)
+          with open(os.environ["GITHUB_STEP_SUMMARY"], "a", encoding="utf-8") as fd:
+              fd.write(report)
+          PY
+          else
+            echo "Checkout PR34 indisponível: não aprovar callback visibilidade." >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+
+      - name: Revisão sobreposição PR35 PR36 PR37 e gate Java real
+        shell: bash
+        run: |
+          for entry in "35:feature/vexo-optin-floating-window" "36:fix/overlay-hide-generation-race" "37:feature/overlay-metrics-and-offer-recall"; do
+            IFS=: read -r pr branch <<< "$entry"
+            dest="$RUNNER_TEMP/vexo-overlay-pr$pr"
+            if git fetch --no-tags --depth=1 origin "refs/heads/$branch" && \
+               git worktree add --detach "$dest" FETCH_HEAD; then
+              sha=$(git -C "$dest" rev-parse HEAD)
+              set +e
+              python tools/media_projection_security/overlay_optin_review.py \
+                --root "$dest" --json > "$RUNNER_TEMP/overlay-pr$pr.json"
+              scan_status=$?
+              set -e
+              python - "$pr" "$sha" "$scan_status" "$RUNNER_TEMP/overlay-pr$pr.json" <<'PY'
+          import json
+          import os
+          from pathlib import Path
+          import sys
+          pr, sha, exit_code, path = sys.argv[1:]
+          checks = json.loads(Path(path).read_text(encoding="utf-8"))["checks"]
+          counts = {x:sum(c["status"]==x for c in checks)
+                    for x in ("PASS","FAIL","WARN","SKIP")}
+          lines = [
+              "### PR #"+pr+" — overlay consent/opt-in/STOP (read-only)",
+              "HEAD: "+sha+" | scanner exit="+exit_code,
+              " | ".join(str(v)+" "+k for k,v in counts.items()),
+          ]
+          for c in checks:
+              lines.append("- "+c["status"]+" "+c["code"]+": "+c["detail"])
+          lines.append("Limitação: 0,8 é limite padrão para uma janela SAW "
+                       "no Android 12+. Overlay múltiplo ou fabricante pode bloquear toque. "
+                       "É necessário teste no aparelho parado. Não valida OCR na 99.")
+          report="\n\n".join(lines)+"\n"
+          print(report)
+          with open(os.environ["GITHUB_STEP_SUMMARY"],"a",encoding="utf-8") as out:
+              out.write(report)
+          PY
+            else
+              echo "PR #$pr indisponível — inspeção não concluída." >> "$GITHUB_STEP_SUMMARY"
+            fi
+          done
+
+          root="$RUNNER_TEMP/vexo-overlay-pr37"
+          if [[ -f "$root/app/src/main/java/com/vexo/mlkitlab/OfferEpisodeGate.java" ]]; then
+            mkdir -p "$RUNNER_TEMP/vexo-offer-gate-classes"
+            javac -encoding UTF-8 -d "$RUNNER_TEMP/vexo-offer-gate-classes" \
+              "$root/app/src/main/java/com/vexo/mlkitlab/OfferEpisodeGate.java" \
+              tools/media_projection_security/OfferGateSecurityHarness.java
+            java -cp "$RUNNER_TEMP/vexo-offer-gate-classes" \
+              com.vexo.mlkitlab.OfferGateSecurityHarness > "$RUNNER_TEMP/offer-gate-security.txt"
+            cat "$RUNNER_TEMP/offer-gate-security.txt"
+            {
+              echo "### PR #37 — executando o OfferEpisodeGate Java REAL"
+              echo
+              echo "Dados sintéticos A/B; sem Android/ML Kit, sem conteúdo da 99."
+              echo
+              echo '~~~text'
+              cat "$RUNNER_TEMP/offer-gate-security.txt"
+              echo '~~~'
+              echo
+              echo "REVIEW_REQUIRED não é crash ou bug demonstrado: rearmar novo fingerprint "
+              echo "sem mapa foi decisão do PR37; validar com evidência de falsos positivos."
+            } >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "PR #37 sem OfferEpisodeGate.java: teste Java não executado." >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+
+      - name: Revisão esquema privado V3 PR37
+        shell: bash
+        run: |
+          root="$RUNNER_TEMP/vexo-overlay-pr37"
+          if [[ -f "$root/app/src/main/java/com/vexo/mlkitlab/LiveCaptureState.java" ]]; then
+            sha=$(git -C "$root" rev-parse HEAD)
+            set +e
+            python tools/media_projection_security/diagnostic_v3_review.py \
+              --root "$root" --json > "$RUNNER_TEMP/pr37-diagnostic-v3.json"
+            status=$?
+            set -e
+            python - "$sha" "$status" "$RUNNER_TEMP/pr37-diagnostic-v3.json" <<'PY'
+          import json
+          import os
+          from pathlib import Path
+          import sys
+          sha, status, src = sys.argv[1:]
+          checks=json.loads(Path(src).read_text(encoding="utf-8"))["checks"]
+          lines=["### PR #37 — privacidade estrita do diagnóstico v3",
+                 "HEAD verificado: "+sha+" | scanner exit="+status]
+          for item in checks:
+              lines.append("- "+item["status"]+" "+item["code"]+": "+item["detail"])
+          lines.append("Inspeção estática, não prova privacidade absoluta em execução.")
+          output="\n\n".join(lines)+"\n"
+          print(output)
+          with open(os.environ["GITHUB_STEP_SUMMARY"],"a",encoding="utf-8") as out:
+              out.write(output)
+          PY
+          else
+            echo "PR #37 não acessível — schema v3 não aprovado." >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+
+      - name: Revisão notificação obsoleta PR37 na perda de visibilidade
+        shell: bash
+        run: |
+          root="$RUNNER_TEMP/vexo-overlay-pr37"
+          if [[ -f "$root/app/src/main/java/com/vexo/mlkitlab/LiveCaptureService.java" ]]; then
+            sha=$(git -C "$root" rev-parse HEAD)
+            set +e
+            python tools/media_projection_security/notification_visibility_review.py \
+              --root "$root" --json > "$RUNNER_TEMP/pr37-notification-visibility.json"
+            status=$?
+            set -e
+            python - "$sha" "$status" "$RUNNER_TEMP/pr37-notification-visibility.json" <<'PY'
+          import json
+          import os
+          from pathlib import Path
+          import sys
+          sha, status, src = sys.argv[1:]
+          checks=json.loads(Path(src).read_text(encoding="utf-8"))["checks"]
+          lines=["### PR #37 — evitar notificação de oferta antiga após perda de visibilidade",
+                 "HEAD: "+sha+" | scanner exit="+status]
+          for item in checks:
+              lines.append("- "+item["status"]+" "+item["code"]+": "+item["detail"])
+          lines.append("A falha indica risco de notificação obsoleta na fonte, não "
+                       "demonstração em aparelho. Exige teste Android com visibilidade=false.")
+          report="\n\n".join(lines)+"\n"
+          print(report)
+          with open(os.environ["GITHUB_STEP_SUMMARY"],"a",encoding="utf-8") as out:
+              out.write(report)
+          PY
+          else
+            echo "PR #37 sem serviço: checagem de notificação não executada." >> "$GITHUB_STEP_SUMMARY"
+          fi
