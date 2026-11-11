@@ -386,7 +386,7 @@ public final class LiveCaptureService extends Service {
         ScreenContextClassifier.Kind context=
             ScreenContextClassifier.classify(text==null?"":text);
         if(context!=ScreenContextClassifier.Kind.OFFER_CANDIDATE ||
-            text==null || !text.contains("99")) {
+            text==null || !ScreenContextClassifier.has99PlatformMarker(text)) {
             boolean definitelyNoOffer=
                 context==ScreenContextClassifier.Kind.MAP_WITHOUT_OFFER ||
                 context==ScreenContextClassifier.Kind.COMPLETED_TRIP ||
