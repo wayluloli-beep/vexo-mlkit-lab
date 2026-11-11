@@ -15,6 +15,7 @@ import android.view.Gravity;
 import android.view.View;
 import android.widget.LinearLayout;
 import android.widget.TextView;
+import android.widget.ScrollView;
 
 /**
  * Visible experiment of modular adaptive region discovery and tracking.
@@ -23,7 +24,7 @@ import android.widget.TextView;
  * Uses the same detector/tracker code that will later be integrated by Dev.
  */
 public final class VisualRadarLabActivity extends Activity {
-    private TextView status, testResults;
+    private TextView status, testResults, metrics;
     private RadarView radar;
     private RadarSelfTest.Report latestReport;
 
@@ -56,7 +57,14 @@ public final class VisualRadarLabActivity extends Activity {
         testResults.setTextColor(0xffd9f6e8);
         testResults.setTextSize(13);
         testResults.setText("Toque em executar para conferir o detector e o rastreador.");
-        root.addView(testResults);
+        ScrollView resultScroll=new ScrollView(this);
+        resultScroll.addView(testResults);
+        root.addView(resultScroll,new LinearLayout.LayoutParams(-1,(int)(125*getResources().getDisplayMetrics().density)));
+        metrics=new TextView(this);
+        metrics.setTextColor(0xffd9f6e8);
+        metrics.setTextSize(13);
+        metrics.setText("FPS: aguardando medição local | detecção: aguardando | ocultação: aguardando");
+        root.addView(metrics);
         Button copy=new Button(this);
         copy.setText("Copiar relatório de testes (sem imagens)");
         copy.setAllCaps(false);
@@ -91,12 +99,14 @@ public final class VisualRadarLabActivity extends Activity {
         private final Paint p=new Paint(3);
         private final AdaptiveCardRegionDetector finder=new AdaptiveCardRegionDetector();
         private final FastCardVisualTracker tracker=new FastCardVisualTracker();
-        private long startedAt, frames, lastStatusAt;
+        private long startedAt, frames, lastStatusAt, windowAt, windowFrames;
+        private long appearedAt=-1, hiddenAt=-1, detectedDelay=-1, hideDelay=-1;
+        private boolean previousCard, previousVisible;
         private boolean started, running=true;
 
         RadarView(){super(VisualRadarLabActivity.this);}
         void stop(){running=false;finder.reset();tracker.reset();}
-        void restart(){running=true;started=false;startedAt=0;frames=0;lastStatusAt=0;invalidate();}
+        void restart(){running=true;started=false;startedAt=0;frames=0;lastStatusAt=0;windowAt=0;windowFrames=0;appearedAt=-1;hiddenAt=-1;detectedDelay=-1;hideDelay=-1;previousCard=false;previousVisible=false;invalidate();}
 
         @Override protected void onDraw(Canvas canvas) {
             super.onDraw(canvas);
@@ -115,6 +125,9 @@ public final class VisualRadarLabActivity extends Activity {
                 cx+=(int)(12*Math.sin((now-startedAt)/520.0));
                 cy+=(int)(8*Math.sin((now-startedAt)/460.0));
             }
+            if(card && !previousCard)appearedAt=now;
+            if(!card && previousCard)hiddenAt=now;
+            previousCard=card;
             SyntheticPixels pixels=new SyntheticPixels(w,h,cx,cy,cw,ch,card,second);
             if(!finder.isArmed()){
                 finder.armOnVerifiedNonOffer(new SyntheticPixels(w,h,0,0,0,0,false,false));
@@ -132,6 +145,10 @@ public final class VisualRadarLabActivity extends Activity {
                 matched=tracker.inspect(pixels,now);
             }
 
+            boolean visible=matched!=null&&matched.present;
+            if(visible && !previousVisible && appearedAt>=0)detectedDelay=now-appearedAt;
+            if(!visible && previousVisible && hiddenAt>=0)hideDelay=now-hiddenAt;
+            previousVisible=visible;
             canvas.drawColor(0xff121d2d);
             p.setColor(0xff263a51);
             for(int yy=32;yy<h;yy+=40)canvas.drawLine(0,yy,w,yy,p);
@@ -161,13 +178,23 @@ public final class VisualRadarLabActivity extends Activity {
                 p.setStyle(Paint.Style.FILL);
             }
             frames++;
+            windowFrames++;
+            if(windowAt==0)windowAt=now;
             if(now-lastStatusAt>250) {
                 lastStatusAt=now;
                 String label=matched!=null&&matched.present?"RASTREANDO":
                     region.suspiciousRegion?"DETECTOU REGIÃO":"PROCURANDO";
-                status.setText(label+"  •  "+frames+" frames  •  "+
+                status.setText("SIMULAÇÃO • "+label+"  •  "+frames+" frames  •  "+
                     (region.changedSinceLastFrame?"mudança visual":"quadro estável")+
                     "\nSem OCR ou alerta da 99; mede somente o comportamento visual.");
+                if(now-windowAt>=1000){
+                    double fps=windowFrames*1000.0/(now-windowAt);
+                    metrics.setText(String.format(java.util.Locale.US,
+                        "FPS desenhado (medido): %.1f | card→detecção: %s | sumiço→ocultar: %s\\nOCR: NÃO EXECUTADO • leitura incerta: NÃO APLICÁVEL • alertas reais: DESATIVADOS",
+                        fps,detectedDelay<0?"aguardando":detectedDelay+" ms",
+                        hideDelay<0?"aguardando":hideDelay+" ms"));
+                    windowAt=now;windowFrames=0;
+                }
             }
             postInvalidateDelayed(33); // request, NOT a promise of 30 actual FPS
         }
