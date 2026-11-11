@@ -2,6 +2,10 @@ package com.vexo.mlkitlab;
 
 import android.app.Activity;
 import android.os.Bundle;
+import android.content.ClipData;
+import android.content.ClipboardManager;
+import android.content.Context;
+import android.widget.Button;
 import android.os.SystemClock;
 import android.graphics.Canvas;
 import android.graphics.Color;
@@ -19,8 +23,9 @@ import android.widget.TextView;
  * Uses the same detector/tracker code that will later be integrated by Dev.
  */
 public final class VisualRadarLabActivity extends Activity {
-    private TextView status;
+    private TextView status, testResults;
     private RadarView radar;
+    private RadarSelfTest.Report latestReport;
 
     @Override public void onCreate(Bundle state) {
         super.onCreate(state);
@@ -43,6 +48,31 @@ public final class VisualRadarLabActivity extends Activity {
         status.setTextSize(15);
         status.setPadding(0,pad,0,pad);
         root.addView(status);
+        Button runTests=new Button(this);
+        runTests.setText("Executar 8 testes no celular");
+        runTests.setAllCaps(false);
+        root.addView(runTests);
+        testResults=new TextView(this);
+        testResults.setTextColor(0xffd9f6e8);
+        testResults.setTextSize(13);
+        testResults.setText("Toque em executar para conferir o detector e o rastreador.");
+        root.addView(testResults);
+        Button copy=new Button(this);
+        copy.setText("Copiar relatório de testes (sem imagens)");
+        copy.setAllCaps(false);
+        copy.setEnabled(false);
+        root.addView(copy);
+        runTests.setOnClickListener(v -> {
+            latestReport=RadarSelfTest.run();
+            testResults.setText(latestReport.display);
+            copy.setEnabled(true);
+        });
+        copy.setOnClickListener(v -> {
+            if(latestReport==null)return;
+            ClipboardManager cb=(ClipboardManager)getSystemService(Context.CLIPBOARD_SERVICE);
+            if(cb!=null)cb.setPrimaryClip(ClipData.newPlainText(
+                "Diagnóstico fictício radar Vexo",latestReport.json));
+        });
         radar=new RadarView();
         root.addView(radar,new LinearLayout.LayoutParams(-1,0,1));
         setContentView(root);
