@@ -131,6 +131,10 @@ def _audit_samples(samples: Any, per_field: dict[str, dict[str, Any]],
     usable_with_risk: list[str] = []
     false_positive_cases: list[str] = []
     false_positive_fields: dict[str, int] = {}
+    # An offer is counted once, even when multiple fields are wrong.
+    evaluated_offers = offers_with_any_error = 0
+    offers_with_direct_financial_error = offers_with_distance_error = 0
+    offers_with_decision_relevant_error = offers_with_false_positive = 0
     for index, sample in enumerate(samples):
         if not isinstance(sample, dict) or not isinstance(sample.get("fields"), dict):
             raise ReportError(f"samples[{index}] needs a fields object")
@@ -141,6 +145,8 @@ def _audit_samples(samples: Any, per_field: dict[str, dict[str, Any]],
         fields = sample["fields"]
         case_checked = case_correct = 0
         case_risks = 0
+        case_errors = 0
+        case_direct_financial = case_distance = case_false_positive = False
         safety = sample.get("financialSafety", {})
         basic_usable = safety.get("basicFieldsUsable") if isinstance(safety, dict) else None
         evidence = sample.get("ocrEvidence", {})
@@ -159,6 +165,14 @@ def _audit_samples(samples: Any, per_field: dict[str, dict[str, Any]],
                 continue
             case_checked += 1
             sums[name][0] += 1
+            if status != "ok":
+                case_errors += 1
+                if per_field[name]["riskCategory"] == FINANCIAL_DIRECT:
+                    case_direct_financial = True
+                elif per_field[name]["riskCategory"] == DISTANCE:
+                    case_distance = True
+                if status == "false_positive":
+                    case_false_positive = True
             if status == "false_positive":
                 # Confirmed against BatchOcrActivity on Android's branch:
                 # unexpected extracted value with no ground truth DOES count.
@@ -209,6 +223,15 @@ def _audit_samples(samples: Any, per_field: dict[str, dict[str, Any]],
             review.append(flag)
         sample_checked += case_checked
         sample_correct += case_correct
+        if case_checked:
+            evaluated_offers += 1
+            offers_with_any_error += int(case_errors > 0)
+            offers_with_direct_financial_error += int(case_direct_financial)
+            offers_with_distance_error += int(case_distance)
+            offers_with_decision_relevant_error += int(case_direct_financial or case_distance)
+            offers_with_false_positive += int(case_false_positive)
+        else:
+            warnings.append(f"sample {case}: no recognized field statuses; excluded from per-offer denominator")
         if "tested" in sample and _count(sample["tested"], f"sample {case}.tested") != case_checked:
             warnings.append(f"sample {case}: tested differs from recognized field statuses")
         if "correct" in sample and _count(sample["correct"], f"sample {case}.correct") != case_correct:
@@ -240,6 +263,17 @@ def _audit_samples(samples: Any, per_field: dict[str, dict[str, Any]],
         "falsePositiveCount": sum(false_positive_fields.values()),
         "falsePositiveFields": false_positive_fields,
         "falsePositiveCases": false_positive_cases,
+        "offerRisk": {
+            "evaluatedOffers": evaluated_offers,
+            "offersWithAnyError": offers_with_any_error,
+            "offersWithDirectFinancialError": offers_with_direct_financial_error,
+            "offersWithDistanceError": offers_with_distance_error,
+            "offersWithDecisionRelevantError": offers_with_decision_relevant_error,
+            "offersWithFalsePositive": offers_with_false_positive,
+            "anyErrorRatePct": _pct(offers_with_any_error, evaluated_offers),
+            "decisionRelevantErrorRatePct": _pct(offers_with_decision_relevant_error, evaluated_offers),
+            "scope": "Within reported checked fields only; not an estimate of population accuracy",
+        },
         "financialReviewCount": sum(x["riskCategory"] == FINANCIAL_DIRECT for x in review),
         "distanceReviewCount": sum(x["riskCategory"] == DISTANCE for x in review),
         "evidenceOrigin": "status/expected/actual supplied by the generator; screenshots not independently reviewed",
@@ -438,6 +472,12 @@ def markdown(audit: dict[str, Any], comparison: dict[str, Any] | None = None) ->
         lines.append(f"Sample statuses: {info['statusCorrect']}/{info['statusChecked']} correct")
         lines.append(f"Review flags: {info['financialReviewCount']} financial, {info['distanceReviewCount']} distance")
         lines.append(f"False positives: {info['falsePositiveCount']} (included in checked and errors)")
+        risk = info["offerRisk"]
+        lines.append(f"Offers with any reported error: {risk['offersWithAnyError']}/{risk['evaluatedOffers']} "
+                     f"({_fmt(risk['anyErrorRatePct'])}%)")
+        lines.append(f"Offers with financial/distance error: {risk['offersWithDecisionRelevantError']}/"
+                     f"{risk['evaluatedOffers']} ({_fmt(risk['decisionRelevantErrorRatePct'])}%)")
+        lines.append("Per-offer rates cover checked fields only, not untested fields or production usage.")
         if info["basicFieldsUnusableCases"]:
             lines.append("Basic-field safety failed: " + ", ".join(info["basicFieldsUnusableCases"]))
         if info["basicFieldsUsableWithRiskIssues"]:
