@@ -22,3 +22,33 @@ jobs:
         run: python -m unittest discover -s tools/media_projection_security/tests -p 'test_*.py' -v
       - name: Verificar Manifest e caminho de captura presente no PR
         run: python tools/media_projection_security/check_contract.py --root .
+      - name: Diagnóstico sem escrita da branch Android do Agente 1
+        shell: bash
+        run: |
+          # A branch Android pode estar incompleta: esse diagnóstico informa, não bloqueia
+          # os testes independentes do Agente 3 e não envia dados de tela.
+          if git fetch --no-tags --depth=1 origin refs/heads/feature/media-projection-lab; then
+            git worktree add --detach "$RUNNER_TEMP/vexo-agent1" FETCH_HEAD
+            set +e
+            python tools/media_projection_security/check_contract.py \
+              --root "$RUNNER_TEMP/vexo-agent1" --require-capture --json \
+              > "$RUNNER_TEMP/agent1-contract.json"
+            audit_code=$?
+            set -e
+            python - "$RUNNER_TEMP/agent1-contract.json" "$audit_code" <<'PY'
+          import json
+          import os
+          import sys
+          from pathlib import Path
+          checks = json.loads(Path(sys.argv[1]).read_text(encoding="utf-8"))["checks"]
+          fails = [x["code"] for x in checks if x["status"] == "FAIL"]
+          passes = [x["code"] for x in checks if x["status"] == "PASS"]
+          summary = "Agente 1 / MediaProjection: {} PASS, {} FAIL; status scanner {}. Falhas: {}".format(
+              len(passes), len(fails), sys.argv[2], ", ".join(fails) or "nenhuma")
+          print(summary)
+          with open(os.environ["GITHUB_STEP_SUMMARY"], "a", encoding="utf-8") as out:
+              out.write("### Diagnóstico de integração (read-only, branch do Agente 1)\n\n" + summary + "\n\n")
+          PY
+          else
+            echo "Branch do Agente 1 ainda não disponível; nenhuma validação de integração." >> "$GITHUB_STEP_SUMMARY"
+          fi
