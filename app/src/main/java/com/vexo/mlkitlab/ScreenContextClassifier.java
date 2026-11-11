@@ -61,9 +61,16 @@ public final class ScreenContextClassifier {
                 has(t,"duracao|valor recebido|preco antecipado")))
             return Kind.COMPLETED_TRIP;
 
+        // Uma notificação "próxima viagem / você está online" pode ficar
+        // sobreposta a um card de oferta. Se QUALQUER sinal plausível do card
+        // sobreviver ao OCR, classificar como UNCERTAIN em vez de BLOQUEAR.
+        // Ausência de botão ou "min" não prova ausência de uma oferta.
+        boolean hasOfferContext=has(t,
+            "\\b(?:moto|negocia|prioritario|solicitacoes|pgto|entrega|aceitar|escolher)\\b");
+        boolean hasRouteContext=DISTANCE.matcher(t).find() ||
+            MINUTES.matcher(t).find();
         if (has(t,"proxima viagem|voce esta online") &&
-            !has(t,"\\baceitar\\b|\\bescolher\\b") &&
-            !has(t,"\\b\\d+\\s*min\\b"))
+            !hasOfferContext && !hasRouteContext)
             return Kind.MAP_WITHOUT_OFFER;
 
         Matcher d=DISTANCE.matcher(t);
