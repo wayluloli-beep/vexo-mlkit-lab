@@ -14,9 +14,14 @@ COUNTERS = (
     "screenContextRejected", "financiallyUnconfirmedFrames",
     "awaitingTwoStableReadings",
 )
+LATENCY = (
+    "ocrLatencySamples", "ocrLatencyLastMs", "ocrLatencyMeanMs",
+    "ocrLatencyP50Ms", "ocrLatencyP95Ms", "ocrLatencyMaxMs",
+)
 STRINGS = {"app", "diagnosticExplanation", "privacyNote"}
 ENUMS = {"status", "diagnosticStage", "capturedWindowVisibility"}
 FIELDS = {"schema", "noFieldAccuracyMeasured", "containsScreenshotOrOcrText"} | STRINGS | ENUMS | set(COUNTERS)
+FIELDS_WITH_LATENCY = FIELDS | set(LATENCY)
 STAGES = {
     "WAITING_FOR_FRAMES", "NO_FRAMES_RECORDED", "FRAMES_WITHOUT_OCR_START",
     "OCR_FAILED", "OCR_NOT_COMPLETED", "OCR_OK_NO_CONFIRMED_OFFER",
@@ -42,7 +47,7 @@ def expected_stage(c, active):
 
 
 def analyze(doc):
-    if not isinstance(doc, dict) or set(doc) != FIELDS or doc.get("schema") != SCHEMA:
+    if not isinstance(doc, dict) or set(doc) not in (FIELDS, FIELDS_WITH_LATENCY) or doc.get("schema") != SCHEMA:
         raise DiagnosticInputError("unexpected schema or fields")
     if any(type(doc[f]) is not str for f in STRINGS):
         raise DiagnosticInputError("invalid descriptive field")
@@ -55,6 +60,28 @@ def analyze(doc):
         raise DiagnosticInputError("invalid aggregate counter")
     c = {key: doc[key] for key in COUNTERS}
     errors = []
+    latency = None
+    if set(doc) == FIELDS_WITH_LATENCY:
+        if any(type(doc[f]) is not int or not 0 <= doc[f] <= 1_000_000_000 for f in LATENCY):
+            raise DiagnosticInputError("invalid aggregate latency")
+        latency = {key: doc[key] for key in LATENCY}
+        sample_count = latency["ocrLatencySamples"]
+        times = [latency[key] for key in LATENCY[1:]]
+        if sample_count > c["ocrAttempts"]:
+            errors.append("LATENCY_SAMPLES_EXCEED_OCR_ATTEMPTS")
+        if sample_count == 0 and any(times):
+            errors.append("LATENCY_WITHOUT_SAMPLES")
+        if sample_count > 0 and (
+            latency["ocrLatencyP50Ms"] > latency["ocrLatencyP95Ms"] or
+            latency["ocrLatencyP95Ms"] > latency["ocrLatencyMaxMs"] or
+            latency["ocrLatencyLastMs"] > latency["ocrLatencyMaxMs"] or
+            latency["ocrLatencyMeanMs"] > latency["ocrLatencyMaxMs"]
+        ):
+            errors.append("LATENCY_QUANTILE_ORDER_VIOLATION")
+        # Nearest-rank P95 is the maximum with 1-19 recorded samples.
+        if 0 < sample_count <= 19 and latency["ocrLatencyP95Ms"] != latency["ocrLatencyMaxMs"]:
+            errors.append("SMALL_SAMPLE_P95_MUST_EQUAL_MAX")
+
     if c["ocrAttempts"] > c["framesReceived"]:
         errors.append("OCR_ATTEMPTS_EXCEED_FRAMES")
     if c["ocrCompleted"] + c["ocrFailures"] > c["ocrAttempts"]:
@@ -97,6 +124,7 @@ def analyze(doc):
         "violations": errors, "diagnosticStageRecomputed": stage,
         "bottleneckHypothesis": cause,
         "counters": c,
+        "latency": latency,
         "notes": notes,
         "limits": "Counters cannot identify OCR content, prove offer identity, or certify 99 compatibility",
     }
