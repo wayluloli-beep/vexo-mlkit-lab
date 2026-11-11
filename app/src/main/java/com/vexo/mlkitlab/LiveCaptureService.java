@@ -400,9 +400,13 @@ public final class LiveCaptureService extends Service {
     }
 
     private void scheduleOverlayHide() {
-        overlayGeneration.incrementAndGet();
+        // STOP da sessão A não pode ocultar overlay da sessão B após reinício.
+        final long version=overlayGeneration.incrementAndGet();
         main.post(() -> {
-            if(offerOverlay!=null) offerOverlay.hide();
+            synchronized(sessionLock) {
+                if(version!=overlayGeneration.get()) return;
+                if(offerOverlay!=null) offerOverlay.hide();
+            }
         });
     }
 
