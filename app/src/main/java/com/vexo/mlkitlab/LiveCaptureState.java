@@ -1,6 +1,8 @@
 package com.vexo.mlkitlab;
 
 import java.util.concurrent.atomic.AtomicLong;
+import org.json.JSONObject;
+import org.json.JSONException;
 
 /**
  * Estado e contadores SOMENTE em RAM para que o usuário veja se a captura
@@ -87,4 +89,39 @@ public final class LiveCaptureState {
             " • janela: "+visibility+
             (active && !lastCandidate.isEmpty()?"\n"+lastCandidate:"");
     }
+
+    /**
+     * Diagnóstico para o usuário copiar e compartilhar voluntariamente.
+     * Não exporta o conteúdo da tela, o último candidato, OCR bruto,
+     * trajetos, dados pessoais nem o token de MediaProjection.
+     */
+    public static synchronized String safeDiagnosticReport() {
+        long[] n=counts();
+        String stage=CaptureHealthAnalyzer.stage(
+            n[0],n[3],n[1],n[4],n[2],active);
+        try {
+            JSONObject report=new JSONObject();
+            report.put("schema","vexo-live-capture-diagnostic-v1");
+            report.put("app","Vexo Captura 0.4 experimental");
+            report.put("status",active?"CAPTURE_ACTIVE":"CAPTURE_STOPPED");
+            report.put("diagnosticStage",stage);
+            report.put("diagnosticExplanation",CaptureHealthAnalyzer.explanation(stage));
+            report.put("framesReceived",n[0]);
+            report.put("ocrAttempts",n[3]);
+            report.put("ocrCompleted",n[1]);
+            report.put("ocrFailures",n[4]);
+            report.put("offersAlerted",n[2]);
+            report.put("capturedWindowVisibility",visibility);
+            report.put("noFieldAccuracyMeasured",true);
+            report.put("containsScreenshotOrOcrText",false);
+            report.put("privacyNote",
+                "Contadores da sessao, sem imagens, texto OCR, enderecos ou identificadores.");
+            return report.toString(2);
+        } catch(JSONException ex) {
+            // Um erro de serialização nunca deve expor o texto reconhecido.
+            return "{\"schema\":\"vexo-live-capture-diagnostic-v1\",\"error\":\"REPORT_ENCODING\"}";
+        }
+    }
+
+
 }
