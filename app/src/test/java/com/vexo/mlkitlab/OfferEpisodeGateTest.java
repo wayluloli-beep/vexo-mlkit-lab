@@ -113,6 +113,33 @@ public final class OfferEpisodeGateTest {
         assertTrue(g.observeAt("offerA",3500));
     }
 
+    @Test public void distinctOfferNeedsThreeStableReadsWhenMapWasUnclear() {
+        OfferEpisodeGate gate=new OfferEpisodeGate();
+        assertFalse(gate.observeAt("A",1000));
+        assertTrue(gate.observeAt("A",2000));
+        assertTrue(gate.hasActiveAlert());
+        assertFalse(gate.observeAt("B",11000));
+        assertFalse(gate.observeAt("B",12000));
+        assertTrue("Três B estáveis depois de 7,5s permitem novo aviso",
+            gate.observeAt("B",13000));
+        assertFalse(gate.observeAt("B",14000)); // sem duplicar B
+    }
+
+    @Test public void shortGapAndOcrGlitchDoNotRearmOffer() {
+        OfferEpisodeGate gate=new OfferEpisodeGate();
+        assertFalse(gate.observeAt("A",1000));
+        assertTrue(gate.observeAt("A",2000));
+        assertFalse(gate.observeAt("B",3000));
+        assertFalse(gate.observeAt("B",4000));
+        assertFalse(gate.observeAt("B",5000));
+        assertFalse(gate.observeAt("A",6000));
+        assertFalse(gate.observeAt("B",11000));
+        gate.uncertain();
+        assertFalse(gate.observeAt("B",12000));
+        assertFalse(gate.observeAt("B",13000));
+        assertTrue(gate.observeAt("B",14000));
+    }
+
     @Test public void definiteMapThenSameFingerprintIsNewEpisode() {
         OfferEpisodeGate g=new OfferEpisodeGate();
         assertFalse(g.observe("offerA"));
