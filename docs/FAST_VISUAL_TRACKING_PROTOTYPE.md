@@ -52,6 +52,14 @@ MediaProjection (com permissão Android) -> ImageReader (frames contínuos)
 4. Para aferição real, integrar detector ao \`LiveCaptureService\` antes do OCR throttle, testar com consentimento Android e confirmar tempos/P95 no hardware. O experimento não prova a captura automática da 99.
 
 
+## Regra do proprietário: todos os testes operacionais somente pelo APK
+
+O proprietário **não executa scripts, builds, JUnit, GitHub Actions ou ferramentas no computador**. Todo ensaio solicitado a ele deve ser acessível no próprio aplicativo Android com botão, instrução curta, resultado visível e cópia de diagnóstico agregado voluntário.
+
+No `VisualRadarLabActivity`, o botão **"Executar 8 testes no celular"** chama `RadarSelfTest.run()`: oito verificações locais usando imagens artificiais em memória (localização automática, A→B, desaparecimento, tracking, OCR sem fila, STOP). A tela exibe PASS/FAIL individual. O botão **"Copiar relatório de testes (sem imagens)"** copia JSON `vexo-radar-self-test-v1`, com nomes dos testes e resultados, **sem fotos, OCR bruto, preço de corrida, localização ou token**.
+
+**Limitação expressa:** esse autoteste prova apenas o algoritmo sintético que roda DENTRO do APK. Ele NÃO comprova o desempenho da MediaProjection, leitura de ofertas reais da 99, latência de OCR, 30 FPS sustentados ou confiabilidade financeira. O botão da captura experimental continua separado para ensaios consentidos, somente com o veículo parado. A própria pessoa precisa instalar o APK de teste e rodar o ensaio; nenhum acesso remoto ao celular é presumido. GitHub Actions é conferência interna do código, nunca requisito de operação para o proprietário.
+
 ## Próxima integração, isolada pelo agente Android
 
 1. Criar adaptador \`Pixels\` sobre \`Image.Plane\` RGBA com \`rowStride/pixelStride\`; amostrar só 96×(busca) pontos. **Não** converter o frame inteiro a grayscale/Bitmap a 30 FPS. O tracker deve rodar **antes** de \`CaptureThrottle.begin\`; esse gate limita somente OCR, não presença visual. Medir CPU e tempo total da callback (P50/P95), usar FPS **reais recebidos**, não assumir 30.
