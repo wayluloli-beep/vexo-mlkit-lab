@@ -23,17 +23,6 @@ public final class CaptureDimensionsTest {
         assertTrue(result[0]<=4096);
     }
 
-    @Test public void ocrPreservesDetailUntilReducedInputIsRequested() {
-        assertArrayEquals(new int[]{1080,2400},CaptureDimensions.forOcr(1080,2400,false));
-        assertArrayEquals(new int[]{640,1422},CaptureDimensions.forOcr(1080,2400,true));
-        assertArrayEquals(new int[]{540,1200},CaptureDimensions.forOcr(540,1200,true));
-    }
-
-    @Test public void reducedOcrBoundsTallImagesAndDoesNotUpscaleLandscape() {
-        assertArrayEquals(new int[]{480,1440},CaptureDimensions.forOcr(1080,3240,true));
-        assertArrayEquals(new int[]{1080,486},CaptureDimensions.forOcr(2400,1080,true));
-    }
-
     @Test(expected=IllegalArgumentException.class)
     public void invalidSizeIsRejected() {
         CaptureDimensions.fit(0,1024);

@@ -168,6 +168,9 @@ public final class LiveProjectionConsentE2eTest {
                 observed[2]>=1 && recognized);
             assertTrue("Oferta fictícia reconhecida mas preço não exibido",
                 correctPrice);
+            android.util.Log.i("VexoCaptureE2e","frames="+observed[0]+
+                ", leituras="+observed[1]+", alertas="+observed[2]+
+                ", STOP confirmado"+latencySummary);
         } finally {
             Intent stop=new Intent(context,LiveCaptureService.class)
                 .setAction(LiveCaptureService.ACTION_STOP);

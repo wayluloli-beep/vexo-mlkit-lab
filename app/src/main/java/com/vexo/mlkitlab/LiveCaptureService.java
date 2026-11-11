@@ -9,7 +9,6 @@ import android.content.Intent;
 import android.content.Context;
 import android.content.pm.ServiceInfo;
 import android.graphics.Bitmap;
-import android.graphics.Matrix;
 import android.graphics.PixelFormat;
 import android.graphics.Rect;
 import android.hardware.display.DisplayManager;
@@ -52,7 +51,6 @@ public final class LiveCaptureService extends Service {
     private static final int NOTIFICATION_ID=812;
     private static final long FRAME_INTERVAL_MS=700; // ~1.4 inferências/s se ML Kit acompanhar
     private static final long MAX_FRAME_AGE_MS=3000; // limite experimental; não garantia de prazo
-    private static final int LATE_FRAMES_BEFORE_REDUCING=2;
 
     private final AtomicLong epoch=new AtomicLong(0);
     // Serializa STOP e publicação de resultado: nenhuma notificação após onStop.
@@ -70,8 +68,6 @@ public final class LiveCaptureService extends Service {
     private volatile boolean active=false;
     private volatile boolean stopping=false;
     private volatile boolean capturedVisible=true;
-    private volatile boolean reducedOcrInput;
-    private int consecutiveLateOcrFrames;
     private long seen=0,read=0;
     private final OfferEpisodeGate episodes=new OfferEpisodeGate();
     private final AtomicLong overlayGeneration=new AtomicLong(0);
@@ -160,8 +156,6 @@ public final class LiveCaptureService extends Service {
         stopping=false;
         capturedVisible=true;
         seen=0;read=0;episodes.reset();
-        reducedOcrInput=false;
-        consecutiveLateOcrFrames=0;
         gate=new CaptureThrottle(FRAME_INTERVAL_MS);
         captureThread=new HandlerThread("vexo-frame-processor");
         captureThread.start();
@@ -296,7 +290,7 @@ public final class LiveCaptureService extends Service {
             if(!capturedVisible) return;
             started=localGate.begin(SystemClock.elapsedRealtime());
             if(!started) return; // só uma inferência em andamento
-            pixels=extract(image,reducedOcrInput);
+            pixels=extract(image);
         } catch(Exception ex) {
             if(started && localGate!=null) localGate.finish();
             if(pixels!=null) pixels.recycle();
@@ -318,30 +312,24 @@ public final class LiveCaptureService extends Service {
             Task<Text> task=recognizer.process(InputImage.fromBitmap(frame,0));
             task.addOnCompleteListener(done -> {
                 try {
-                    synchronized(sessionLock) {
-                        if(!active || stopping || epoch.get()!=session) return;
-                        long completedAt=SystemClock.elapsedRealtime();
-                        LiveCaptureState.ocrLatency(Math.max(0,completedAt-startedAt));
-                        if(!done.isSuccessful()) {
-                            LiveCaptureState.ocrFailed();
-                            return;
-                        }
-                        if(!capturedVisible) return;
+                    if(active && !stopping && epoch.get()==session) {
+                        LiveCaptureState.ocrLatency(
+                            Math.max(0, SystemClock.elapsedRealtime()-startedAt));
+                    }
+                    if(done.isSuccessful() && active && !stopping &&
+                        epoch.get()==session && capturedVisible) {
                         read++;
                         LiveCaptureState.ocrCompleted();
                         if(!CaptureFrameFreshness.isFresh(
-                            frameAcquiredAt,completedAt,MAX_FRAME_AGE_MS)) {
+                            frameAcquiredAt,SystemClock.elapsedRealtime(),MAX_FRAME_AGE_MS)) {
                             LiveCaptureState.staleOcrFrame();
-                            // Um atraso isolado, inclusive na inicialização, mantém o detalhe.
-                            if(!reducedOcrInput &&
-                                ++consecutiveLateOcrFrames>=LATE_FRAMES_BEFORE_REDUCING) {
-                                reducedOcrInput=true;
-                            }
                             markFrameUnusable(session,false);
                         } else {
-                            consecutiveLateOcrFrames=0;
                             evaluate(done.getResult().getText(),session);
                         }
+                    } else if(!done.isSuccessful() && active &&
+                        !stopping && epoch.get()==session) {
+                        LiveCaptureState.ocrFailed();
                     }
                 } finally {
                     frame.recycle();
@@ -358,7 +346,7 @@ public final class LiveCaptureService extends Service {
         }
     }
 
-    private static Bitmap extract(Image image,boolean reduced) {
+    private static Bitmap extract(Image image) {
         if(image.getPlanes().length==0) return null;
         Image.Plane plane=image.getPlanes()[0];
         ByteBuffer buffer=plane.getBuffer().duplicate();
@@ -371,20 +359,27 @@ public final class LiveCaptureService extends Service {
         if(paddedW<w || paddedW>8192 || h>8192) return null;
         Bitmap full=Bitmap.createBitmap(paddedW,h,Bitmap.Config.ARGB_8888);
         Bitmap result=null;
+        boolean ready=false;
         try {
             full.copyPixelsFromBuffer(buffer);
-            int[] target=CaptureDimensions.forOcr(w,h,reduced);
-            Matrix scale=null;
-            if(target[0]!=w || target[1]!=h) {
-                scale=new Matrix();
-                scale.setScale(target[0]/(float)w,target[1]/(float)h);
+            result=Bitmap.createBitmap(full,0,0,w,h);
+            // Bitmap.createBitmap pode retornar A MESMA instância quando não
+            // existe padding. Não reciclar o bitmap que o ML Kit vai usar.
+            if(w>1080) {
+                int newH=Math.max(1,Math.round(h*(1080f/w)));
+                Bitmap scaled=Bitmap.createScaledBitmap(result,1080,newH,true);
+                if(scaled!=result) {
+                    if(result!=full) result.recycle();
+                    result=scaled;
+                }
             }
-            // Recorta o padding e redimensiona na mesma operação.
-            result=Bitmap.createBitmap(full,0,0,w,h,scale,true);
+            ready=true;
             return result;
         } finally {
-            // Sem padding e sem escala, createBitmap pode devolver full.
-            if(result!=full) full.recycle();
+            // Uma exceção durante createScaledBitmap não pode reter o crop.
+            // Em sucesso, result permanece vivo até a conclusão do ML Kit.
+            if(!ready && result!=null && result!=full) result.recycle();
+            if(!ready || full!=result) full.recycle();
         }
     }
 
