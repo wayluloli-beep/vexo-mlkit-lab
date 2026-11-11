@@ -27,6 +27,7 @@ def audit_stream(events):
     last_seq = -1
     last_applied_seq = -1
     frames = set()
+    fixture_frame_truth = {}
     callbacks = set()
     inflight = set()
     seen = set()
@@ -47,6 +48,7 @@ def audit_stream(events):
                 active, last_seq, last_applied_seq = e.epoch, -1, -1
                 used_epochs.add(e.epoch)
                 frames.clear()
+                fixture_frame_truth.clear()
                 callbacks.clear()
                 inflight.clear()
                 counts["sessions"] += 1
@@ -74,6 +76,8 @@ def audit_stream(events):
                 errors.append((index, "nonmonotonic_frame"))
             else:
                 frames.add(e.seq)
+                if e.context != "UNCERTAIN" or e.group:
+                    fixture_frame_truth[e.seq] = (e.context, e.group)
                 last_seq = e.seq
             continue
         if e.kind == "inference_start":
@@ -108,6 +112,12 @@ def audit_stream(events):
         elif changed_visible_state:
             last_applied_seq = e.seq
         if e.context == "OFFER_CANDIDATE":
+            if e.seq in fixture_frame_truth:
+                expected_context, expected_group = fixture_frame_truth[e.seq]
+                if expected_context == "NON_OFFER":
+                    errors.append((index, "candidate_on_non_offer_fixture_frame"))
+                if expected_group and e.group != expected_group:
+                    errors.append((index, "candidate_identity_mismatch"))
             counts["offer_candidate_callbacks"] += 1
             if e.group:
                 key = (e.epoch, e.group)
