@@ -275,20 +275,23 @@ public final class LiveCaptureService extends Service {
         int paddedW=stride/pixelStride;
         if(paddedW<w || paddedW>8192 || h>8192) return null;
         Bitmap full=Bitmap.createBitmap(paddedW,h,Bitmap.Config.ARGB_8888);
+        Bitmap result=null;
         try {
             full.copyPixelsFromBuffer(buffer);
-            Bitmap crop=Bitmap.createBitmap(full,0,0,w,h);
-            // Limita leitura a uma imagem menor para reduzir calor/bateria,
-            // mantendo resolução razoável para números pequenos.
+            result=Bitmap.createBitmap(full,0,0,w,h);
+            // Bitmap.createBitmap pode retornar A MESMA instância quando não
+            // existe padding. Não reciclar o bitmap que o ML Kit vai usar.
             if(w>1080) {
                 int newH=Math.max(1,Math.round(h*(1080f/w)));
-                Bitmap scaled=Bitmap.createScaledBitmap(crop,1080,newH,true);
-                if(scaled!=crop) crop.recycle();
-                return scaled;
+                Bitmap scaled=Bitmap.createScaledBitmap(result,1080,newH,true);
+                if(scaled!=result) {
+                    if(result!=full) result.recycle();
+                    result=scaled;
+                }
             }
-            return crop;
+            return result;
         } finally {
-            full.recycle();
+            if(full!=result) full.recycle();
         }
     }
 
