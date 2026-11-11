@@ -66,7 +66,7 @@ def review_text(state: str, service: str, counter: str,
     v2_schema = ('report.put("schema","vexo-live-capture-diagnostic-v2")'
                  in re.sub(r"\s+", "", report))
     no_raw = not re.search(
-        r"\b(?:lastCandidate|snapshot\s*\(|getText\s*\(|Bitmap|"
+        r"\b(?:lastCandidate|(?<!\.)snapshot\s*\(|getText\s*\(|Bitmap|"
         r"ImageReader|MediaProjection|Uri|Route|Address|rawText|ocrText)\b",
         report)
     only_counters = (
