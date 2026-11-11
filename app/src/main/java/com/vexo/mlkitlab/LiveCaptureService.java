@@ -477,12 +477,12 @@ public final class LiveCaptureService extends Service {
                     // Restauração é apenas UI. Nunca emitir notificação de
                     // nova oferta após dois frames estáveis da mesma corrida.
                     LiveCaptureState.restoreCandidate(summary);
-                    scheduleOverlayOffer(session,summary);
+                    scheduleOverlayOffer(session,VexoOverlaySummary.format(price,trip,duration));
                 }
                 return;
             }
             LiveCaptureState.candidate(summary);
-            scheduleOverlayOffer(session,summary);
+            scheduleOverlayOffer(session,VexoOverlaySummary.format(price,trip,duration));
             // Notificação sem valores, nomes ou endereços do passageiro.
             NotificationManager nm=(NotificationManager)getSystemService(NOTIFICATION_SERVICE);
             if(nm!=null) nm.notify(NOTIFICATION_ID,notification(true));
