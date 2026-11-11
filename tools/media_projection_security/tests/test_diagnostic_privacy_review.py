@@ -129,10 +129,10 @@ class DiagnosticPrivacyReviewTest(unittest.TestCase):
         self.assertEqual("FAIL", by_code(latency=None,require_latency=True)["OCR_LATENCY_BOUNDED_SAMPLE_WINDOW"])
 
     def test_original_clipboard_report_without_latency_is_supported(self):
-        body = "\\n".join(f'report.put("{k}", {v});' for k,v in SAFE_VALUES.items() if k in BASE_FIELDS)
+        body = "\n".join(f'report.put("{k}", {v});' for k,v in SAFE_VALUES.items() if k in BASE_FIELDS)
         old = STATE.replace(REPORT_VALUES, body)
         checks = by_code(state=old,latency=None)
-        self.assertEqual("PASS", checks["EXPORT_SCHEMA_FIELD_ALLOWLIST"])
+        self.assertEqual("PASS", checks["EXPORT_SCHEMA_FIELD_ALLOWLIST"], checks)
         self.assertEqual("SKIP", checks["OCR_LATENCY_BOUNDED_SAMPLE_WINDOW"])
 
 
