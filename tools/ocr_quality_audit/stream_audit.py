@@ -103,6 +103,8 @@ def audit_stream(events):
         if e.seq in callbacks:
             errors.append((index, "duplicate_callback"))
         callbacks.add(e.seq)
+        if e.notified:
+            counts["notification_attempts"] += 1
         changed_visible_state = e.ui_applied or e.notified or e.history_written
         if e.seq < last_applied_seq:
             if changed_visible_state:
