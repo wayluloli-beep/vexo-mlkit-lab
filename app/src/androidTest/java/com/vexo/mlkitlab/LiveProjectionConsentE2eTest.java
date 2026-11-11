@@ -12,6 +12,7 @@ import androidx.test.uiautomator.UiDevice;
 import androidx.test.uiautomator.UiObject2;
 import androidx.test.uiautomator.Until;
 
+import org.json.JSONObject;
 import org.junit.Test;
 import org.junit.runner.RunWith;
 
@@ -125,8 +126,11 @@ public final class LiveProjectionConsentE2eTest {
             long[] observed=LiveCaptureState.counts();
             long[] stages=LiveCaptureState.stageCounts();
             long[] timing=LiveCaptureState.ocrLatencyStats();
+            long discardedStale=new JSONObject(LiveCaptureState.safeDiagnosticReport())
+                .getLong("discardedStaleOcrFrames");
             String latencySummary=" OCR latencySamples="+timing[0]+
-                ", OCR p50="+timing[3]+"ms, OCR p95="+timing[4]+"ms";
+                ", OCR p50="+timing[3]+"ms, OCR p95="+timing[4]+"ms"+
+                ", descartados por atraso="+discardedStale;
             String visibility=LiveCaptureState.captureVisibility();
             String stageSummary=" contextOffer="+stages[0]+
                 ", contextUncertain="+stages[1]+

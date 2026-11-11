@@ -5,6 +5,10 @@ public final class CaptureDimensions {
     private static final int MAX_DIMENSION=4096;
     private static final long MAX_PIXELS=6_000_000L;
 
+    private static final int OCR_MAX_WIDTH=1080;
+    private static final int OCR_REDUCED_SHORT_EDGE=640;
+    private static final int OCR_REDUCED_LONG_EDGE=1440;
+
     private CaptureDimensions() {}
 
     public static int[] fit(int width,int height) {
@@ -17,6 +21,22 @@ public final class CaptureDimensions {
         int w=Math.max(1,(int)Math.floor(width*scale));
         int h=Math.max(1,(int)Math.floor(height*scale));
         return new int[]{w,h};
+    }
+
+    /** Reduz só o bitmap do OCR; a superfície de captura mantém seu tamanho. */
+    static int[] forOcr(int width,int height,boolean reduced) {
+        if(width<=0 || height<=0)
+            throw new IllegalArgumentException("dimensões de OCR inválidas");
+        double scale=Math.min(1.0,OCR_MAX_WIDTH/(double)width);
+        if(reduced) {
+            scale=Math.min(scale,Math.min(
+                OCR_REDUCED_SHORT_EDGE/(double)Math.min(width,height),
+                OCR_REDUCED_LONG_EDGE/(double)Math.max(width,height)));
+        }
+        return new int[]{
+            Math.max(1,(int)Math.round(width*scale)),
+            Math.max(1,(int)Math.round(height*scale))
+        };
     }
 
     public static boolean withinBudget(int w,int h) {
