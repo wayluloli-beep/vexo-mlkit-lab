@@ -20,6 +20,11 @@ import android.widget.ScrollView;
 import android.widget.TextView;
 import android.widget.Toast;
 import android.text.InputType;
+import java.io.ByteArrayOutputStream;
+import java.io.InputStream;
+import java.io.OutputStream;
+import java.nio.charset.StandardCharsets;
+import java.util.UUID;
 
 import org.json.JSONArray;
 import org.json.JSONObject;
@@ -33,6 +38,8 @@ import java.util.Locale;
 
 public class MainActivity extends Activity {
     private static final int PICK_IMAGE = 42;
+    private static final int CREATE_BACKUP = 43;
+    private static final int OPEN_BACKUP = 44;
     private final int dark = 0xFF0B0F16;
     private final int card = 0xFF19202B;
     private final int blue = 0xFF1AB7CF;
@@ -43,6 +50,7 @@ public class MainActivity extends Activity {
     private Button choose, confirm, openOriginal, toggleRaw;
     private Uri chosenUri;
     private String lastText = "";
+    private boolean currentSaved = false;
     private OfferParser.Offer baseline = new OfferParser.Offer();
     private SharedPreferences prefs;
 
@@ -79,7 +87,7 @@ public class MainActivity extends Activity {
 
     @Override public void onCreate(Bundle state) {
         super.onCreate(state);
-        prefs = getSharedPreferences("vexo_ocr_v02", MODE_PRIVATE);
+        prefs = getSharedPreferences("vexo_ocr_v03", MODE_PRIVATE);
 
         ScrollView scroll = new ScrollView(this);
         scroll.setFillViewport(true); scroll.setBackgroundColor(dark);
@@ -89,7 +97,7 @@ public class MainActivity extends Activity {
         scroll.addView(root);
 
         append(root, label("VEXO",30,blue,true),0);
-        append(root,label("Leitor de ofertas  •  Laboratório 0.2",18,Color.WHITE,true),6);
+        append(root,label("Leitor de ofertas  •  Laboratório 0.3",18,Color.WHITE,true),6);
         append(root,label("O ML Kit reconhece as letras. O Vexo separa os campos. Você confere e só depois salva.",14,muted,false),12);
 
         choose = button("Escolher print da galeria", blue, Color.BLACK);
@@ -100,6 +108,18 @@ public class MainActivity extends Activity {
 
         memory = label("",13,0xFF82DDBF,false);
         append(root,memory,8); updateMemory();
+
+        LinearLayout backupPanel = panel();
+        append(root,backupPanel,14);
+        backupPanel.addView(label("MEUS DADOS E BACKUP",15,blue,true));
+        append(backupPanel,label("Exporte um arquivo JSON para proteger seus registros. O backup não tem senha: guarde em local privado. Importar não apaga ofertas existentes.",13,muted,false),8);
+        Button exportButton = button("Exportar backup JSON",0xFF303D4E,Color.WHITE);
+        append(backupPanel,exportButton,14);
+        exportButton.setOnClickListener(v -> chooseBackupLocation());
+        Button importButton = button("Importar backup JSON",0xFF303D4E,Color.WHITE);
+        append(backupPanel,importButton,10);
+        importButton.setOnClickListener(v -> chooseBackupFile());
+        append(backupPanel,label("Esta 0.3 instala separadamente da 0.2. Ela não consegue acessar automaticamente os registros salvos na 0.2; mantenha a versão antiga instalada.",12,0xFFF2C67C,false),12);
 
         results = panel();
         append(root,results,18);
@@ -180,8 +200,19 @@ public class MainActivity extends Activity {
 
     @Override protected void onActivityResult(int requestCode,int resultCode,Intent data) {
         super.onActivityResult(requestCode,resultCode,data);
-        if(requestCode!=PICK_IMAGE || resultCode!=RESULT_OK || data==null || data.getData()==null) return;
+        if (resultCode!=RESULT_OK || data==null || data.getData()==null) return;
+        if (requestCode==CREATE_BACKUP) {
+            writeBackup(data.getData());
+            return;
+        }
+        if (requestCode==OPEN_BACKUP) {
+            loadBackup(data.getData());
+            return;
+        }
+        if (requestCode!=PICK_IMAGE) return;
         chosenUri=data.getData();
+        currentSaved=false;
+        confirm.setEnabled(true);
         choose.setEnabled(false);
         status.setText("Lendo texto com Google ML Kit...");
         results.setVisibility(View.GONE);
@@ -223,19 +254,112 @@ public class MainActivity extends Activity {
         }
     }
 
+    private JSONArray readHistory() throws Exception {
+        JSONArray rows = new JSONArray(prefs.getString("historico","[]"));
+        BackupCodec.validate(rows);
+        return rows;
+    }
+
+    private void chooseBackupLocation() {
+        Intent intent = new Intent(Intent.ACTION_CREATE_DOCUMENT);
+        intent.addCategory(Intent.CATEGORY_OPENABLE);
+        intent.setType("application/json");
+        intent.putExtra(Intent.EXTRA_TITLE, "vexo-ocr-0.3-backup.json");
+        startActivityForResult(intent,CREATE_BACKUP);
+    }
+
+    private void chooseBackupFile() {
+        Intent intent = new Intent(Intent.ACTION_OPEN_DOCUMENT);
+        intent.addCategory(Intent.CATEGORY_OPENABLE);
+        intent.setType("application/json");
+        startActivityForResult(intent,OPEN_BACKUP);
+    }
+
+    private void writeBackup(Uri destination) {
+        try {
+            String backup = BackupCodec.exportArchive(readHistory());
+            try (OutputStream output = getContentResolver().openOutputStream(destination, "wt")) {
+                if (output==null) throw new java.io.IOException("Destino indisponível");
+                output.write(backup.getBytes(StandardCharsets.UTF_8));
+                output.flush();
+            }
+            status.setText("Backup exportado! Confira o arquivo no local escolhido e guarde-o em segurança.");
+            Toast.makeText(this,"Backup salvo no local escolhido.",Toast.LENGTH_LONG).show();
+        } catch (Exception e) {
+            status.setText("Não consegui exportar o backup: "+e.getMessage());
+        }
+    }
+
+    private void loadBackup(Uri source) {
+        try {
+            byte[] bytes;
+            try (InputStream input = getContentResolver().openInputStream(source);
+                 ByteArrayOutputStream buffer = new ByteArrayOutputStream()) {
+                if (input==null) throw new java.io.IOException("Arquivo indisponível");
+                byte[] temp = new byte[8192];
+                int n;
+                while ((n=input.read(temp))!=-1) {
+                    if (buffer.size()+n > 3_000_000) throw new java.io.IOException("Arquivo muito grande");
+                    buffer.write(temp,0,n);
+                }
+                bytes=buffer.toByteArray();
+            }
+            JSONArray incoming = BackupCodec.importArchive(new String(bytes,StandardCharsets.UTF_8));
+            JSONArray local = readHistory();
+            BackupCodec.MergeResult merged = BackupCodec.merge(local,incoming);
+            String message = "O arquivo foi validado. Encontradas "+incoming.length()+
+                " oferta(s). Novas: "+merged.added+
+                ". Já existentes: "+merged.duplicate+
+                ".\n\nNenhum registro atual será substituído. Deseja importar?";
+            new android.app.AlertDialog.Builder(this)
+                .setTitle("Conferir importação")
+                .setMessage(message)
+                .setNegativeButton("Cancelar",null)
+                .setPositiveButton("Importar",(dialog,which) -> {
+                    boolean ok=prefs.edit().putString("historico",merged.records.toString()).commit();
+                    if (ok) {
+                        updateMemory();
+                        status.setText("Importação concluída: "+merged.added+" nova(s) oferta(s).");
+                    } else {
+                        status.setText("Falha ao salvar: dados anteriores preservados.");
+                    }
+                }).show();
+        } catch(Exception e) {
+            status.setText("Backup não importado: "+e.getMessage()+
+                ". Nenhum registro foi modificado.");
+        }
+    }
+
     private void updateMemory() {
-        int count=prefs.getInt("count",0);
-        int edits=prefs.getInt("corrections",0);
-        memory.setText("Memória local: "+count+" oferta(s) confirmada(s) • "+edits+" campo(s) corrigido(s)");
+        try {
+            JSONArray rows=readHistory();
+            int edits=0;
+            for(int i=0;i<rows.length();i++) {
+                edits+=rows.getJSONObject(i).getJSONArray("corrections").length();
+            }
+            memory.setText("Memória local: "+rows.length()+" oferta(s) confirmada(s) • "+
+                edits+" campo(s) corrigido(s)");
+        } catch(Exception e) {
+            memory.setText("Histórico local indisponível: preserve os dados e não reinstale.");
+        }
     }
 
     private void saveConfirmation() {
+        if(currentSaved) {
+            status.setText("Esta leitura já foi salva. Escolha outro print para continuar.");
+            return;
+        }
         try {
             String price=inputs.get("offerPrice").getText().toString().trim();
-            double p=OfferParser.decimal(price);
-            if(Double.isNaN(p)||p<=0||p>10000) {
+            double priceValue=OfferParser.decimal(price);
+            if(Double.isNaN(priceValue)||Double.isInfinite(priceValue)||priceValue<=0||priceValue>10000) {
                 status.setText("Confirme o valor da oferta (R$) antes de salvar.");
                 inputs.get("offerPrice").requestFocus();
+                return;
+            }
+            JSONArray history=readHistory();
+            if(history.length()>=BackupCodec.MAX_RECORDS) {
+                status.setText("Limite local atingido. Exporte um backup antes de continuar.");
                 return;
             }
             JSONObject corrected=new JSONObject();
@@ -246,32 +370,29 @@ public class MainActivity extends Activity {
                 String original=baseline.get(key);
                 if(!current.equals(original)) {
                     JSONObject diff=new JSONObject();
-                    diff.put("campo",key);
-                    diff.put("antes",original);
-                    diff.put("depois",current);
+                    diff.put("field",key);
+                    diff.put("before",original);
+                    diff.put("after",current);
                     changed.put(diff);
                 }
             }
             JSONObject entry=new JSONObject();
-            entry.put("data",System.currentTimeMillis());
-            entry.put("campos",corrected);
-            entry.put("correcoes",changed);
-            JSONArray saved=new JSONArray(prefs.getString("historico","[]"));
-            JSONArray shortened=new JSONArray();
-            shortened.put(entry);
-            for(int i=0;i<saved.length() && i<49;i++) shortened.put(saved.get(i));
-            int c=prefs.getInt("count",0)+1;
-            int edits=prefs.getInt("corrections",0)+changed.length();
-            // Store only user-confirmed structured fields; no OCR text or locations.
-            boolean ok=prefs.edit().putString("historico",shortened.toString())
-                .putInt("count",c).putInt("corrections",edits).commit();
-            if(!ok) throw new IllegalStateException("Falha ao salvar no dispositivo");
+            entry.put("id",UUID.randomUUID().toString());
+            entry.put("savedAt",System.currentTimeMillis());
+            entry.put("fields",corrected);
+            entry.put("corrections",changed);
+            BackupCodec.validate(new JSONArray().put(entry));
+            history.put(entry);
+            boolean ok=prefs.edit().putString("historico",history.toString()).commit();
+            if(!ok) throw new java.io.IOException("Falha de gravação");
+            currentSaved=true;
+            confirm.setEnabled(false);
             updateMemory();
-            status.setText("Oferta confirmada e salva neste aparelho. "+changed.length()+
-                " campo(s) corrigido(s). O ML Kit não foi retreinado.");
+            status.setText("Oferta confirmada e salva! "+changed.length()+
+                " campo(s) corrigido(s). Faça backup para proteger o histórico.");
             Toast.makeText(this,"Conferência salva!",Toast.LENGTH_LONG).show();
         } catch(Exception e) {
-            status.setText("Não foi possível salvar: "+e.getClass().getSimpleName());
+            status.setText("Não foi possível salvar: "+e.getMessage());
         }
     }
 }
