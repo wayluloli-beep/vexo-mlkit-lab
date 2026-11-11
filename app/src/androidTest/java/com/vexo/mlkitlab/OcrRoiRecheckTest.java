@@ -132,4 +132,32 @@ public final class OcrRoiRecheckTest {
         } finally { b.recycle(); }
     }
 
+
+    @Test public void singleVisiblePickupMustNotBecomeTripKmRoi() throws Exception {
+        String[] onlyPickup = {
+            "6 min (1,9 km)",
+            "9 min (5,7 km)"
+        };
+        for (String pickup : onlyPickup) {
+            Bitmap b=card(false,
+                "99 Moto",
+                "R$199,20",
+                "4,66 68 corridas",
+                pickup,
+                "Comentário sobreposto sobre trajeto");
+            try (TextRecognizer reader=TextRecognition.getClient(
+                    TextRecognizerOptions.DEFAULT_OPTIONS)) {
+                Text full=Tasks.await(reader.process(InputImage.fromBitmap(b,0)),
+                    90,TimeUnit.SECONDS);
+                OfferParser.Offer parsed=OfferParser.parse(full.getText());
+                parsed.set("tripKm","");
+                for (OcrRoiRecheck.Region region : OcrRoiRecheck.findRegions(full,b,parsed)) {
+                    assertFalse("A única distância visível é embarque, não viagem",
+                        "tripKm".equals(region.field));
+                }
+                assertEquals("",parsed.get("tripKm"));
+            } finally { b.recycle(); }
+        }
+    }
+
 }
