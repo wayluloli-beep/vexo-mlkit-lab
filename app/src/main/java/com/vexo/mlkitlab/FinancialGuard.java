@@ -38,7 +38,7 @@ public final class FinancialGuard {
             reasons.add("distância da corrida não confirmada");
         if (!Double.isFinite(pickMin) || pickMin<0 || pickMin>400)
             reasons.add("tempo de busca não confirmado");
-        if (!Double.isFinite(tripMin) || tripMin<0 || tripMin>400)
+        if (!Double.isFinite(tripMin) || tripMin<=0 || tripMin>400)
             reasons.add("tempo de viagem não confirmado");
 
         if (Double.isFinite(tripMin) && Double.isFinite(tripKm) && tripMin>0 && tripKm>0) {
