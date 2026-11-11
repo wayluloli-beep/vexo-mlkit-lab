@@ -77,5 +77,17 @@ class EvidenceReviewTests(unittest.TestCase):
         self.assertEqual(statuses(bad)["E2E_EXERCISES_SYNTHETIC_DEMO"], "FAIL")
 
 
+    def test_java_methods_with_throws_exception_still_inspected(self):
+        source = GOOD.replace(
+            "void approveThroughSystemDialog(UiDevice device) {",
+            "void approveThroughSystemDialog(UiDevice device) throws Exception {"
+        ).replace(
+            "void nativeConsentThenFakeOfferProducesRealFramesAndStops() {",
+            "void nativeConsentThenFakeOfferProducesRealFramesAndStops() throws Exception {"
+        )
+        self.assertTrue(all(x == "PASS" for x in statuses(source).values()))
+
+
+
 if __name__ == "__main__":
     unittest.main()
