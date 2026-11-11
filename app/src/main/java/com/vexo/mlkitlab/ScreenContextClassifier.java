@@ -61,7 +61,7 @@ public final class ScreenContextClassifier {
      */
     public static boolean has99PlatformMarker(String raw) {
         String t=norm(raw);
-        return has(t,"(?<![\\p{L}\\d.,])99(?![\\p{L}\\d])");
+        return has(t,"(?<![\\p{L}\\d.,$])99(?![\\p{L}\\d.,])");
     }
 
     public static int diagnosticEvidenceMask(String raw) {
@@ -69,7 +69,7 @@ public final class ScreenContextClassifier {
         int bits=0;
         boolean price=PRICE.matcher(t).find();
         boolean action=has(t,"\\baceitar\\b|\\bescolher\\b");
-        boolean modality=has(t,"(?<![\\p{L}\\d.,])99(?![\\p{L}\\d])|\\b(?:moto|negocia|prioritario|solicitacoes|pgto|entrega)\\b");
+        boolean modality=has(t,"(?<![\\p{L}\\d.,$])99(?![\\p{L}\\d.,])|\\b(?:moto|negocia|prioritario|solicitacoes|pgto|entrega)\\b");
         int distanceCount=0;
         Matcher distances=DISTANCE.matcher(t);
         while(distances.find()) distanceCount++;
@@ -129,7 +129,7 @@ public final class ScreenContextClassifier {
         Matcher m=MINUTES.matcher(t);
         int minutes=0;
         while(m.find()) minutes++;
-        boolean modality=has(t,"(?<![\\p{L}\\d.,])99(?![\\p{L}\\d])|\\b(?:moto|negocia|prioritario|solicitacoes|pgto|entrega)\\b");
+        boolean modality=has(t,"(?<![\\p{L}\\d.,$])99(?![\\p{L}\\d.,])|\\b(?:moto|negocia|prioritario|solicitacoes|pgto|entrega)\\b");
         boolean action=has(t,"\\baceitar\\b|\\bescolher\\b");
         boolean price=PRICE.matcher(t).find();
 
