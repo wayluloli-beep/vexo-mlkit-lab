@@ -206,3 +206,49 @@ jobs:
           else
             echo "PR #24: branch ausente; auditoria integrada não realizada." >> "$GITHUB_STEP_SUMMARY"
           fi
+
+      - name: Revisão integrada PR 25 (limpeza de alertas, somente leitura)
+        shell: bash
+        run: |
+          if git fetch --no-tags --depth=1 origin refs/heads/fix/live-offer-episode-dedup; then
+            git worktree add --detach "$RUNNER_TEMP/vexo-pr25-review" FETCH_HEAD
+            sha=$(git -C "$RUNNER_TEMP/vexo-pr25-review" rev-parse HEAD)
+            root="$RUNNER_TEMP/vexo-pr25-review"
+            set +e
+            python tools/media_projection_security/check_contract.py \
+              --root "$root" --require-capture --json > "$RUNNER_TEMP/pr25-contract.json"
+            python tools/media_projection_security/lifecycle_review.py \
+              --root "$root" --require-service --json > "$RUNNER_TEMP/pr25-lifecycle.json"
+            python tools/media_projection_security/memory_review.py \
+              --root "$root" --json > "$RUNNER_TEMP/pr25-memory.json"
+            python tools/media_projection_security/ordering_review.py \
+              --root "$root" --require-service --json > "$RUNNER_TEMP/pr25-order.json"
+            python tools/media_projection_security/notification_review.py \
+              --root "$root" --require-service --json > "$RUNNER_TEMP/pr25-notification.json"
+            set -e
+            python - "$RUNNER_TEMP" "$sha" <<'PY'
+          import json
+          import os
+          import sys
+          from pathlib import Path
+          root = Path(sys.argv[1])
+          names = ("contract", "lifecycle", "memory", "order", "notification")
+          out = ["### PR #25 — reauditoria read-only",
+                 "HEAD auditado: " + sys.argv[2]]
+          counter = {"PASS": 0, "FAIL": 0, "SKIP": 0}
+          for name in names:
+              checks = json.loads((root / ("pr25-" + name + ".json")).read_text(encoding="utf-8"))["checks"]
+              out.append("**" + name + "**")
+              for item in checks:
+                  counter[item["status"]] = counter.get(item["status"], 0) + 1
+                  out.append("- " + item["status"] + " " + item["code"] + ": " + item["detail"])
+          out.append("TOTAL: " + ", ".join(str(counter[k]) + " " + k for k in ("PASS", "FAIL", "SKIP")))
+          out.append("Checks estáticos apenas; teste STOP x OCR e sessão MediaProjection e2e ainda necessários.")
+          report = "\n\n".join(out) + "\n"
+          print(report)
+          with open(os.environ["GITHUB_STEP_SUMMARY"], "a", encoding="utf-8") as out_file:
+              out_file.write(report)
+          PY
+          else
+            echo "PR #25 indisponível; revisão integrada não executada." >> "$GITHUB_STEP_SUMMARY"
+          fi
