@@ -29,6 +29,12 @@ import java.util.regex.Pattern;
 public final class OcrRoiRecheck {
     private OcrRoiRecheck() {}
 
+    // Ancora espacial mesmo quando o multiplicador nao virou um numero legivel.
+    private static final Pattern PRICE_ANCHOR = Pattern.compile(
+        "R\\s*\\$\\s*\\d{1,4}[.,]\\d{2}", Pattern.CASE_INSENSITIVE);
+    private static final Pattern RIDER_ANCHOR = Pattern.compile(
+        "\\b\\d{1,5}\\s+corridas\\b",
+        Pattern.CASE_INSENSITIVE | Pattern.UNICODE_CASE);
     private static final Pattern KM_LINE = Pattern.compile("\\bmin\\b.*\\bkm\\b",
         Pattern.CASE_INSENSITIVE | Pattern.UNICODE_CASE);
     private static final Pattern SURGE_LINE = Pattern.compile("\\d+[.,]\\d+\\s*[x×]",
@@ -72,12 +78,20 @@ public final class OcrRoiRecheck {
         boolean suspectSurge=parsed.get("surge").isEmpty();
         boolean suspectRate=parsed.get("perKm").isEmpty();
         Rect lastTrip=null, firstSurge=null, firstRate=null;
+        Rect firstPriceAnchor=null, firstRiderAnchor=null;
         // Ordem visual e coordenadas: sem depender de enderecos ou texto inteiro.
         for (Text.TextBlock block:scan.getTextBlocks()) {
             for (Text.Line line:block.getLines()) {
                 Rect rect=line.getBoundingBox();
                 if (rect==null) continue;
                 String value=line.getText();
+                if (suspectSurge && firstPriceAnchor==null &&
+                    PRICE_ANCHOR.matcher(value).find() &&
+                    !value.toLowerCase(Locale.ROOT).contains("aceitar por")) {
+                    firstPriceAnchor=new Rect(rect);
+                }
+                if (suspectSurge && firstRiderAnchor==null &&
+                    RIDER_ANCHOR.matcher(value).find()) firstRiderAnchor=new Rect(rect);
                 if (suspectTrip && KM_LINE.matcher(value).find()) {
                     if (lastTrip==null || rect.top>lastTrip.top) lastTrip=rect;
                 }
@@ -85,8 +99,30 @@ public final class OcrRoiRecheck {
                 if (suspectRate && firstRate==null && RATE_LINE.matcher(value).find()) firstRate=rect;
             }
         }
+        // Fallback por CONTEXTO: mesmo se o OCR nao vir "2,8x" nem o "x",
+        // procurar a faixa entre preco principal e perfil de corridas.
+        // Essa ROI e uma hipotese de leitura, NAO prova de que exista dinamica.
+        if (suspectSurge && firstSurge==null &&
+            firstPriceAnchor!=null && firstRiderAnchor!=null &&
+            firstRiderAnchor.top>firstPriceAnchor.top) {
+            int gap=firstRiderAnchor.top-firstPriceAnchor.bottom;
+            // Recusar layouts muito afastados/ambiguos: evitar incluir GPS/mapa.
+            if (gap>=12 && gap<=Math.min(330,image.getHeight()/3)) {
+                int padX=Math.max(18,image.getWidth()/18);
+                int left=Math.max(0,Math.min(firstPriceAnchor.left,firstRiderAnchor.left)-padX);
+                int right=Math.min(image.getWidth(),Math.max(
+                    Math.max(firstPriceAnchor.right,firstRiderAnchor.right)+padX,
+                    Math.round(image.getWidth()*0.72f)));
+                int top=Math.max(0,firstPriceAnchor.top-14);
+                int bottom=Math.min(image.getHeight(),firstRiderAnchor.top+12);
+                if (right>left && bottom>top)
+                    firstSurge=new Rect(left,top,right,bottom);
+            }
+        }
         if (lastTrip!=null) found.add(new Region("tripKm",padded(lastTrip,image)));
-        if (firstSurge!=null) found.add(new Region("surge",padded(firstSurge,image)));
+        if (firstSurge!=null) found.add(new Region("surge",
+            // Fallback ja tem margem controlada; sem estender para GPS.
+            padded(firstSurge,image)));
         if (firstRate!=null) found.add(new Region("perKm",padded(firstRate,image)));
         return found;
     }

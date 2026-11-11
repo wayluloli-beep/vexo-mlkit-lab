@@ -92,4 +92,44 @@ public final class OcrRoiRecheckTest {
         assertEquals("",parsed.get("surge"));
         assertFalse(FinancialGuard.assess(parsed).canCalculate);
     }
+    @Test public void anchorFallbackFindsRegionWhenOnlyFourXIsRead() throws Exception {
+        Bitmap b=card(true,
+            "99 Moto",
+            "R$40,70",
+            "4x",
+            "4,98 971 corridas",
+            "9 min (3 km)",
+            "24 min (11,8 km)");
+        try (TextRecognizer reader=TextRecognition.getClient(TextRecognizerOptions.DEFAULT_OPTIONS)) {
+            Text full=Tasks.await(reader.process(InputImage.fromBitmap(b,0)),90,TimeUnit.SECONDS);
+            OfferParser.Offer parsed=OfferParser.parse(full.getText());
+            parsed.set("surge","");
+            OcrRoiRecheck.Region region=null;
+            for (OcrRoiRecheck.Region candidate:OcrRoiRecheck.findRegions(full,b,parsed)) {
+                if ("surge".equals(candidate.field)) region=candidate;
+            }
+            assertNotNull("Uma falha no numero deve usar ancora preco + corridas",region);
+            OcrRoiRecheck.Probe candidate=Tasks.await(OcrRoiRecheck.recheck(reader,b,region),
+                90,TimeUnit.SECONDS);
+            assertEquals("Nao inventar um 2,8 a partir de 4x","",candidate.suggestion);
+            assertEquals("",parsed.get("surge"));
+        } finally { b.recycle(); }
+    }
+
+    @Test public void noProfileAnchorMeansNoBlindSurgeCrop() throws Exception {
+        Bitmap b=card(false,
+            "99 Moto",
+            "R$40,70",
+            "Navegacao 4x",
+            "9 min (3 km)",
+            "24 min (11,8 km)");
+        try (TextRecognizer reader=TextRecognition.getClient(TextRecognizerOptions.DEFAULT_OPTIONS)) {
+            Text full=Tasks.await(reader.process(InputImage.fromBitmap(b,0)),90,TimeUnit.SECONDS);
+            OfferParser.Offer parsed=OfferParser.parse(full.getText());
+            parsed.set("surge","");
+            for(OcrRoiRecheck.Region region:OcrRoiRecheck.findRegions(full,b,parsed))
+                assertFalse("Sem ancora de perfil, nao inventar ROI", "surge".equals(region.field));
+        } finally { b.recycle(); }
+    }
+
 }
