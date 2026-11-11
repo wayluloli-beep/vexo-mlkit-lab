@@ -6,7 +6,7 @@
     <!-- Somente com autorização explícita no botão de janelinha. -->
     <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW" />
     <application
-        android:label="Vexo Captura 0.4 (teste)"
+        android:label="Vexo 0.4 Janela (teste)"
         android:theme="@android:style/Theme.Material.NoActionBar"
         android:usesCleartextTraffic="false"
         android:allowBackup="false">
