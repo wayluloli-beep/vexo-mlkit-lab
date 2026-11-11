@@ -10,12 +10,12 @@ import re
 def review_text(source: str) -> list[dict[str, str]]:
     # Current service allocates a full-size RGBA ImageReader (3 buffers) and
     # at least one full-size Bitmap before downscaling. Never trust resize dims.
-    allocations = [m.start() for m in re.finditer(r"\bImageReader\\s*\.\\s*newInstance\\s*\(", source)]
+    allocations = [m.start() for m in re.finditer(r"\bImageReader\s*\.\s*newInstance\s*\(", source)]
     guarded = []
     for at in allocations:
         # Inspect the immediately preceding code for a centralized budget gate.
         prior = source[max(0, at - 450):at]
-        guarded.append(bool(re.search(r"\b(?:checkFrameBudget|withinFrameBudget|requireFrameBudget)\\s*\(", prior)))
+        guarded.append(bool(re.search(r"\b(?:checkFrameBudget|withinFrameBudget|requireFrameBudget)\s*\(", prior)))
     # A check in extract() is too late: the reader already allocated buffers.
     return [{
         "code": "FRAME_MEMORY_BUDGET_BEFORE_READER",
