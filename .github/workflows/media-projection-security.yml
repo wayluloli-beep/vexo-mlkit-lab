@@ -39,6 +39,30 @@ jobs:
               with open(__import__("os").environ["GITHUB_STEP_SUMMARY"],"a") as out:
                   out.write("P1: PR38 visibility=false clears candidate but leaves foreground offer notification stale.\\n")
           PY
+      - name: Revisar proveniência Galeria versus 99 no Android atual (read-only)
+        shell: bash
+        run: |
+          git fetch --no-tags --depth=1 origin refs/heads/fix/require-offer-transition
+          git worktree add --detach "$RUNNER_TEMP/vexo-gallery-scope" FETCH_HEAD
+          python - "$RUNNER_TEMP/vexo-gallery-scope" <<'PY'
+          from pathlib import Path
+          import os,sys
+          root=Path(sys.argv[1])
+          svc=(root/"app/src/main/java/com/vexo/mlkitlab/LiveCaptureService.java").read_text()
+          activity=(root/"app/src/main/java/com/vexo/mlkitlab/LiveCaptureActivity.java").read_text()
+          sys.path.insert(0,str(Path("tools/media_projection_security/tests").resolve()))
+          from test_gallery_capture_scope_contract import inspect_gallery_guard
+          safe=inspect_gallery_guard(svc,activity)
+          sha=__import__("subprocess").check_output(
+              ["git","-C",str(root),"rev-parse","HEAD"],text=True).strip()
+          msg=("PASS explicit provenance guard" if safe else
+               "P1 BLOCK: no explicit lab/gallery provenance gate before live offer alert")
+          print("Android branch",sha,msg)
+          with open(os.environ["GITHUB_STEP_SUMMARY"],"a") as out:
+              out.write("### Galeria versus 99 live (static read-only)\\n\\n"
+                        +sha+" — "+msg+"\\n\\n"
+                        +"Requires native consent-scope E2E; source scan is not approval.\\n")
+          PY
       - name: Verificar Manifest e caminho de captura presente no PR
         run: python tools/media_projection_security/check_contract.py --root .
       - name: Diagnóstico sem escrita da branch Android do Agente 1
