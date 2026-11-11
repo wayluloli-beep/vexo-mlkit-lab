@@ -54,15 +54,63 @@ def _fit_output_feeds_allocation(prior: str, first_dim: str, second_dim: str,
     return False
 
 
+def _closing_brace(source: str, begin: int) -> int:
+    """Find end of a brace-delimited block with string-literal awareness."""
+    depth = 1
+    quote = None
+    escape = False
+    for at in range(begin, len(source)):
+        c = source[at]
+        if quote:
+            if escape:
+                escape = False
+            elif c == "\\":
+                escape = True
+            elif c == quote:
+                quote = None
+        elif c in "'\"":
+            quote = c
+        elif c == "{":
+            depth += 1
+        elif c == "}":
+            depth -= 1
+            if depth == 0:
+                return at
+    return len(source)
+
+
+def _prefix_in_enclosing_method(source: str, position: int,
+                                methods: list[tuple[re.Match, int]]) -> str:
+    """Exclude previous nested callback methods from guard evidence.
+
+    The most recent method before an allocation may be onStop inside a
+    MediaProjection.Callback already CLOSED, rather than initiate itself.
+    """
+    containing = [(m, end) for m, end in methods
+                  if m.end() <= position < end]
+    if not containing:
+        return source[:position]
+    outer, _ = max(containing, key=lambda item: item[0].start())
+    prefix = list(source[outer.end():position])
+    for inner, end in methods:
+        if inner.start() > outer.start() and outer.end() <= inner.start() and end < position:
+            # Keep offsets stable while excluding code in prior nested methods.
+            lo = max(0, inner.start() - outer.end())
+            hi = min(len(prefix), end + 1 - outer.end())
+            for i in range(lo, hi):
+                prefix[i] = " "
+    return "".join(prefix)
+
+
 def review_text(source: str, dimensions_source: str | None = None) -> list[dict[str, str]]:
     clean = _COMMENT.sub("", source)
-    methods = list(_METHOD_START.finditer(clean))
+    methods = [(m, _closing_brace(clean, m.end()))
+               for m in _METHOD_START.finditer(clean)]
     allocations = list(_ALLOC.finditer(clean))
     verified_helper = bool(dimensions_source and _dimensions_helper_has_bounded_fit(dimensions_source))
     guarded = []
     for alloc in allocations:
-        method = next((m for m in reversed(methods) if m.end() <= alloc.start()), None)
-        prior = clean[method.end():alloc.start()] if method else clean[:alloc.start()]
+        prior = _prefix_in_enclosing_method(clean, alloc.start(), methods)
         direct = bool(_GUARD.search(prior))
         via_fit = _fit_output_feeds_allocation(prior, alloc.group(1), alloc.group(2), verified_helper)
         guarded.append(direct or via_fit)
