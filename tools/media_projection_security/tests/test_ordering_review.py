@@ -48,8 +48,9 @@ class OrderingTests(unittest.TestCase):
 
     def test_callback_after_display_is_blocked(self):
         token = '    display=projection.createVirtualDisplay("test",w,h,dpi,0,surface,null,null);\n'
-        changed = VALID.replace("    projection.registerCallback(", token + "    projection.registerCallback(")
-        changed = changed.replace(token + " }\n}", " }\n}")
+        changed = VALID.replace(token, "")
+        changed = changed.replace("    projection.registerCallback(",
+                                  token + "    projection.registerCallback(")
         self.assertEqual("FAIL", statuses(changed)["CALLBACK_BEFORE_DISPLAY"])
 
     def test_projection_after_callback_is_blocked(self):
@@ -63,11 +64,10 @@ class OrderingTests(unittest.TestCase):
         self.assertEqual("FAIL", statuses(changed)["GET_PROJECTION_BEFORE_CALLBACK"])
 
     def test_comments_cannot_fake_foreground_order(self):
-        changed = VALID.replace("    initiate(resultCode,consent);",
-                                "    // startForeground(7,notification);\n    initiate(resultCode,consent);")
-        changed = changed.replace("startForeground(7,notification,FOREGROUND_SERVICE_TYPE_MEDIA_PROJECTION)",
-                                  "notForeground(7,notification,FOREGROUND_SERVICE_TYPE_MEDIA_PROJECTION)")
-        changed = changed.replace("startForeground(7,notification);", "notForeground(7,notification);")
+        changed = VALID.replace("startForeground(", "notForeground(")
+        changed = changed.replace(
+            "    initiate(resultCode,consent);",
+            "    // startForeground(7,notification);\n    initiate(resultCode,consent);")
         self.assertEqual("FAIL", statuses(changed)["FOREGROUND_BEFORE_CAPTURE_START"])
 
     def test_multiple_projection_callsites_are_blocked(self):
