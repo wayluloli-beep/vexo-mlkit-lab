@@ -97,9 +97,9 @@ public final class BatchOcrActivity extends Activity {
         root.setPadding(dp(20),dp(32),dp(20),dp(40));
         scroll.addView(root);
         add(root,txt("VEXO",30,cyan,true),0);
-        add(root,txt("OCR • Teste automático 0.3.4",19,Color.WHITE,true),5);
-        add(root,txt("Selecione o ZIP de homologação uma única vez. O ML Kit lê todas as imagens e o Vexo compara cada resultado com o gabarito.",14,0xFFB1C2D0,false),12);
-        add(root,txt("Local e sem internet. Não salva ofertas de teste no histórico. O relatório não inclui imagens, endereços ou texto bruto.",12,0xFF87DBC8,false),12);
+        add(root,txt("OCR • Teste automático 0.3.5",19,Color.WHITE,true),5);
+        add(root,txt("Selecione o ZIP de homologação. O ML Kit compara os campos e tenta uma releitura experimental em regiões suspeitas, sem alterar os valores originais.",14,0xFFB1C2D0,false),12);
+        add(root,txt("Processamento local; o relatório guarda só valores numéricos e diagnósticos. Sugestões ROI exigem conferência humana; nenhuma oferta é alterada.",12,0xFF87DBC8,false),12);
         select=button("Selecionar ZIP e testar tudo",cyan);
         add(root,select,22); select.setOnClickListener(v -> pickZip());
 
@@ -146,7 +146,7 @@ public final class BatchOcrActivity extends Activity {
         Intent i=new Intent(Intent.ACTION_CREATE_DOCUMENT);
         i.setType("application/json");
         i.addCategory(Intent.CATEGORY_OPENABLE);
-        i.putExtra(Intent.EXTRA_TITLE,"vexo-ocr-batch-0.3.4-report.json");
+        i.putExtra(Intent.EXTRA_TITLE,"vexo-ocr-batch-0.3.5-report.json");
         startActivityForResult(i,SAVE_REPORT);
     }
     @Override protected void onActivityResult(int req, int code, Intent data) {
@@ -266,24 +266,87 @@ public final class BatchOcrActivity extends Activity {
             status.setText("Lendo "+(current+1)+"/"+cases.size()+" • "+id);
             InputImage img=InputImage.fromBitmap(bitmap,0);
             recognizer.process(img)
-                .addOnSuccessListener(text -> addEvaluation(item,OfferParser.parse(text.getText()),null,text.getText()))
-                .addOnFailureListener(err -> addEvaluation(item,new OfferParser.Offer(),err.getClass().getSimpleName(),null))
-                .addOnCompleteListener(task -> {
-                    toRelease.recycle();
-                    current++;
-                    progress.setProgress(current);
-                    scanNext();
+                .addOnSuccessListener(text -> {
+                    OfferParser.Offer baseline=OfferParser.parse(text.getText());
+                    // Diagnóstico ROI: NÃO corrige a oferta nem modifica a pontuação original.
+                    // Releitura limitada a 3 regiões; resultados apenas numéricos no JSON.
+                    java.util.List<OcrRoiRecheck.Region> regions=
+                        OcrRoiRecheck.findRegions(text,toRelease,baseline);
+                    runRoiDiagnostics(item,baseline,text.getText(),toRelease,
+                        regions,0,new JSONObject());
+                })
+                .addOnFailureListener(err -> {
+                    addEvaluation(item,new OfferParser.Offer(),
+                        err.getClass().getSimpleName(),null,new JSONObject());
+                    completeCase(toRelease);
                 });
         } catch (Exception e) {
             if (bitmap!=null) bitmap.recycle();
-            addEvaluation(item,new OfferParser.Offer(),e.getClass().getSimpleName(),null);
+            addEvaluation(item,new OfferParser.Offer(),e.getClass().getSimpleName(),null,new JSONObject());
             current++;
             progress.setProgress(current);
             scanNext();
         }
     }
 
-    private void addEvaluation(JSONObject item, OfferParser.Offer predicted, String error, String rawOcr) {
+    private void completeCase(Bitmap bitmap) {
+        if (bitmap!=null && !bitmap.isRecycled()) bitmap.recycle();
+        current++;
+        progress.setProgress(current);
+        scanNext();
+    }
+
+    /**
+     * A imagem permanece em memória até TODAS as leituras da região terminarem.
+     * Nunca armazenar/transmitir o texto bruto nem pixels no relatório.
+     */
+    private void runRoiDiagnostics(JSONObject item, OfferParser.Offer baseline, String raw,
+            Bitmap bitmap, java.util.List<OcrRoiRecheck.Region> regions,
+            int index, JSONObject evidence) {
+        if (index>=regions.size() || index>=3) {
+            addEvaluation(item,baseline,null,raw,evidence);
+            completeCase(bitmap);
+            return;
+        }
+        OcrRoiRecheck.Region region=regions.get(index);
+        status.setText("Analisando "+(current+1)+"/"+cases.size()+
+            " • região "+(index+1)+"/"+Math.min(3,regions.size()));
+        try {
+            OcrRoiRecheck.recheck(recognizer,bitmap,region)
+                .addOnSuccessListener(probe -> {
+                    try {
+                        JSONObject detail=new JSONObject();
+                        detail.put("candidate",probe.suggestion);
+                        detail.put("twoVariantsAgree",probe.twoVariantsAgree);
+                        detail.put("baselineValue",baseline.get(probe.field));
+                        detail.put("status",probe.suggestion.isEmpty()?
+                            "not_recovered":"candidate_for_human_review");
+                        detail.put("notAutomaticallyApplied",true);
+                        evidence.put(probe.field,detail);
+                    } catch (Exception ignored) {}
+                    runRoiDiagnostics(item,baseline,raw,bitmap,regions,index+1,evidence);
+                })
+                .addOnFailureListener(err -> {
+                    try {
+                        evidence.put(region.field,new JSONObject()
+                            .put("candidate","")
+                            .put("status","recheck_failed")
+                            .put("notAutomaticallyApplied",true));
+                    } catch(Exception ignored) {}
+                    runRoiDiagnostics(item,baseline,raw,bitmap,regions,index+1,evidence);
+                });
+        } catch(Exception err) {
+            try {
+                evidence.put(region.field,new JSONObject()
+                    .put("candidate","")
+                    .put("status","recheck_failed")
+                    .put("notAutomaticallyApplied",true));
+            } catch(Exception ignored) {}
+            runRoiDiagnostics(item,baseline,raw,bitmap,regions,index+1,evidence);
+        }
+    }
+
+    private void addEvaluation(JSONObject item, OfferParser.Offer predicted, String error, String rawOcr, JSONObject roiEvidence) {
         try {
             JSONObject truth=item.getJSONObject("ground_truth");
             JSONObject row=new JSONObject();
@@ -331,6 +394,7 @@ public final class BatchOcrActivity extends Activity {
             safety.put("reasons",new JSONArray(audit.reasons));
             row.put("financialSafety",safety);
             row.put("ocrEvidence",OcrEvidence.diagnostic(rawOcr,fields));
+            row.put("roiDiagnostics",roiEvidence);
             row.put("fields",fields);
             row.put("correct",hits);
             row.put("tested",fieldsTested);
@@ -420,7 +484,7 @@ public final class BatchOcrActivity extends Activity {
             images.clear();
             JSONObject report=new JSONObject();
             report.put("schema","vexo-ocr-batch-report-v1");
-            report.put("appVersion","0.3.4");
+            report.put("appVersion","0.3.5");
             report.put("generator","Android Google ML Kit + OfferParser 0.3");
             report.put("timestampMs",System.currentTimeMillis());
             report.put("testImages",cases.size());
@@ -462,7 +526,7 @@ public final class BatchOcrActivity extends Activity {
         try {
             File folder=new File(getCacheDir(),"reports");
             if (!folder.exists() && !folder.mkdirs()) throw new Exception("Pasta local indisponível");
-            File file=new File(folder,"vexo-ocr-relatorio-0.3.4.json");
+            File file=new File(folder,"vexo-ocr-relatorio-0.3.5.json");
             byte[] content=reportJson.getBytes(StandardCharsets.UTF_8);
             try (FileOutputStream out=new FileOutputStream(file,false)) {
                 out.write(content);
