@@ -72,15 +72,35 @@ public final class LiveProjectionConsentE2eTest {
         start.click();
     }
 
-    private static boolean awaitCounts(int minFrames,int minOcr,int minAlerts,long timeout)
+    private static void requireCount(String stage,int index,long minimum,long timeout)
             throws InterruptedException {
         long end=android.os.SystemClock.elapsedRealtime()+timeout;
+        long[] counts;
         do {
-            long[] n=LiveCaptureState.counts();
-            if(n[0]>=minFrames && n[1]>=minOcr && n[2]>=minAlerts) return true;
+            counts=LiveCaptureState.counts();
+            if(counts[index]>=minimum) return;
             Thread.sleep(350);
         } while(android.os.SystemClock.elapsedRealtime()<end);
-        return false;
+        counts=LiveCaptureState.counts();
+        fail(stage+" timeout: frames="+counts[0]+", ocr="+counts[1]+
+            ", avisos="+counts[2]+" (apenas contadores agregados)");
+    }
+
+    private static void stopAndVerify(android.content.Context context)
+            throws InterruptedException {
+        Intent stop=new Intent(context,LiveCaptureService.class)
+            .setAction(LiveCaptureService.ACTION_STOP);
+        context.startService(stop);
+        long deadline=android.os.SystemClock.elapsedRealtime()+UI_TIMEOUT_MS;
+        while(LiveCaptureState.snapshot().startsWith("CAPTURA ATIVA:") &&
+                android.os.SystemClock.elapsedRealtime()<deadline) {
+            Thread.sleep(250);
+        }
+        assertTrue("STOP não encerrou sessão autorizada",
+            LiveCaptureState.snapshot().startsWith("SEM CAPTURA:"));
+        Thread.sleep(1800);
+        assertFalse("OCR antigo reapareceu após STOP",
+            LiveCaptureState.snapshot().contains("Preço R$40,70"));
     }
 
     @Test public void nativeConsentThenFakeOfferProducesRealFramesAndStops()
@@ -114,26 +134,16 @@ public final class LiveProjectionConsentE2eTest {
             demo=instrumentation.startActivitySync(demoIntent);
             instrumentation.waitForIdleSync();
 
-            assertTrue("Não recebeu 2 frames, 2 leituras OCR e 1 alerta da tela " +
-                "fictícia durante MediaProjection",
-                awaitCounts(2,2,1,OCR_TIMEOUT_MS));
-            assertTrue("Card fictício não chegou ao resultado",
-                LiveCaptureState.snapshot().contains("Preço R$40,70"));
-
-            // STOP durante uma captura real. Não permitir candidatos depois.
-            Intent stop=new Intent(context,LiveCaptureService.class)
-                .setAction(LiveCaptureService.ACTION_STOP);
-            context.startService(stop);
-            long stopDeadline=android.os.SystemClock.elapsedRealtime()+UI_TIMEOUT_MS;
-            while(LiveCaptureState.snapshot().startsWith("CAPTURA ATIVA:") &&
-                    android.os.SystemClock.elapsedRealtime()<stopDeadline) {
-                Thread.sleep(250);
+            try {
+                requireCount("ImageReader frames",0,2,OCR_TIMEOUT_MS);
+                requireCount("ML Kit OCR concluído",1,2,OCR_TIMEOUT_MS);
+                requireCount("Oferta validada/aviso",2,1,OCR_TIMEOUT_MS);
+                assertTrue("Card fictício não chegou ao resultado",
+                    LiveCaptureState.snapshot().contains("Preço R$40,70"));
+            } finally {
+                // STOP também é verificado quando frames/OCR/classificação falham.
+                stopAndVerify(context);
             }
-            assertTrue("STOP não encerrou a sessão autorizada",
-                LiveCaptureState.snapshot().startsWith("SEM CAPTURA:"));
-            Thread.sleep(1800);
-            assertFalse("OCR antigo não pode reabrir oferta após STOP",
-                LiveCaptureState.snapshot().contains("Preço R$40,70"));
         } finally {
             Intent stop=new Intent(context,LiveCaptureService.class)
                 .setAction(LiveCaptureService.ACTION_STOP);
