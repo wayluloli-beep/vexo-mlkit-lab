@@ -25,6 +25,17 @@ Conferência cruzada: os contadores das dez amostras somam **111 conferidos e 10
 
 Os outros campos informados (`platform`, `offerType`, `payment`, `pickupMin`, `pickupKm`, `tripMin`, `rating`, `rides`, `negotiations`) tiveram 100% entre os itens **efetivamente checados**, com denominadores diferentes. Valores não testados não contam como acertos.
 
+## Quantas ofertas foram afetadas?
+
+Os cinco erros declarados estavam distribuídos por **4 das 10 imagens**: `99_003`, `99_007`, `99_008` e `99_010`.
+
+- Ofertas com qualquer erro reportado: **4/10 (40%)**.
+- Ofertas com erro em campo diretamente financeiro (`surge` ou `perKm`): **4/10 (40%)**.
+- Ofertas com erro de distância (`tripKm`): **1/10 (10%)**.
+- União dos erros financeiros diretos e de distância: **4/10 (40%)**, não 5/10. O caso `99_003` apresentou **dois erros** e deve ser contado uma vez nessa medida.
+
+**Importante:** essas taxas descrevem apenas as dez imagens e os campos conferidos na exportação fornecida, **não** a frequência esperada de erro em novas corridas. As ofertas não são uma amostra independente representativa do trânsito de produção.
+
 ## Cinco discrepâncias, todas em campos sensíveis à decisão
 
 | Caso | Campo | Esperado | Extraído | Interpretação |
