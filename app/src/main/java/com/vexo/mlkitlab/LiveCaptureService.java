@@ -435,6 +435,8 @@ public final class LiveCaptureService extends Service {
             text==null || !ScreenContextClassifier.has99PlatformMarker(text)) {
             boolean definitelyNoOffer=
                 context==ScreenContextClassifier.Kind.MAP_WITHOUT_OFFER ||
+                context==ScreenContextClassifier.Kind.EXPIRED_REQUEST ||
+                context==ScreenContextClassifier.Kind.PROMOTION ||
                 context==ScreenContextClassifier.Kind.COMPLETED_TRIP ||
                 context==ScreenContextClassifier.Kind.ARCHIVED_OFFER_SCREENSHOT ||
                 context==ScreenContextClassifier.Kind.SOCIAL_POST_WITH_SCREENSHOT;
