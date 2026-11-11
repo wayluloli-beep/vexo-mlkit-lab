@@ -44,11 +44,12 @@ import java.util.concurrent.atomic.AtomicLong;
 public final class LiveCaptureService extends Service {
     public static final String ACTION_START="com.vexo.mlkitlab.START_CAPTURE";
     public static final String ACTION_STOP="com.vexo.mlkitlab.STOP_CAPTURE";
+    public static final String ACTION_HIDE_OVERLAY="com.vexo.mlkitlab.HIDE_OVERLAY";
     public static final String EXTRA_RESULT_CODE="consent_result_code";
     public static final String EXTRA_CONSENT_DATA="consent_data";
     private static final String CHANNEL="vexo_capture_status";
     private static final int NOTIFICATION_ID=812;
-    private static final long FRAME_INTERVAL_MS=1400; // ~0.7 inferência/s no máximo
+    private static final long FRAME_INTERVAL_MS=700; // ~1.4 inferências/s se ML Kit acompanhar
     private static final long MAX_FRAME_AGE_MS=3000; // limite experimental; não garantia de prazo
 
     private final AtomicLong epoch=new AtomicLong(0);
@@ -89,6 +90,11 @@ public final class LiveCaptureService extends Service {
         String action=intent.getAction();
         if(ACTION_STOP.equals(action)) {
             shutdown();
+            return START_NOT_STICKY;
+        }
+        if(ACTION_HIDE_OVERLAY.equals(action)) {
+            scheduleOverlayHide();
+            if(!active) stopSelf();
             return START_NOT_STICKY;
         }
         if(!ACTION_START.equals(action)) return START_NOT_STICKY;
@@ -388,21 +394,25 @@ public final class LiveCaptureService extends Service {
         });
     }
 
-    private void scheduleOverlayOffer(long session,String numericSummary) {
+    private void scheduleOverlayOffer(long session,VexoOverlaySummary.Metrics metrics) {
         final long version=overlayGeneration.incrementAndGet();
         main.post(() -> {
             synchronized(sessionLock) {
                 if(version!=overlayGeneration.get() || !sessionAlive(session)) return;
                 if(offerOverlay==null) offerOverlay=new VexoOfferOverlay(this);
-                offerOverlay.offer(numericSummary);
+                offerOverlay.offer(metrics);
             }
         });
     }
 
     private void scheduleOverlayHide() {
-        overlayGeneration.incrementAndGet();
+        final long version=overlayGeneration.incrementAndGet();
         main.post(() -> {
-            if(offerOverlay!=null) offerOverlay.hide();
+            synchronized(sessionLock) {
+                // STOP de sessão A não pode ocultar janela da sessão B.
+                if(version!=overlayGeneration.get()) return;
+                if(offerOverlay!=null) offerOverlay.hide();
+            }
         });
     }
 
@@ -445,7 +455,7 @@ public final class LiveCaptureService extends Service {
         ScreenContextClassifier.Kind context=
             ScreenContextClassifier.classify(text==null?"":text);
         if(context!=ScreenContextClassifier.Kind.OFFER_CANDIDATE ||
-            text==null || !ScreenContextClassifier.has99PlatformMarker(text)) {
+            text==null || !ScreenContextClassifier.has99OfferCue(text)) {
             boolean definitelyNoOffer=
                 context==ScreenContextClassifier.Kind.MAP_WITHOUT_OFFER ||
                 context==ScreenContextClassifier.Kind.EXPIRED_REQUEST ||
@@ -482,7 +492,8 @@ public final class LiveCaptureService extends Service {
             // O mesmo card pode ficar 30+ frames visível: alertar UMA vez.
             // Quando mapa/outro contexto aparece por dois frames, um novo card
             // com os mesmos valores também pode ser notificado.
-            boolean newEpisode=episodes.observe(fingerprint);
+            boolean newEpisode=episodes.observeAt(
+                fingerprint,SystemClock.elapsedRealtime());
             if(!sessionAlive(session)) return;
             String summary="Preço R$"+price+" • viagem "+trip+
                 " km / "+duration+" min (confira na tela)";
@@ -492,12 +503,16 @@ public final class LiveCaptureService extends Service {
                     // Restauração é apenas UI. Nunca emitir notificação de
                     // nova oferta após dois frames estáveis da mesma corrida.
                     LiveCaptureState.restoreCandidate(summary);
-                    scheduleOverlayOffer(session,VexoOverlaySummary.format(price,trip,duration));
+                    scheduleOverlayOffer(session,VexoOverlaySummary.fromFields(
+                        price,pickup,trip,offer.get("pickupMin"),duration,
+                        offer.get("rating")));
                 }
                 return;
             }
             LiveCaptureState.candidate(summary);
-            scheduleOverlayOffer(session,VexoOverlaySummary.format(price,trip,duration));
+            scheduleOverlayOffer(session,VexoOverlaySummary.fromFields(
+                        price,pickup,trip,offer.get("pickupMin"),duration,
+                        offer.get("rating")));
             // Notificação sem valores, nomes ou endereços do passageiro.
             NotificationManager nm=(NotificationManager)getSystemService(NOTIFICATION_SERVICE);
             if(nm!=null) nm.notify(NOTIFICATION_ID,notification(true));
