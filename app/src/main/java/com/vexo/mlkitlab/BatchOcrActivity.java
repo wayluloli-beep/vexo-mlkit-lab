@@ -124,6 +124,11 @@ public final class BatchOcrActivity extends Activity {
         resultsView.setOrientation(LinearLayout.VERTICAL);
         add(root,resultsView,10);
         setContentView(scroll);
+        reportJson=getSharedPreferences("vexo_batch_report",MODE_PRIVATE).getString("json","");
+        if (!reportJson.isEmpty()) {
+            export.setEnabled(true); share.setEnabled(true); copy.setEnabled(true);
+            status.setText("Relatório anterior recuperado. Pode compartilhar sem repetir o lote.");
+        }
     }
 
     private void pickZip() {
@@ -148,6 +153,11 @@ public final class BatchOcrActivity extends Activity {
         super.onActivityResult(req,code,data);
         if (code!=RESULT_OK || data==null || data.getData()==null) return;
         if (req==SAVE_REPORT) {
+            if (reportJson.isEmpty()) reportJson=getSharedPreferences("vexo_batch_report",MODE_PRIVATE).getString("json","");
+            if (reportJson.isEmpty()) {
+                status.setText("Sem dados para exportar. Nenhum arquivo vazio foi gravado.");
+                return;
+            }
             try (OutputStream stream=getContentResolver().openOutputStream(data.getData(),"wt")) {
                 if (stream==null) throw new Exception("Arquivo não disponível");
                 byte[] output=reportJson.getBytes(StandardCharsets.UTF_8);
@@ -182,6 +192,7 @@ public final class BatchOcrActivity extends Activity {
         cases.clear(); images.clear(); perField.clear();
         evaluations=new JSONArray();
         reportJson="";
+        getSharedPreferences("vexo_batch_report",MODE_PRIVATE).edit().remove("json").apply();
         current=matched=checked=discrepancies=failures=0;
         progress.setProgress(0);
         resultsView.removeAllViews();
@@ -420,6 +431,7 @@ public final class BatchOcrActivity extends Activity {
             report.put("perField",breakdown);
             report.put("samples",evaluations);
             reportJson=report.toString(2);
+            getSharedPreferences("vexo_batch_report",MODE_PRIVATE).edit().putString("json",reportJson).commit();
             export.setEnabled(true);
             share.setEnabled(true);
             copy.setEnabled(true);
@@ -437,7 +449,8 @@ public final class BatchOcrActivity extends Activity {
      * Evita depender do gerenciador de arquivos para salvar e depois anexar.
      */
     private void shareReport() {
-        if (reportJson.isEmpty()) return;
+        if (reportJson.isEmpty()) reportJson=getSharedPreferences("vexo_batch_report",MODE_PRIVATE).getString("json","");
+        if (reportJson.isEmpty()) { status.setText("Nenhum relatório disponível."); return; }
         try {
             File folder=new File(getCacheDir(),"reports");
             if (!folder.exists() && !folder.mkdirs()) throw new Exception("Pasta local indisponível");
@@ -464,7 +477,8 @@ public final class BatchOcrActivity extends Activity {
     }
 
     private void copyReport() {
-        if (reportJson.isEmpty()) return;
+        if (reportJson.isEmpty()) reportJson=getSharedPreferences("vexo_batch_report",MODE_PRIVATE).getString("json","");
+        if (reportJson.isEmpty()) { status.setText("Nenhum relatório disponível."); return; }
         ClipboardManager clipboard=(ClipboardManager)getSystemService(Context.CLIPBOARD_SERVICE);
         if (clipboard==null) { status.setText("Área de transferência indisponível"); return; }
         clipboard.setPrimaryClip(ClipData.newPlainText("Vexo OCR relatório",reportJson));
