@@ -88,6 +88,20 @@ public class ScreenContextClassifierTest {
             ScreenContextClassifier.Kind.MAP_WITHOUT_OFFER);
     }
 
+    @Test public void offersMayLoseThe99LogoButNotTheirOtherSafetyGuards() {
+        String negotiate="Negocia R$12,64 8 min (2,1 km) " +
+            "17 min (7,3 km) Aceitar";
+        kind(negotiate,ScreenContextClassifier.Kind.OFFER_CANDIDATE);
+        assertFalse(ScreenContextClassifier.has99PlatformMarker(negotiate));
+        assertTrue(ScreenContextClassifier.has99OfferCue(negotiate));
+        assertTrue(ScreenContextClassifier.has99OfferCue(
+            "Solicitações R$9,96 6 min (1,2 km) 9 min (3,8 km) Escolher"));
+        assertFalse(ScreenContextClassifier.has99OfferCue(
+            "UberX R$20,40 9 min (3,1 km) 24 min (10,8 km) Aceitar"));
+        assertFalse(ScreenContextClassifier.has99OfferCue(
+            "Promoção do mercado R$0,99"));
+    }
+
     @Test public void expiredRequestAndAdvertisingNeverBecomeLiveOffers() {
         kind("Solicitação de corrida expirou 99 Negocia R$12,64 " +
             "8 min (2,1 km) 17 min (7,3 km) Aceitar",
