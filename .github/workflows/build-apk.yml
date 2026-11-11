@@ -1,5 +1,5 @@
 
-name: Gerar APK Vexo ML Kit
+name: Gerar APK Vexo ML Kit 0.2
 
 on:
   workflow_dispatch:
@@ -19,7 +19,7 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Extrair projeto Vexo
-        run: unzip -oq Vexo_Leitor_MLKit_Projeto_Android.zip
+        run: unzip -nq Vexo_Leitor_MLKit_Projeto_Android.zip
 
       - name: Configurar Java
         uses: actions/setup-java@v4
@@ -40,7 +40,7 @@ jobs:
           gradle-version: '8.11.1'
 
       - name: Compilar APK
-        run: gradle --no-daemon :app:assembleDebug
+        run: gradle --no-daemon :app:testDebugUnitTest :app:assembleDebug
 
       - name: Salvar APK
         uses: actions/upload-artifact@v4
