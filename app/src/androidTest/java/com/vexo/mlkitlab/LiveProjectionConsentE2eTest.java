@@ -4,6 +4,8 @@ import static org.junit.Assert.*;
 
 import android.app.Activity;
 import android.content.Intent;
+import android.view.View;
+import android.widget.Button;
 
 import androidx.test.ext.junit.runners.AndroidJUnit4;
 import androidx.test.platform.app.InstrumentationRegistry;
@@ -16,6 +18,7 @@ import org.json.JSONObject;
 import org.junit.Test;
 import org.junit.runner.RunWith;
 
+import java.util.ArrayList;
 import java.util.regex.Pattern;
 
 /**
@@ -57,10 +60,23 @@ public final class LiveProjectionConsentE2eTest {
         return null;
     }
 
-    private static void expectAndClick(UiDevice device,String label) {
-        UiObject2 button=device.wait(Until.findObject(By.text(label)),UI_TIMEOUT_MS);
-        assertNotNull("Não apareceu o botão de teste: "+label,button);
-        button.click();
+    private static void clickDemoButton(android.app.Instrumentation instrumentation,
+            Activity control) {
+        final String label="Autorizar e testar oferta fictícia";
+        instrumentation.runOnMainSync(() -> {
+            ArrayList<View> matches=new ArrayList<>();
+            control.getWindow().getDecorView().findViewsWithText(
+                matches,label,View.FIND_VIEWS_WITH_TEXT);
+            for(View view:matches) {
+                if(view instanceof Button && label.contentEquals(((Button)view).getText()) &&
+                    view.isShown() && view.isEnabled()) {
+                    assertTrue("O botão de demonstração não tem ação",view.performClick());
+                    android.util.Log.i("VexoCaptureE2e","Botão da demonstração acionado");
+                    return;
+                }
+            }
+            fail("Botão da demonstração indisponível na tela do Vexo");
+        });
     }
 
     private static void approveThroughSystemDialog(UiDevice device)
@@ -112,7 +128,9 @@ public final class LiveProjectionConsentE2eTest {
 
             // Teste voluntário abre a demo assim que consentimento é dado,
             // não desperdiçando OCR lento na tela de controles do Vexo.
-            expectAndClick(device,"Autorizar e testar oferta fictícia");
+            // Aciona o mesmo botão do app na thread de UI. A aprovação a
+            // seguir ainda exige os controles do SystemUI.
+            clickDemoButton(instrumentation,control);
             approveThroughSystemDialog(device); // consentimento via UI do SISTEMA
 
             // Só depois de existir display virtual, o estado será ACTIVE.
