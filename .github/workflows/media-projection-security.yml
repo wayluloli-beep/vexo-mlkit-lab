@@ -252,3 +252,52 @@ jobs:
           else
             echo "PR #25 indisponível; revisão integrada não executada." >> "$GITHUB_STEP_SUMMARY"
           fi
+
+      - name: Revisão PR 26 (consentimento e prova E2E, somente leitura)
+        shell: bash
+        run: |
+          if git fetch --no-tags --depth=1 origin refs/heads/feature/mediaproj-runtime-proof; then
+            git worktree add --detach "$RUNNER_TEMP/vexo-pr26-review" FETCH_HEAD
+            sha=$(git -C "$RUNNER_TEMP/vexo-pr26-review" rev-parse HEAD)
+            root="$RUNNER_TEMP/vexo-pr26-review"
+            set +e
+            python tools/media_projection_security/check_contract.py \
+              --root "$root" --require-capture --json > "$RUNNER_TEMP/pr26-contract.json"
+            python tools/media_projection_security/lifecycle_review.py \
+              --root "$root" --require-service --json > "$RUNNER_TEMP/pr26-lifecycle.json"
+            python tools/media_projection_security/memory_review.py \
+              --root "$root" --json > "$RUNNER_TEMP/pr26-memory.json"
+            python tools/media_projection_security/ordering_review.py \
+              --root "$root" --require-service --json > "$RUNNER_TEMP/pr26-order.json"
+            python tools/media_projection_security/notification_review.py \
+              --root "$root" --require-service --json > "$RUNNER_TEMP/pr26-notification.json"
+            python tools/media_projection_security/e2e_evidence_review.py \
+              --root "$root" --require-test --json > "$RUNNER_TEMP/pr26-e2e.json"
+            set -e
+            python - "$RUNNER_TEMP" "$sha" <<'PY'
+          import json
+          import os
+          import sys
+          from pathlib import Path
+          root = Path(sys.argv[1])
+          names = ("contract", "lifecycle", "memory", "order", "notification", "e2e")
+          out = ["### PR #26 — E2E consent + segurança (somente análise fonte)",
+                 "Commit consultado: " + sys.argv[2]]
+          totals = {"PASS": 0, "FAIL": 0, "SKIP": 0}
+          for name in names:
+              checks = json.loads((root / ("pr26-" + name + ".json")).read_text(encoding="utf-8"))["checks"]
+              out.append("**" + name + "**")
+              for x in checks:
+                  totals[x["status"]] = totals.get(x["status"], 0) + 1
+                  out.append("- " + x["status"] + " " + x["code"] + ": " + x["detail"])
+          out.append("TOTAL " + ", ".join(str(totals[k]) + " " + k for k in ("PASS", "FAIL", "SKIP")))
+          out.append("Revisão de qualidade do teste é conservadora: confirmar qualquer FAIL no código; "
+                     "somente o CI Android pode confirmar captura real MediaProjection.")
+          report = "\n\n".join(out) + "\n"
+          print(report)
+          with open(os.environ["GITHUB_STEP_SUMMARY"], "a", encoding="utf-8") as out_file:
+              out_file.write(report)
+          PY
+          else
+            echo "PR #26 indisponível; revisão de consentimento/E2E não executada." >> "$GITHUB_STEP_SUMMARY"
+          fi
