@@ -236,6 +236,20 @@ public class MainActivity extends Activity {
                         status.setText("Não encontrei texto neste print. Tente outra imagem.");
                         return;
                     }
+                    ScreenContextClassifier.Kind context=ScreenContextClassifier.classify(lastText);
+                    if (context.definitelyNotLiveOffer()) {
+                        baseline=new OfferParser.Offer();
+                        confirm.setEnabled(false);
+                        results.setVisibility(View.GONE);
+                        String detail=context==ScreenContextClassifier.Kind.COMPLETED_TRIP
+                            ? "histórico de corrida concluída"
+                            : context==ScreenContextClassifier.Kind.MAP_WITHOUT_OFFER
+                                ? "mapa/zonas dinâmicas sem oferta ativa"
+                                : "captura arquivada dentro de outro aplicativo";
+                        status.setText("Esta imagem parece "+detail+
+                            ". O Vexo não vai registrar seus números como oferta.");
+                        return;
+                    }
                     baseline=OfferParser.parse(lastText);
                     for (String key: OfferParser.KEYS) {
                         EditText field=inputs.get(key);
@@ -245,8 +259,11 @@ public class MainActivity extends Activity {
                     safetyStatus.setText(audit.message);
                     safetyStatus.setTextColor(audit.canCalculate ? 0xFF9FE0C1 : 0xFFFFC27A);
                     results.setVisibility(View.VISIBLE);
-                    status.setText("Leitura concluída: "+baseline.filled()+" de "+
-                        OfferParser.KEYS.length+" campos preenchidos. Confira e corrija antes de salvar.");
+                    status.setText((context==ScreenContextClassifier.Kind.UNCERTAIN
+                        ? "TIPO DE TELA INCERTO. Verifique se é oferta ativa! "
+                        : "Leitura de oferta candidata. ")+
+                        baseline.filled()+" de "+OfferParser.KEYS.length+
+                        " campos preenchidos. Confira e corrija antes de salvar.");
                 })
                 .addOnFailureListener(err -> {
                     lastText=""; results.setVisibility(View.GONE);
