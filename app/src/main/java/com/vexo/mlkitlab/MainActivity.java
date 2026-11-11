@@ -107,6 +107,12 @@ public class MainActivity extends Activity {
         append(root,batch,10);
         batch.setOnClickListener(v -> startActivity(new Intent(this,BatchOcrActivity.class)));
 
+        Button capture = button("MediaProjection • ler tela com autorização (experimental)",
+            0xFF28485A,Color.WHITE);
+        append(root,capture,10);
+        capture.setOnClickListener(v ->
+            startActivity(new Intent(this,LiveCaptureActivity.class)));
+
         status = label("Selecione uma imagem para começar",14,muted,false);
         append(root,status,14);
 
