@@ -17,6 +17,8 @@ class Event:
     unsafe_financial: bool = False
     # True if the callback changed driver-visible results, not just received.
     ui_applied: bool = False
+    # Timestamp only from synthetic fixture clock; optional, milliseconds.
+    at_ms: int | None = None
 
 def audit_stream(events):
     """Conta frames, ofertas opacas e sessões sem inferir identidade por preço."""
