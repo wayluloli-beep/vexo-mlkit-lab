@@ -79,10 +79,29 @@ def stopped_with_late_callback(applied=False):
                   group="fixture-A", ui_applied=applied, notified=applied)]
 
 
+
+def varying_first_detection_latencies():
+    """Five different offers with 70/100/150/200/450ms synthetic OCR latency."""
+    events = [event("start", t=0)]
+    for seq, delay in enumerate((70, 100, 150, 200, 450)):
+        t = 100 + seq * 1000
+        group = "synthetic-" + str(seq)
+        events.extend((event("frame", seq=seq, t=t, context="OFFER_CANDIDATE", group=group),
+                       event("inference_start", seq=seq, t=t),
+                       event("inference_end", seq=seq, t=t+delay),
+                       event("callback", seq=seq, t=t+delay,
+                             context="OFFER_CANDIDATE", group=group,
+                             notified=True, ui_applied=True,
+                             guard_blocked=False, inference_ms=delay)))
+    events.append(event("stop", t=6000))
+    return _sorted_events(events)
+
+
 def all_scenarios():
     return {"repeat_30_frames": repeated_offer(),
             "map_offer_map": map_offer_map(),
             "equal_values_distinct_offers": equal_numbers_distinct_offers(),
             "stop_callback_discarded": stopped_with_late_callback(False),
             "stop_callback_applied": stopped_with_late_callback(True),
-            "long_stable_offer_realerts": repeated_offer(frames=350)}
+            "long_stable_offer_realerts": repeated_offer(frames=350),
+            "latency_p95_five_offers": varying_first_detection_latencies()}
