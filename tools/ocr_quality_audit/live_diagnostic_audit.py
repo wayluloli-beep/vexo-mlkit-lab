@@ -9,6 +9,7 @@ from pathlib import Path
 
 SCHEMA = "vexo-live-capture-diagnostic-v1"
 SCHEMA_V2 = "vexo-live-capture-diagnostic-v2"
+SCHEMA_V3 = "vexo-live-capture-diagnostic-v3"
 COUNTERS = (
     "framesReceived", "ocrAttempts", "ocrCompleted", "ocrFailures",
     "offersAlerted", "offerContextCandidates", "screenContextUncertain",
@@ -29,6 +30,10 @@ EVIDENCE_KEYS = (
     "readsWith99Marker", "readsWithPartialOfferEvidence",
 )
 FIELDS_V2 = FIELDS_WITH_LATENCY | {"contextEvidenceCounts"}
+V3_COUNTERS = (
+    "discardedStaleOcrFrames", "offerGateHeldFrames", "candidatesWithout99Logo",
+)
+FIELDS_V3 = FIELDS_V2 | set(V3_COUNTERS)
 STAGES = {
     "WAITING_FOR_FRAMES", "NO_FRAMES_RECORDED", "FRAMES_WITHOUT_OCR_START",
     "OCR_FAILED", "OCR_NOT_COMPLETED", "OCR_OK_NO_CONFIRMED_OFFER",
@@ -59,7 +64,8 @@ def analyze(doc):
     keys = set(doc)
     version = doc.get("schema")
     if not ((version == SCHEMA and keys in (FIELDS, FIELDS_WITH_LATENCY)) or
-            (version == SCHEMA_V2 and keys == FIELDS_V2)):
+            (version == SCHEMA_V2 and keys == FIELDS_V2) or
+            (version == SCHEMA_V3 and keys == FIELDS_V3)):
         raise DiagnosticInputError("unexpected schema or fields")
     if any(type(doc[f]) is not str for f in STRINGS):
         raise DiagnosticInputError("invalid descriptive field")
@@ -75,7 +81,7 @@ def analyze(doc):
     c = {key: doc[key] for key in COUNTERS}
     errors = []
     latency = None
-    if keys in (FIELDS_WITH_LATENCY, FIELDS_V2):
+    if keys in (FIELDS_WITH_LATENCY, FIELDS_V2, FIELDS_V3):
         if any(type(doc[f]) is not int or not 0 <= doc[f] <= 1_000_000_000 for f in LATENCY):
             raise DiagnosticInputError("invalid aggregate latency")
         latency = {key: doc[key] for key in LATENCY}
@@ -97,7 +103,7 @@ def analyze(doc):
             errors.append("SMALL_SAMPLE_P95_MUST_EQUAL_MAX")
 
     evidence = None
-    if version == SCHEMA_V2:
+    if version in (SCHEMA_V2, SCHEMA_V3):
         raw_evidence = doc["contextEvidenceCounts"]
         if type(raw_evidence) is not dict or set(raw_evidence) != set(EVIDENCE_KEYS):
             raise DiagnosticInputError("invalid evidence object or keys")
@@ -114,6 +120,22 @@ def analyze(doc):
                 break
         if evidence["readsWithPartialOfferEvidence"] > evidence["readsWithPriceMarker"]:
             errors.append("PARTIAL_OFFER_EXCEEDS_PRICE_MARKER")
+
+    v3_counters = None
+    if version == SCHEMA_V3:
+        if any(type(doc[key]) is not int or not 0 <= doc[key] <= 1_000_000_000
+               for key in V3_COUNTERS):
+            raise DiagnosticInputError("invalid v3 aggregate counter")
+        v3_counters = {key: doc[key] for key in V3_COUNTERS}
+        stale = v3_counters["discardedStaleOcrFrames"]
+        if stale > c["ocrCompleted"]:
+            errors.append("STALE_FRAMES_EXCEED_COMPLETED_OCR")
+        if v3_counters["offerGateHeldFrames"] > c["offerContextCandidates"]:
+            errors.append("HELD_FRAMES_EXCEED_CANDIDATES")
+        if v3_counters["candidatesWithout99Logo"] > c["offerContextCandidates"]:
+            errors.append("CANDIDATES_WITHOUT_LOGO_EXCEED_CANDIDATES")
+        if evidence["ocrReadsExamined"] > c["ocrCompleted"] - stale:
+            errors.append("EVIDENCE_READS_EXCEED_FRESH_OCR")
 
     if c["ocrAttempts"] > c["framesReceived"]:
         errors.append("OCR_ATTEMPTS_EXCEED_FRAMES")
@@ -162,6 +184,7 @@ def analyze(doc):
         "counters": c,
         "latency": latency,
         "contextEvidenceCounts": evidence,
+        "v3Counters": v3_counters,
         "notes": notes,
         "limits": "Counters cannot identify OCR content, prove offer identity, or certify 99 compatibility",
     }
