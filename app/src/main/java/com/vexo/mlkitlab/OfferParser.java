@@ -93,12 +93,14 @@ public final class OfferParser {
         out.set("perKm", cleanNumber(perKm));
 
         // Parenthesized distances are offer-card fields; isolated "350 m" is navigation.
-        Matcher trips = p("(\\d{1,3})\\s*min\\s*\\(\\s*(\\d{1,4}(?:[.,]\\d{1,3})?)\\s*(km|m)\\s*\\)").matcher(s);
+        // OCR may confuse the digit zero with the letter O in "Omin (449m)".
+        // Only normalize it in this narrow context, not in arbitrary text.
+        Matcher trips = p("(\\d{1,3}|[Oo])\\s*min\\s*\\(\\s*(\\d{1,4}(?:[.,]\\d{1,3})?)\\s*(km|m)\\s*\\)").matcher(s);
         ArrayList<String[]> legs = new ArrayList<>();
         while (trips.find()) {
             String distance = kmFrom(trips.group(2), trips.group(3));
             if (!distance.isEmpty() && legs.size() < 3)
-                legs.add(new String[]{trips.group(1), distance});
+                legs.add(new String[]{trips.group(1).equalsIgnoreCase("O") ? "0" : trips.group(1), distance});
         }
         if (legs.size() >= 1) {
             out.set("pickupMin", legs.get(0)[0]);
