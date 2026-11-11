@@ -1,5 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PROJECTION" />
     <application
         android:label="Vexo OCR 0.3.5"
         android:theme="@android:style/Theme.Material.NoActionBar"
@@ -12,6 +14,12 @@
             <meta-data android:name="android.support.FILE_PROVIDER_PATHS"
                 android:resource="@xml/file_paths" />
         </provider>
+        <service
+            android:name="com.vexo.mlkitlab.LiveCaptureService"
+            android:exported="false"
+            android:foregroundServiceType="mediaProjection"
+            android:stopWithTask="false" />
+        <activity android:name="com.vexo.mlkitlab.LiveCaptureActivity" android:exported="false" />
         <activity android:name="com.vexo.mlkitlab.BatchOcrActivity" android:exported="false" />
         <activity android:name="com.vexo.mlkitlab.MainActivity" android:exported="true">
             <intent-filter>
