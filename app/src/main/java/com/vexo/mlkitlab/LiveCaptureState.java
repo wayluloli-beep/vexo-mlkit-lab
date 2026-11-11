@@ -25,6 +25,7 @@ public final class LiveCaptureState {
     private static final AtomicLong contextUncertain=new AtomicLong();
     private static final AtomicLong financeRejected=new AtomicLong();
     private static final AtomicLong waitingConfirmation=new AtomicLong();
+    private static final AtomicLong staleOcrFrames=new AtomicLong();
     private static final CaptureLatencyStats latency=new CaptureLatencyStats();
     private static final CaptureContextEvidence contextEvidence=new CaptureContextEvidence();
 
@@ -40,6 +41,7 @@ public final class LiveCaptureState {
         contextUncertain.set(0);
         financeRejected.set(0);
         waitingConfirmation.set(0);
+        staleOcrFrames.set(0);
         latency.reset();
         contextEvidence.reset();
         lastCandidate="";
@@ -84,6 +86,9 @@ public final class LiveCaptureState {
     }
     static void awaitingConfirmation() {
         if(active) waitingConfirmation.incrementAndGet();
+    }
+    static void staleOcrFrame() {
+        if(active) staleOcrFrames.incrementAndGet();
     }
 
     static void ocrCompleted() {
@@ -180,6 +185,7 @@ public final class LiveCaptureState {
             report.put("screenContextRejected",contextRejected.get());
             report.put("financiallyUnconfirmedFrames",financeRejected.get());
             report.put("awaitingTwoStableReadings",waitingConfirmation.get());
+            report.put("discardedStaleOcrFrames",staleOcrFrames.get());
             // Sobreposições são normais: contagens de evidência não somam
             // 100% e não revelam qualquer valor/texto da corrida.
             long[] ev=contextEvidence.snapshot();

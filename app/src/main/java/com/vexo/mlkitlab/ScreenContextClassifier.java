@@ -20,12 +20,15 @@ public final class ScreenContextClassifier {
         OFFER_CANDIDATE,
         COMPLETED_TRIP,
         MAP_WITHOUT_OFFER,
+        EXPIRED_REQUEST,
+        PROMOTION,
         ARCHIVED_OFFER_SCREENSHOT,
         SOCIAL_POST_WITH_SCREENSHOT,
         UNCERTAIN;
 
         public boolean definitelyNotLiveOffer() {
             return this==COMPLETED_TRIP || this==MAP_WITHOUT_OFFER ||
+                this==EXPIRED_REQUEST || this==PROMOTION ||
                 this==ARCHIVED_OFFER_SCREENSHOT || this==SOCIAL_POST_WITH_SCREENSHOT;
         }
     }
@@ -91,6 +94,19 @@ public final class ScreenContextClassifier {
     public static Kind classify(String raw) {
         String t=norm(raw);
         if(t.isEmpty()) return Kind.UNCERTAIN;
+
+        // Mensagem de expiração vence qualquer preço ainda desenhado ao fundo.
+        // Não interpretar card velho como oferta acionável.
+        if(has(t,"\\bsolicitac(?:ao|oes)\\b") &&
+            has(t,"\\bexpirou\\b|\\bexpirad[ao]s?\\b"))
+            return Kind.EXPIRED_REQUEST;
+
+        // Divulgação de preço promocional não é corrida. Para não causar
+        // falso negativo, só fechar quando NÃO houver rota/ação de corrida.
+        if(has(t,"\\bpromocao\\b|\\banuncio publicitario\\b") &&
+            !has(t,"\\baceitar\\b|\\bescolher\\b") &&
+            !DISTANCE.matcher(t).find() && !MINUTES.matcher(t).find())
+            return Kind.PROMOTION;
 
         // Uma postagem com print de oferta nao e uma oferta disponivel agora.
         // Detectar duas evidencias da interface de publicacao, nao a palavra

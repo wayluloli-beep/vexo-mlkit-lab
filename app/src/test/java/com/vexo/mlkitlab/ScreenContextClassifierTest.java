@@ -88,6 +88,16 @@ public class ScreenContextClassifierTest {
             ScreenContextClassifier.Kind.MAP_WITHOUT_OFFER);
     }
 
+    @Test public void expiredRequestAndAdvertisingNeverBecomeLiveOffers() {
+        kind("Solicitação de corrida expirou 99 Negocia R$12,64 " +
+            "8 min (2,1 km) 17 min (7,3 km) Aceitar",
+            ScreenContextClassifier.Kind.EXPIRED_REQUEST);
+        kind("Promoção do mercado R$0,99", ScreenContextClassifier.Kind.PROMOTION);
+        kind("99 Negocia R$12,64 8 min (2,1 km) " +
+            "17 min (7,3 km) Aceitar",
+            ScreenContextClassifier.Kind.OFFER_CANDIDATE);
+    }
+
     @Test public void partialOrUnknownScreenDoesNotBecomeConfirmed() {
         kind("R$29,20 5 min (2,2 km) Pop Nova",ScreenContextClassifier.Kind.UNCERTAIN);
         kind("",ScreenContextClassifier.Kind.UNCERTAIN);

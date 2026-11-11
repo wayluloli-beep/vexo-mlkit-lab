@@ -49,6 +49,7 @@ public final class LiveCaptureService extends Service {
     private static final String CHANNEL="vexo_capture_status";
     private static final int NOTIFICATION_ID=812;
     private static final long FRAME_INTERVAL_MS=1400; // ~0.7 inferência/s no máximo
+    private static final long MAX_FRAME_AGE_MS=3000; // limite experimental; não garantia de prazo
 
     private final AtomicLong epoch=new AtomicLong(0);
     // Serializa STOP e publicação de resultado: nenhuma notificação após onStop.
@@ -68,6 +69,9 @@ public final class LiveCaptureService extends Service {
     private volatile boolean capturedVisible=true;
     private long seen=0,read=0;
     private final OfferEpisodeGate episodes=new OfferEpisodeGate();
+    private final AtomicLong overlayGeneration=new AtomicLong(0);
+    // O controle da janela vive somente na thread principal.
+    private VexoOfferOverlay offerOverlay;
 
     @Override public void onCreate() {
         super.onCreate();
@@ -187,8 +191,19 @@ public final class LiveCaptureService extends Service {
             }
             @Override public void onCapturedContentVisibilityChanged(boolean visible) {
                 if(Build.VERSION.SDK_INT>=34) {
-                    capturedVisible=visible;
-                    LiveCaptureState.capturedContentVisibility(visible);
+                    synchronized(sessionLock) {
+                        // Callback enfileirado APÓS STOP não pode reescrever
+                        // a visibilidade de uma sessão antiga.
+                        if(!active || stopping || epoch.get()!=session) return;
+                        capturedVisible=visible;
+                        LiveCaptureState.capturedContentVisibility(visible);
+                        if(!visible) {
+                            episodes.uncertain();
+                            LiveCaptureState.clearCandidate();
+                        }
+                    }
+                    if(visible) scheduleOverlaySearching(session);
+                    else scheduleOverlayHide();
                 }
             }
         },captureHandler);
@@ -207,6 +222,7 @@ public final class LiveCaptureService extends Service {
             // Não anunciar 'captura ativa' antes do display existir de fato.
             LiveCaptureState.begin();
         }
+        scheduleOverlaySearching(session);
     }
 
     private void invalidateStoppedSession(long session) {
@@ -219,6 +235,7 @@ public final class LiveCaptureService extends Service {
             episodes.reset();
             LiveCaptureState.end("Captura encerrada pelo Android.");
         }
+        scheduleOverlayHide();
         main.post(this::shutdown); // cleanup é idempotente, independente do guard
     }
 
@@ -252,6 +269,8 @@ public final class LiveCaptureService extends Service {
     }
 
     private void consumeFrame(ImageReader reader,long session) {
+        // Referência monotônica de aquisição da imagem: sem timestamp pessoal.
+        final long frameAcquiredAt=SystemClock.elapsedRealtime();
         Image image=null;
         Bitmap pixels=null;
         boolean started=false;
@@ -295,7 +314,13 @@ public final class LiveCaptureService extends Service {
                         epoch.get()==session && capturedVisible) {
                         read++;
                         LiveCaptureState.ocrCompleted();
-                        evaluate(done.getResult().getText(),session);
+                        if(!CaptureFrameFreshness.isFresh(
+                            frameAcquiredAt,SystemClock.elapsedRealtime(),MAX_FRAME_AGE_MS)) {
+                            LiveCaptureState.staleOcrFrame();
+                            markFrameUnusable(session,false);
+                        } else {
+                            evaluate(done.getResult().getText(),session);
+                        }
                     } else if(!done.isSuccessful() && active &&
                         !stopping && epoch.get()==session) {
                         LiveCaptureState.ocrFailed();
@@ -352,6 +377,35 @@ public final class LiveCaptureService extends Service {
         }
     }
 
+    private void scheduleOverlaySearching(long session) {
+        final long version=overlayGeneration.incrementAndGet();
+        main.post(() -> {
+            synchronized(sessionLock) {
+                if(version!=overlayGeneration.get() || !sessionAlive(session)) return;
+                if(offerOverlay==null) offerOverlay=new VexoOfferOverlay(this);
+                offerOverlay.searching();
+            }
+        });
+    }
+
+    private void scheduleOverlayOffer(long session,String numericSummary) {
+        final long version=overlayGeneration.incrementAndGet();
+        main.post(() -> {
+            synchronized(sessionLock) {
+                if(version!=overlayGeneration.get() || !sessionAlive(session)) return;
+                if(offerOverlay==null) offerOverlay=new VexoOfferOverlay(this);
+                offerOverlay.offer(numericSummary);
+            }
+        });
+    }
+
+    private void scheduleOverlayHide() {
+        overlayGeneration.incrementAndGet();
+        main.post(() -> {
+            if(offerOverlay!=null) offerOverlay.hide();
+        });
+    }
+
     private boolean sessionAlive(long session) {
         return active && !stopping && capturedVisible && epoch.get()==session;
     }
@@ -372,6 +426,7 @@ public final class LiveCaptureService extends Service {
             }
             if(closed) {
                 LiveCaptureState.clearCandidate();
+                scheduleOverlaySearching(session);
                 NotificationManager nm=(NotificationManager)getSystemService(
                     NOTIFICATION_SERVICE);
                 if(nm!=null) nm.notify(NOTIFICATION_ID,notification(false));
@@ -393,6 +448,8 @@ public final class LiveCaptureService extends Service {
             text==null || !ScreenContextClassifier.has99PlatformMarker(text)) {
             boolean definitelyNoOffer=
                 context==ScreenContextClassifier.Kind.MAP_WITHOUT_OFFER ||
+                context==ScreenContextClassifier.Kind.EXPIRED_REQUEST ||
+                context==ScreenContextClassifier.Kind.PROMOTION ||
                 context==ScreenContextClassifier.Kind.COMPLETED_TRIP ||
                 context==ScreenContextClassifier.Kind.ARCHIVED_OFFER_SCREENSHOT ||
                 context==ScreenContextClassifier.Kind.SOCIAL_POST_WITH_SCREENSHOT;
@@ -435,10 +492,12 @@ public final class LiveCaptureService extends Service {
                     // Restauração é apenas UI. Nunca emitir notificação de
                     // nova oferta após dois frames estáveis da mesma corrida.
                     LiveCaptureState.restoreCandidate(summary);
+                    scheduleOverlayOffer(session,VexoOverlaySummary.format(price,trip,duration));
                 }
                 return;
             }
             LiveCaptureState.candidate(summary);
+            scheduleOverlayOffer(session,VexoOverlaySummary.format(price,trip,duration));
             // Notificação sem valores, nomes ou endereços do passageiro.
             NotificationManager nm=(NotificationManager)getSystemService(NOTIFICATION_SERVICE);
             if(nm!=null) nm.notify(NOTIFICATION_ID,notification(true));
@@ -447,7 +506,8 @@ public final class LiveCaptureService extends Service {
     }
 
     private void shutdown() {
-        if(cleanupDone) return; // cleanup na thread principal, uma vez por Service
+        if(cleanupDone) return;
+        scheduleOverlayHide(); // cleanup na thread principal, uma vez por Service
         cleanupDone=true;
         synchronized(sessionLock) {
             stopping=true;
