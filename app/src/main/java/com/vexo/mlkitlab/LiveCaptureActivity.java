@@ -11,6 +11,8 @@ import android.content.Context;
 import android.graphics.Color;
 import android.media.projection.MediaProjectionManager;
 import android.os.Bundle;
+import android.provider.Settings;
+import android.net.Uri;
 import android.widget.Button;
 import android.widget.LinearLayout;
 import android.widget.ScrollView;
@@ -24,6 +26,8 @@ import android.view.Gravity;
 public final class LiveCaptureActivity extends Activity {
     private static final int REQUEST_CAPTURE=401;
     private TextView info, liveState;
+    private Button overlayToggle;
+    private boolean pendingOverlayPermission=false;
     private boolean asking=false;
     private boolean demoAfterConsent=false;
 
@@ -50,6 +54,14 @@ public final class LiveCaptureActivity extends Activity {
         demoConsent.setText("Autorizar e testar oferta fictícia");
         root.addView(demoConsent);
         demoConsent.setOnClickListener(v -> requestConsent(true));
+
+        // A janelinha é DESATIVADA por padrão. Não existe permissão
+        // silenciosa: o próprio usuário precisa autorizar nas Configurações.
+        overlayToggle=new Button(this);
+        overlayToggle.setAllCaps(false);
+        root.addView(overlayToggle);
+        overlayToggle.setOnClickListener(v -> toggleOverlay());
+        updateOverlayLabel();
 
         info=new TextView(this);
         info.setText("O Android pedirá sua autorização para compartilhar a tela. Para a OFERTA FICTÍCIA, escolha 'Tela inteira' ou o próprio Vexo (se disponível). Para um teste futuro na 99, escolha apenas a 99 quando o Android oferecer essa opção. Não compartilhe telas privadas nem teste enquanto dirige. A leitura fica no celular; o motorista decide as corridas.");
@@ -143,7 +155,56 @@ public final class LiveCaptureActivity extends Activity {
 
     @Override protected void onResume() {
         super.onResume();
+        if(pendingOverlayPermission) {
+            pendingOverlayPermission=false;
+            if(Build.VERSION.SDK_INT>=26 && Settings.canDrawOverlays(this)) {
+                VexoOfferOverlay.setOptIn(this,true);
+                if(info!=null) info.setText(
+                    "Janelinha ativada! Ela mostra status da captura e " +
+                    "oferta segura quando você iniciar uma nova sessão.");
+            }
+        }
+        updateOverlayLabel();
         if(liveState!=null) liveState.setText(LiveCaptureState.snapshot());
+    }
+
+    private void updateOverlayLabel() {
+        if(overlayToggle==null) return;
+        boolean on=VexoOfferOverlay.allowed(this);
+        overlayToggle.setText(on?
+            "Desativar janelinha sobre outros apps":
+            "Ativar janelinha flutuante (opcional)");
+    }
+
+    private void toggleOverlay() {
+        if(VexoOfferOverlay.allowed(this)) {
+            VexoOfferOverlay.setOptIn(this,false);
+            info.setText("Janelinha desativada. Para remover se ainda estiver " +
+                "na tela, pare a captura ou volte ao Vexo.");
+            updateOverlayLabel();
+            return;
+        }
+        if(Build.VERSION.SDK_INT<26) {
+            info.setText("Janelinha experimental requer Android 8 ou superior.");
+            return;
+        }
+        if(Settings.canDrawOverlays(this)) {
+            VexoOfferOverlay.setOptIn(this,true);
+            info.setText("Janelinha ativada. Inicie a captura normalmente.");
+            updateOverlayLabel();
+            return;
+        }
+        pendingOverlayPermission=true;
+        info.setText("O Android vai abrir a permissão 'Aparecer sobre outros apps'. " +
+            "Autorize o Vexo e volte aqui. Sem essa permissão a captura continua, " +
+            "mas sem janelinha.");
+        try {
+            startActivity(new Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
+                Uri.parse("package:"+getPackageName())));
+        } catch(Exception ex) {
+            pendingOverlayPermission=false;
+            info.setText("Não foi possível abrir a configuração da janelinha.");
+        }
     }
 
     private void requestConsent(boolean launchDemo) {
