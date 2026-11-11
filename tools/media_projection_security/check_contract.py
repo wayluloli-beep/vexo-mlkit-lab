@@ -32,7 +32,7 @@ def finding(code: str, ok: bool, explanation: str) -> dict:
 
 def _strip_java_comments(source: str) -> str:
     # This intentionally is only a heuristic; not a Java parser.
-    return re.sub(r"(?s)/\*.*?\*/|(?m)//[^\n]*", "", source)
+    return re.sub(r"/\*.*?\*/|//[^\n]*", "", source, flags=re.DOTALL)
 
 
 def _manifest_name(value: str) -> str:
