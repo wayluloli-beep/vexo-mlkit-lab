@@ -3,7 +3,7 @@ android {
     namespace 'com.vexo.mlkitlab'
     compileSdk 35
     defaultConfig {
-        applicationId 'com.vexo.mlkitlab'
+        applicationId 'com.vexo.mlkitlab.v02'
         minSdk 23
         targetSdk 35
         versionCode 2
