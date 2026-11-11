@@ -110,6 +110,11 @@ public final class LiveCaptureState {
             ocrStarted.get(),ocrFailures.get()};
     }
 
+    public static long[] stageCounts() {
+        return new long[]{offerCandidates.get(),contextUncertain.get(),
+            contextRejected.get(),financeRejected.get(),waitingConfirmation.get()};
+    }
+
     public static String captureVisibility() { return visibility; }
 
     public static synchronized String snapshot() {
