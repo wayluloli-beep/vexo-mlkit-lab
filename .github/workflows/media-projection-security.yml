@@ -424,3 +424,36 @@ jobs:
           else
             echo "PR34 não disponível, nenhuma homologação de telemetria." >> "$GITHUB_STEP_SUMMARY"
           fi
+
+
+      - name: Revisão callback visibilidade epoch PR34 read-only
+        shell: bash
+        run: |
+          root="$RUNNER_TEMP/vexo-pr34-review"
+          if [[ -f "$root/app/src/main/java/com/vexo/mlkitlab/LiveCaptureService.java" ]]; then
+            sha=$(git -C "$root" rev-parse HEAD)
+            set +e
+            python tools/media_projection_security/visibility_callback_review.py \
+              --root "$root" --json > "$RUNNER_TEMP/pr34-visibility.json"
+            scan_status=$?
+            set -e
+            python - "$sha" "$scan_status" "$RUNNER_TEMP/pr34-visibility.json" <<'PY'
+          import json
+          import os
+          import sys
+          from pathlib import Path
+          sha, exit_code, path = sys.argv[1:]
+          checks = json.loads(Path(path).read_text(encoding="utf-8"))["checks"]
+          lines = ["### PR #34 — MediaProjection visibility callback e epoch",
+                   "HEAD inspecionado: " + sha, "scanner exit: " + exit_code]
+          for c in checks:
+              lines.append("- " + c["status"] + " " + c["code"] + ": " + c["detail"])
+          lines.append("A inspeção lexical não substitui concorrência real com STOP+restart.")
+          report = "\n\n".join(lines) + "\n"
+          print(report)
+          with open(os.environ["GITHUB_STEP_SUMMARY"], "a", encoding="utf-8") as fd:
+              fd.write(report)
+          PY
+          else
+            echo "Checkout PR34 indisponível: não aprovar callback visibilidade." >> "$GITHUB_STEP_SUMMARY"
+          fi
