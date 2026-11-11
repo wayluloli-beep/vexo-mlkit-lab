@@ -160,4 +160,58 @@ public final class OcrRoiRecheckTest {
         }
     }
 
+
+    @Test public void recheckProfileNearRidesInsideOneCard() throws Exception {
+        Bitmap b=card(true,
+            "99 Negocia",
+            "R$576,27",
+            "4,94 365 corridas",
+            "6 min (1,8 km)",
+            "265 min (263,9 km)");
+        try (TextRecognizer reader=TextRecognition.getClient(
+                TextRecognizerOptions.DEFAULT_OPTIONS)) {
+            Text full=Tasks.await(reader.process(InputImage.fromBitmap(b,0)),90,TimeUnit.SECONDS);
+            OfferParser.Offer parsed=OfferParser.parse(full.getText());
+            // A leitura original do exemplo real 99_novo_006 perdeu os dois campos.
+            // Aqui simulamos essa falha sem alterar o texto do teste sintético.
+            parsed.set("rating","");
+            parsed.set("rides","");
+            OcrRoiRecheck.Region rating=null, rides=null;
+            for (OcrRoiRecheck.Region r:OcrRoiRecheck.findRegions(full,b,parsed)) {
+                if ("rating".equals(r.field)) rating=r;
+                if ("rides".equals(r.field)) rides=r;
+            }
+            assertNotNull("ROI de nota deve estar no perfil, nao mapa",rating);
+            assertNotNull("ROI de corridas deve estar no perfil, nao mapa",rides);
+            OcrRoiRecheck.Probe note=Tasks.await(OcrRoiRecheck.recheck(reader,b,rating),
+                90,TimeUnit.SECONDS);
+            OcrRoiRecheck.Probe completed=Tasks.await(OcrRoiRecheck.recheck(reader,b,rides),
+                90,TimeUnit.SECONDS);
+            assertEquals("4,94",note.suggestion);
+            assertEquals("365",completed.suggestion);
+            assertEquals("",parsed.get("rating"));
+            assertEquals("",parsed.get("rides"));
+        } finally { b.recycle(); }
+    }
+
+    @Test public void profileOutsideCardMustNotBecomeRiderData() throws Exception {
+        Bitmap b=card(false,
+            "99 Moto",
+            "R$40,70",
+            "9 min (3 km)",
+            "24 min (11,8 km)",
+            "Comentario 4,94 365 corridas");
+        try (TextRecognizer reader=TextRecognition.getClient(
+                TextRecognizerOptions.DEFAULT_OPTIONS)) {
+            Text full=Tasks.await(reader.process(InputImage.fromBitmap(b,0)),90,TimeUnit.SECONDS);
+            OfferParser.Offer parsed=OfferParser.parse(full.getText());
+            parsed.set("rating","");
+            parsed.set("rides","");
+            for (OcrRoiRecheck.Region r:OcrRoiRecheck.findRegions(full,b,parsed)) {
+                assertFalse("Texto fora do card nao pode virar nota", "rating".equals(r.field));
+                assertFalse("Texto fora do card nao pode virar corridas", "rides".equals(r.field));
+            }
+        } finally { b.recycle(); }
+    }
+
 }

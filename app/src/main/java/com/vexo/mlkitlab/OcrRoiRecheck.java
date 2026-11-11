@@ -47,6 +47,16 @@ public final class OcrRoiRecheck {
         Pattern.CASE_INSENSITIVE);
     private static final Pattern RATE = Pattern.compile("(?<![\\d.,])(\\d{1,4}[.,]\\d{2})\\s*/\\s*km\\b",
         Pattern.CASE_INSENSITIVE);
+    // A busca pela nota so funciona junto da ancora "N corridas".
+    // Evita confundir valores de preco, taxa ou mapa com avaliacao do perfil.
+    private static final Pattern PROFILE_LINE = Pattern.compile("\\bcorridas\\b",
+        Pattern.CASE_INSENSITIVE | Pattern.UNICODE_CASE);
+    private static final Pattern PROFILE_RATING = Pattern.compile(
+        "(?<![\\d.,])([0-5][.,]\\d{2})[^\\d]{0,22}\\d{1,5}\\s*corridas\\b",
+        Pattern.CASE_INSENSITIVE | Pattern.UNICODE_CASE);
+    private static final Pattern PROFILE_RIDES = Pattern.compile(
+        "(?<!\\d)(\\d{1,5})\\s*corridas\\b",
+        Pattern.CASE_INSENSITIVE | Pattern.UNICODE_CASE);
 
     public static final class Region {
         public final String field;
@@ -77,25 +87,32 @@ public final class OcrRoiRecheck {
                     reason -> reason.contains("velocidade implícita"));
         boolean suspectSurge=parsed.get("surge").isEmpty();
         boolean suspectRate=parsed.get("perKm").isEmpty();
+        boolean suspectRating=parsed.get("rating").isEmpty();
+        boolean suspectRides=parsed.get("rides").isEmpty();
         Rect lastTrip=null, firstLeg=null, firstSurge=null, firstRate=null;
-        Rect firstPriceAnchor=null, firstRiderAnchor=null;
+        Rect firstPriceAnchor=null, firstRiderAnchor=null, profileLine=null;
         // Ordem visual e coordenadas: sem depender de enderecos ou texto inteiro.
         for (Text.TextBlock block:scan.getTextBlocks()) {
             for (Text.Line line:block.getLines()) {
                 Rect rect=line.getBoundingBox();
                 if (rect==null) continue;
                 String value=line.getText();
-                if (suspectSurge && firstPriceAnchor==null &&
+                if (firstPriceAnchor==null &&
                     PRICE_ANCHOR.matcher(value).find() &&
                     !value.toLowerCase(Locale.ROOT).contains("aceitar por")) {
                     firstPriceAnchor=new Rect(rect);
                 }
                 if (suspectSurge && firstRiderAnchor==null &&
                     RIDER_ANCHOR.matcher(value).find()) firstRiderAnchor=new Rect(rect);
-                if (suspectTrip && KM_LINE.matcher(value).find()) {
+                if (KM_LINE.matcher(value).find()) {
                     if (firstLeg==null || rect.top<firstLeg.top) firstLeg=new Rect(rect);
-                    if (lastTrip==null || rect.top>lastTrip.top) lastTrip=new Rect(rect);
+                    if (suspectTrip && (lastTrip==null || rect.top>lastTrip.top))
+                        lastTrip=new Rect(rect);
                 }
+                if ((suspectRating || suspectRides) &&
+                    PROFILE_LINE.matcher(value).find() &&
+                    (profileLine==null || rect.top<profileLine.top))
+                    profileLine=new Rect(rect);
                 if (suspectSurge && firstSurge==null && SURGE_LINE.matcher(value).find()) firstSurge=rect;
                 if (suspectRate && firstRate==null && RATE_LINE.matcher(value).find()) firstRate=rect;
             }
@@ -132,6 +149,17 @@ public final class OcrRoiRecheck {
             // Fallback ja tem margem controlada; sem estender para GPS.
             padded(firstSurge,image)));
         if (firstRate!=null) found.add(new Region("perKm",padded(firstRate,image)));
+        // O bloco de perfil deve estar ENTRE a tarifa principal e o primeiro
+        // trecho da corrida. A palavra "corridas" em comentarios, historico ou
+        // outra tela nao autoriza recorte. Sem ambas as ancoras, abster.
+        if (profileLine!=null && firstPriceAnchor!=null && firstLeg!=null &&
+            profileLine.top>=firstPriceAnchor.bottom &&
+            profileLine.bottom<=firstLeg.top &&
+            profileLine.width()>0 && profileLine.height()>0) {
+            Rect box=padded(profileLine,image);
+            if (suspectRating) found.add(new Region("rating",box));
+            if (suspectRides) found.add(new Region("rides",box));
+        }
         return found;
     }
 
@@ -165,7 +193,10 @@ public final class OcrRoiRecheck {
     }
 
     private static String singleValue(String text, String field) {
-        Pattern pattern="tripKm".equals(field)?KM:"surge".equals(field)?SURGE:RATE;
+        Pattern pattern="tripKm".equals(field)?KM:
+            "surge".equals(field)?SURGE:
+            "rating".equals(field)?PROFILE_RATING:
+            "rides".equals(field)?PROFILE_RIDES:RATE;
         Matcher matcher=pattern.matcher(text==null?"":text);
         String first="";
         while (matcher.find()) {
