@@ -457,3 +457,72 @@ jobs:
           else
             echo "Checkout PR34 indisponível: não aprovar callback visibilidade." >> "$GITHUB_STEP_SUMMARY"
           fi
+
+
+      - name: Revisão sobreposição PR35 PR36 PR37 e gate Java real
+        shell: bash
+        run: |
+          for entry in "35:feature/vexo-optin-floating-window" "36:fix/overlay-hide-generation-race" "37:feature/overlay-metrics-and-offer-recall"; do
+            IFS=: read -r pr branch <<< "$entry"
+            dest="$RUNNER_TEMP/vexo-overlay-pr$pr"
+            if git fetch --no-tags --depth=1 origin "refs/heads/$branch" && \
+               git worktree add --detach "$dest" FETCH_HEAD; then
+              sha=$(git -C "$dest" rev-parse HEAD)
+              set +e
+              python tools/media_projection_security/overlay_optin_review.py \
+                --root "$dest" --json > "$RUNNER_TEMP/overlay-pr$pr.json"
+              scan_status=$?
+              set -e
+              python - "$pr" "$sha" "$scan_status" "$RUNNER_TEMP/overlay-pr$pr.json" <<'PY'
+          import json
+          import os
+          from pathlib import Path
+          import sys
+          pr, sha, exit_code, path = sys.argv[1:]
+          checks = json.loads(Path(path).read_text(encoding="utf-8"))["checks"]
+          counts = {x:sum(c["status"]==x for c in checks)
+                    for x in ("PASS","FAIL","WARN","SKIP")}
+          lines = [
+              "### PR #"+pr+" — overlay consent/opt-in/STOP (read-only)",
+              "HEAD: "+sha+" | scanner exit="+exit_code,
+              " | ".join(str(v)+" "+k for k,v in counts.items()),
+          ]
+          for c in checks:
+              lines.append("- "+c["status"]+" "+c["code"]+": "+c["detail"])
+          lines.append("Limitação: 0,8 é limite padrão para uma janela SAW "
+                       "no Android 12+. Overlay múltiplo ou fabricante pode bloquear toque. "
+                       "É necessário teste no aparelho parado. Não valida OCR na 99.")
+          report="\n\n".join(lines)+"\n"
+          print(report)
+          with open(os.environ["GITHUB_STEP_SUMMARY"],"a",encoding="utf-8") as out:
+              out.write(report)
+          PY
+            else
+              echo "PR #$pr indisponível — inspeção não concluída." >> "$GITHUB_STEP_SUMMARY"
+            fi
+          done
+
+          root="$RUNNER_TEMP/vexo-overlay-pr37"
+          if [[ -f "$root/app/src/main/java/com/vexo/mlkitlab/OfferEpisodeGate.java" ]]; then
+            mkdir -p "$RUNNER_TEMP/vexo-offer-gate-classes"
+            javac -encoding UTF-8 -d "$RUNNER_TEMP/vexo-offer-gate-classes" \
+              "$root/app/src/main/java/com/vexo/mlkitlab/OfferEpisodeGate.java" \
+              tools/media_projection_security/OfferGateSecurityHarness.java
+            java -cp "$RUNNER_TEMP/vexo-offer-gate-classes" \
+              com.vexo.mlkitlab.OfferGateSecurityHarness > "$RUNNER_TEMP/offer-gate-security.txt"
+            cat "$RUNNER_TEMP/offer-gate-security.txt"
+            {
+              echo "### PR #37 — executando o OfferEpisodeGate Java REAL"
+              echo
+              echo "Dados sintéticos A/B; sem Android/ML Kit, sem conteúdo da 99."
+              echo
+              echo '~~~text'
+              cat "$RUNNER_TEMP/offer-gate-security.txt"
+              echo '~~~'
+              echo
+              echo "REVIEW_REQUIRED não é crash ou bug demonstrado: rearmar novo fingerprint "
+              echo "sem mapa foi decisão do PR37; validar com evidência de falsos positivos."
+            } >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "PR #37 sem OfferEpisodeGate.java: teste Java não executado." >> "$GITHUB_STEP_SUMMARY"
+          fi
