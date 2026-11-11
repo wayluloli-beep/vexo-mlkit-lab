@@ -52,3 +52,37 @@ jobs:
           else
             echo "Branch do Agente 1 ainda não disponível; nenhuma validação de integração." >> "$GITHUB_STEP_SUMMARY"
           fi
+      - name: Testar auditoria de ciclo de vida na branch de auditoria
+        run: python tools/media_projection_security/lifecycle_review.py --root .
+      - name: Revisar onStop e resize do Agente 1 sem alterar código
+        shell: bash
+        run: |
+          if git fetch --no-tags --depth=1 origin refs/heads/feature/media-projection-lab; then
+            git worktree add --detach "$RUNNER_TEMP/vexo-lifecycle-readonly" FETCH_HEAD
+            head_sha=$(git -C "$RUNNER_TEMP/vexo-lifecycle-readonly" rev-parse HEAD)
+            set +e
+            python tools/media_projection_security/lifecycle_review.py \
+              --root "$RUNNER_TEMP/vexo-lifecycle-readonly" --require-service --json \
+              > "$RUNNER_TEMP/vexo-lifecycle-result.json"
+            scan_code=$?
+            set -e
+            python - "$RUNNER_TEMP/vexo-lifecycle-result.json" "$scan_code" "$head_sha" <<'PY'
+          import json
+          import os
+          import sys
+          from pathlib import Path
+          checks = json.loads(Path(sys.argv[1]).read_text(encoding="utf-8"))["checks"]
+          summary = ["### Agente 1 — revisão conservadora de stop/resize",
+                     "Commit analisado: " + sys.argv[3],
+                     "Status da inspeção: " + sys.argv[2]]
+          for c in checks:
+              summary.append("- " + c["status"] + " " + c["code"] + " — " + c["detail"])
+          summary.append("Somente análise estática: falhas pedem revisão humana, não provam exploit.")
+          report = "\n\n".join(summary) + "\n"
+          print(report)
+          with open(os.environ["GITHUB_STEP_SUMMARY"], "a", encoding="utf-8") as out:
+              out.write(report)
+          PY
+          else
+            echo "Agente 1 sem branch acessível; diagnóstico temporal não realizado." >> "$GITHUB_STEP_SUMMARY"
+          fi
