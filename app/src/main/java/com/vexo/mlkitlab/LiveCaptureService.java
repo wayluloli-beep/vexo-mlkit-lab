@@ -339,32 +339,45 @@ public final class LiveCaptureService extends Service {
         return active && !stopping && capturedVisible && epoch.get()==session;
     }
 
-    private void clearCandidateIfCurrent(long session) {
+    /**
+     * Só mapa/histórico/post CONFIRMADOS encerram episódio.
+     * Overlay, OCR parcial ou FinancialGuard inseguro: ocultar sugestão
+     * financeira, mas não criar falsamente uma segunda oferta.
+     */
+    private void markFrameUnusable(long session,boolean definitelyNoOffer) {
         synchronized(sessionLock) {
-            if(sessionAlive(session)) {
-                if(episodes.nonOffer()) {
-                    LiveCaptureState.clearCandidate();
-                    // Nunca manter alerta antigo na notificação quando o
-                    // motorista já voltou ao mapa ou a outra tela.
-                    NotificationManager nm=(NotificationManager)getSystemService(
-                        NOTIFICATION_SERVICE);
-                    if(nm!=null) nm.notify(NOTIFICATION_ID,notification(false));
-                }
+            if(!sessionAlive(session)) return;
+            boolean closed;
+            if(definitelyNoOffer) closed=episodes.nonOffer();
+            else {
+                episodes.uncertain();
+                closed=true; // esconder o último valor para não parecer atual
+            }
+            if(closed) {
+                LiveCaptureState.clearCandidate();
+                NotificationManager nm=(NotificationManager)getSystemService(
+                    NOTIFICATION_SERVICE);
+                if(nm!=null) nm.notify(NOTIFICATION_ID,notification(false));
             }
         }
     }
 
     private void evaluate(String text,long session) {
-        // Não publicar mapa, post, histórico nem número financeiro incerto.
-        if(text==null || !text.contains("99") ||
-            ScreenContextClassifier.classify(text)!=
-                ScreenContextClassifier.Kind.OFFER_CANDIDATE) {
-            clearCandidateIfCurrent(session);
+        ScreenContextClassifier.Kind context=
+            ScreenContextClassifier.classify(text==null?"":text);
+        if(context!=ScreenContextClassifier.Kind.OFFER_CANDIDATE ||
+            text==null || !text.contains("99")) {
+            boolean definitelyNoOffer=
+                context==ScreenContextClassifier.Kind.MAP_WITHOUT_OFFER ||
+                context==ScreenContextClassifier.Kind.COMPLETED_TRIP ||
+                context==ScreenContextClassifier.Kind.ARCHIVED_OFFER_SCREENSHOT ||
+                context==ScreenContextClassifier.Kind.SOCIAL_POST_WITH_SCREENSHOT;
+            markFrameUnusable(session,definitelyNoOffer);
             return;
         }
         OfferParser.Offer offer=OfferParser.parse(text);
         if(!FinancialGuard.assess(offer).canCalculate) {
-            clearCandidateIfCurrent(session);
+            markFrameUnusable(session,false);
             return;
         }
         String price=offer.get("offerPrice");
@@ -372,7 +385,7 @@ public final class LiveCaptureService extends Service {
         String duration=offer.get("tripMin");
         String pickup=offer.get("pickupKm");
         if(price.isEmpty()||trip.isEmpty()||duration.isEmpty()||pickup.isEmpty()) {
-            clearCandidateIfCurrent(session);
+            markFrameUnusable(session,false);
             return;
         }
         String fingerprint=String.join("|",offer.get("offerType"),price,trip,
