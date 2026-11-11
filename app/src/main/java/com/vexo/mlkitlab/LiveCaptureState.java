@@ -20,6 +20,11 @@ public final class LiveCaptureState {
     private static final AtomicLong ocrFailures=new AtomicLong();
     private static volatile String visibility="não informada";
     private static final AtomicLong alertCount=new AtomicLong();
+    private static final AtomicLong offerCandidates=new AtomicLong();
+    private static final AtomicLong contextRejected=new AtomicLong();
+    private static final AtomicLong contextUncertain=new AtomicLong();
+    private static final AtomicLong financeRejected=new AtomicLong();
+    private static final AtomicLong waitingConfirmation=new AtomicLong();
 
     static synchronized void begin() {
         frames.set(0);
@@ -28,6 +33,11 @@ public final class LiveCaptureState {
         ocrFailures.set(0);
         visibility="não informada";
         alertCount.set(0);
+        offerCandidates.set(0);
+        contextRejected.set(0);
+        contextUncertain.set(0);
+        financeRejected.set(0);
+        waitingConfirmation.set(0);
         lastCandidate="";
         status="Capturando tela com autorização. Aguardando oferta confiável.";
         active=true;
@@ -47,6 +57,21 @@ public final class LiveCaptureState {
 
     static void capturedContentVisibility(boolean visible) {
         if(active) visibility=visible?"visível":"oculto";
+    }
+
+    static void classifiedOffer() {
+        if(active) offerCandidates.incrementAndGet();
+    }
+    static void rejectedContext(boolean uncertain) {
+        if(!active) return;
+        if(uncertain) contextUncertain.incrementAndGet();
+        else contextRejected.incrementAndGet();
+    }
+    static void rejectedFinance() {
+        if(active) financeRejected.incrementAndGet();
+    }
+    static void awaitingConfirmation() {
+        if(active) waitingConfirmation.incrementAndGet();
     }
 
     static void ocrCompleted() {
@@ -93,6 +118,9 @@ public final class LiveCaptureState {
             " • OCR concluído: "+ocrRuns.get()+
             " • erros OCR: "+ocrFailures.get()+
             " • avisos: "+alertCount.get()+
+            " • contextos de oferta: "+offerCandidates.get()+
+            " • leituras incertas: "+contextUncertain.get()+
+            " • guardas financeiras: "+financeRejected.get()+
             " • janela: "+visibility+
             (active && !lastCandidate.isEmpty()?"\n"+lastCandidate:"");
     }
@@ -118,6 +146,11 @@ public final class LiveCaptureState {
             report.put("ocrCompleted",n[1]);
             report.put("ocrFailures",n[4]);
             report.put("offersAlerted",n[2]);
+            report.put("offerContextCandidates",offerCandidates.get());
+            report.put("screenContextUncertain",contextUncertain.get());
+            report.put("screenContextRejected",contextRejected.get());
+            report.put("financiallyUnconfirmedFrames",financeRejected.get());
+            report.put("awaitingTwoStableReadings",waitingConfirmation.get());
             report.put("capturedWindowVisibility",visibility);
             report.put("noFieldAccuracyMeasured",true);
             report.put("containsScreenshotOrOcrText",false);
