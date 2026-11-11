@@ -5,6 +5,9 @@ import android.os.Build;
 import android.Manifest;
 import android.content.pm.PackageManager;
 import android.content.Intent;
+import android.content.ClipData;
+import android.content.ClipboardManager;
+import android.content.Context;
 import android.graphics.Color;
 import android.media.projection.MediaProjectionManager;
 import android.os.Bundle;
@@ -93,6 +96,24 @@ public final class LiveCaptureActivity extends Activity {
         refresh.setText("Atualizar resultado da captura");
         root.addView(refresh);
         refresh.setOnClickListener(v -> liveState.setText(LiveCaptureState.snapshot()));
+
+        Button copyReport=new Button(this);
+        copyReport.setAllCaps(false);
+        copyReport.setText("Copiar diagnóstico da captura para análise");
+        root.addView(copyReport);
+        copyReport.setOnClickListener(v -> {
+            ClipboardManager clipboard=(ClipboardManager)
+                getSystemService(Context.CLIPBOARD_SERVICE);
+            if(clipboard==null) {
+                info.setText("Área de transferência indisponível neste aparelho.");
+                return;
+            }
+            clipboard.setPrimaryClip(ClipData.newPlainText(
+                "Diagnóstico Vexo — sem dados de corridas",
+                LiveCaptureState.safeDiagnosticReport()));
+            info.setText("Diagnóstico copiado. Cole o JSON no ChatGPT. " +
+                "Ele contém apenas contadores de captura/OCR e não contém prints ou dados da corrida.");
+        });
 
         TextView caveat=new TextView(this);
         caveat.setText("Laboratório: nenhuma corrida é aceita/recusada. Uma leitura perfeita de um print não garante precisão em outras corridas. Se a tela estiver protegida pelo Android, não tentaremos contornar o bloqueio.");

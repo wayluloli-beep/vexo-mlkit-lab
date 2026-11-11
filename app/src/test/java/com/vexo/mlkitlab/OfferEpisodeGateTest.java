@@ -4,6 +4,33 @@ import static org.junit.Assert.*;
 import org.junit.Test;
 
 public final class OfferEpisodeGateTest {
+    @Test public void uncertainHidesButRestoresSummaryWithoutReAlert() {
+        OfferEpisodeGate g=new OfferEpisodeGate();
+        assertFalse(g.observe("A"));
+        assertTrue(g.observe("A"));
+        g.uncertain();
+        assertFalse(g.observe("A"));
+        assertFalse(g.consumeRestoredSummary());
+        assertFalse(g.observe("A"));
+        assertTrue("Resumo da oferta confirmada pode voltar",g.consumeRestoredSummary());
+        assertFalse(g.consumeRestoredSummary());
+        assertFalse("Mesmo card não gera segundo alerta",g.observe("A"));
+    }
+
+    @Test public void wrongNumbersCannotRestoreHiddenOriginal() {
+        OfferEpisodeGate g=new OfferEpisodeGate();
+        assertFalse(g.observe("A"));
+        assertTrue(g.observe("A"));
+        g.uncertain();
+        assertFalse(g.observe("B_ocr"));
+        assertFalse(g.observe("B_ocr"));
+        assertFalse(g.consumeRestoredSummary());
+        assertFalse(g.observe("A"));
+        assertFalse(g.consumeRestoredSummary());
+        assertFalse(g.observe("A"));
+        assertTrue(g.consumeRestoredSummary());
+    }
+
     @Test public void sameOfferIn350FramesNotifiesOnceOnly() {
         OfferEpisodeGate g=new OfferEpisodeGate();
         int notifications=0;

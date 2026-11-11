@@ -381,11 +381,14 @@ public final class LiveCaptureService extends Service {
                 context==ScreenContextClassifier.Kind.COMPLETED_TRIP ||
                 context==ScreenContextClassifier.Kind.ARCHIVED_OFFER_SCREENSHOT ||
                 context==ScreenContextClassifier.Kind.SOCIAL_POST_WITH_SCREENSHOT;
+            LiveCaptureState.rejectedContext(!definitelyNoOffer);
             markFrameUnusable(session,definitelyNoOffer);
             return;
         }
+        LiveCaptureState.classifiedOffer();
         OfferParser.Offer offer=OfferParser.parse(text);
         if(!FinancialGuard.assess(offer).canCalculate) {
+            LiveCaptureState.rejectedFinance();
             markFrameUnusable(session,false);
             return;
         }
@@ -394,6 +397,7 @@ public final class LiveCaptureService extends Service {
         String duration=offer.get("tripMin");
         String pickup=offer.get("pickupKm");
         if(price.isEmpty()||trip.isEmpty()||duration.isEmpty()||pickup.isEmpty()) {
+            LiveCaptureState.rejectedFinance();
             markFrameUnusable(session,false);
             return;
         }
@@ -406,10 +410,20 @@ public final class LiveCaptureService extends Service {
             // O mesmo card pode ficar 30+ frames visível: alertar UMA vez.
             // Quando mapa/outro contexto aparece por dois frames, um novo card
             // com os mesmos valores também pode ser notificado.
-            if(!episodes.observe(fingerprint)) return;
+            boolean newEpisode=episodes.observe(fingerprint);
             if(!sessionAlive(session)) return;
-            LiveCaptureState.candidate("Preço R$"+price+" • viagem "+trip+
-                " km / "+duration+" min (confira na tela)");
+            String summary="Preço R$"+price+" • viagem "+trip+
+                " km / "+duration+" min (confira na tela)";
+            if(!newEpisode) {
+                LiveCaptureState.awaitingConfirmation();
+                if(episodes.consumeRestoredSummary()) {
+                    // Restauração é apenas UI. Nunca emitir notificação de
+                    // nova oferta após dois frames estáveis da mesma corrida.
+                    LiveCaptureState.restoreCandidate(summary);
+                }
+                return;
+            }
+            LiveCaptureState.candidate(summary);
             // Notificação sem valores, nomes ou endereços do passageiro.
             NotificationManager nm=(NotificationManager)getSystemService(NOTIFICATION_SERVICE);
             if(nm!=null) nm.notify(NOTIFICATION_ID,notification(true));
