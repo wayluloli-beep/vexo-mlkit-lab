@@ -23,8 +23,6 @@ public final class AdaptiveCardRegionDetector {
     private byte[] changed, visited;
     private boolean armed;
     private long lastAt=-1;
-    private int lastCandidateX=-1,lastCandidateY=-1;
-    private int lastCandidateW=-1,lastCandidateH=-1;
 
     public static final class Result {
         public final boolean baselineReady;
@@ -84,7 +82,8 @@ public final class AdaptiveCardRegionDetector {
         if(changes>count*80/100)
             return new Result(true,false,changedSinceLast/count>=MIN_MEAN_NEW_CHANGE,false,0,changes,null);
 
-        int bestScore=-1,bx=0,by=0,bw=0,bh=0,components=0;
+        long bestScore=-1;
+        int bx=0,by=0,bw=0,bh=0,components=0;
         for(int root=0;root<count;root++) {
             if(changed[root]==0 || visited[root]!=0) continue;
             int first=0,last=0, minX=cols,minY=rows,maxX=0,maxY=0,area=0;
@@ -117,7 +116,7 @@ public final class AdaptiveCardRegionDetector {
             if(aspect<.55 || aspect>9.0) continue;
             // Prefer large regions whose interior actually changed,
             // not sparse lines or individual text glyphs.
-            int score=area*1000/bboxCells*area;
+            long score=((long)area*1000/bboxCells)*area;
             if(score>bestScore){
                 bestScore=score;bx=x0;by=y0;bw=rw;bh=rh;
             }
@@ -128,8 +127,6 @@ public final class AdaptiveCardRegionDetector {
             int x0=Math.max(0,bx-marginX),y0=Math.max(0,by-marginY);
             int x1=Math.min(width,bx+bw+marginX),y1=Math.min(height,by+bh+marginY);
             box=new FastCardVisualTracker.Box(x0,y0,x1-x0,y1-y0);
-            lastCandidateX=x0;lastCandidateY=y0;
-            lastCandidateW=x1-x0;lastCandidateH=y1-y0;
         }
         return new Result(true,box!=null,changedSinceLast/count>=MIN_MEAN_NEW_CHANGE,
                           false,components,changes,box);
@@ -144,7 +141,6 @@ public final class AdaptiveCardRegionDetector {
     public synchronized void reset() {
         armed=false;lastAt=-1;width=0;height=0;cols=0;rows=0;count=0;
         baseline=null;previous=null;current=null;changed=null;visited=null;queue=null;
-        lastCandidateX=lastCandidateY=lastCandidateW=lastCandidateH=-1;
     }
     public synchronized boolean isArmed(){return armed;}
 }
