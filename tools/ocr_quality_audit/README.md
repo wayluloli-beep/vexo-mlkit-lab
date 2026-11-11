@@ -2,6 +2,10 @@
 
 Ferramenta **offline, somente leitura e sem dependências externas**. Não altera o Android, o ML Kit, o `OfferParser`, as configurações de build ou os testes do aplicativo. Analisa aritmética, cobertura e indicadores de relatórios de homologação exportados pelo Vexo. Foi desenvolvida para trabalhar em paralelo ao diagnóstico Android.
 
+## Testes sem APK
+
+Execute `python tools/ocr_quality_audit/check.py` para rodar todos os testes Python sintéticos **sem Gradle, Android ou instalação de APK**. Opcionalmente, use `--report /caminho/privado/relatorio.json` para verificar a consistência de um relatório exportado localmente. A execução não confirma acurácia de OCR real: veja [CI_INTEGRATION.md](CI_INTEGRATION.md) para matriz completa de capacidades e a proposta de job GitHub Actions (ainda não configurado).
+
 ## Uso
 
 Na raiz do repositório, com Python 3.10 ou posterior:
