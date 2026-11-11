@@ -156,5 +156,50 @@ class AuditTests(unittest.TestCase):
 
 
 
+    def test_ten_sample_033_shape_reconciles_all_five_risks(self):
+        """Synthetic placeholders, using only the supplied 0.3.3 field-presence/status layout."""
+        base = ["platform", "offerType", "offerPrice", "pickupMin", "pickupKm",
+                "tripMin", "tripKm", "rating", "rides", "negotiations"]
+        extra = {
+            1: ["payment"], 2: [], 3: ["surge"], 4: ["surge"], 5: [],
+            6: ["payment", "perKm"], 7: ["payment", "perKm", "surge"],
+            8: ["perKm", "surge"], 9: [], 10: ["perKm"],
+        }
+        errors = {(3, "tripKm"): (11.8, "1,8", "wrong"),
+                  (3, "surge"): (2.8, "", "missing"),
+                  (7, "surge"): (1.1, "", "missing"),
+                  (8, "surge"): (2.2, "", "missing"),
+                  (10, "perKm"): (1.28, "", "missing")}
+        counts = {}
+        samples = []
+        for number in range(1, 11):
+            details = {}
+            for field in base + extra[number]:
+                exp, act, status = errors.get((number, field), (1, "1", "ok"))
+                details[field] = {"expected": exp, "actual": act, "status": status}
+                row = counts.setdefault(field, [0, 0])
+                row[0] += 1
+                row[1] += (status == "ok")
+            samples.append({"id": f"synthetic-{number}", "fields": details,
+                            "tested": len(details),
+                            "correct": sum(x["status"] == "ok" for x in details.values()),
+                            "financialSafety": {"basicFieldsUsable": number != 3}})
+        doc = {"schema": "vexo-ocr-batch-report-v1", "appVersion": "0.3.3-synthetic",
+               "testImages": 10, "summary": {"checked": 111, "correct": 106,
+               "discrepant": 5, "processingErrors": 0, "accuracyPct": 95.5},
+               "perField": {k: {"checked": n, "correct": good}
+                            for k, (n, good) in counts.items()}, "samples": samples}
+        result = analyze(doc)
+        self.assertEqual((result["sampleAudit"]["statusChecked"], result["sampleAudit"]["statusCorrect"]), (111, 106))
+        self.assertEqual(len(result["reviewFlags"]), 5)
+        self.assertEqual(result["sampleAudit"]["financialReviewCount"], 4)
+        self.assertEqual(result["sampleAudit"]["distanceReviewCount"], 1)
+        self.assertEqual(result["perField"]["surge"]["accuracyPct"], 25.0)
+        self.assertEqual(result["perField"]["perKm"]["accuracyPct"], 75.0)
+        self.assertEqual(result["perField"]["tripKm"]["accuracyPct"], 90.0)
+        self.assertFalse(any("totals disagree" in w or "totals differ" in w for w in result["warnings"]))
+
+
+
 if __name__ == "__main__":
     unittest.main()
