@@ -312,6 +312,7 @@ public final class LiveCaptureService extends Service {
         if(paddedW<w || paddedW>8192 || h>8192) return null;
         Bitmap full=Bitmap.createBitmap(paddedW,h,Bitmap.Config.ARGB_8888);
         Bitmap result=null;
+        boolean ready=false;
         try {
             full.copyPixelsFromBuffer(buffer);
             result=Bitmap.createBitmap(full,0,0,w,h);
@@ -325,9 +326,13 @@ public final class LiveCaptureService extends Service {
                     result=scaled;
                 }
             }
+            ready=true;
             return result;
         } finally {
-            if(full!=result) full.recycle();
+            // Uma exceção durante createScaledBitmap não pode reter o crop.
+            // Em sucesso, result permanece vivo até a conclusão do ML Kit.
+            if(!ready && result!=null && result!=full) result.recycle();
+            if(!ready || full!=result) full.recycle();
         }
     }
 
