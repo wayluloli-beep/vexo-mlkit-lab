@@ -331,6 +331,7 @@ public final class LiveCaptureService extends Service {
                         if(!sessionAlive(session) || pendingRecheck.get()!=attempt) return;
                         final long now=SystemClock.elapsedRealtime();
                         LiveCaptureState.ocrLatency(Math.max(0,now-startedAt));
+                        LiveCaptureState.frameToOcrLatency(Math.max(0,now-acquiredAt));
                         if(!done.isSuccessful()) {
                             LiveCaptureState.ocrFailed();
                             return;
@@ -338,7 +339,7 @@ public final class LiveCaptureService extends Service {
                         read++;
                         LiveCaptureState.ocrCompleted();
                         if(attempt.canPublish(now)) {
-                            evaluate(done.getResult().getText(),session);
+                            evaluate(done.getResult().getText(),session,acquiredAt);
                         } else {
                             LiveCaptureState.staleOcrFrame();
                             markFrameUnusable(session,false);
@@ -469,7 +470,7 @@ public final class LiveCaptureService extends Service {
         }
     }
 
-    private void evaluate(String text,long session) {
+    private void evaluate(String text,long session,long frameAcquiredAt) {
         // Todas as alterações de contadores e do episódio pertencem à
         // mesma sessão. Callback antigo não pode contaminar novo teste.
         synchronized(sessionLock) {
@@ -541,6 +542,8 @@ public final class LiveCaptureService extends Service {
                 return;
             }
             LiveCaptureState.candidate(summary);
+            LiveCaptureState.frameToAlertLatency(Math.max(0,
+                SystemClock.elapsedRealtime()-frameAcquiredAt));
             scheduleOverlayOffer(session,VexoOverlaySummary.fromFields(
                         price,pickup,trip,offer.get("pickupMin"),duration,
                         offer.get("rating")));
