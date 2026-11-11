@@ -20,7 +20,8 @@ def repeated_offer(frames=30, interval_ms=100, sample_interval_ms=1400):
     """One offer in 30 frames; at most one inference per 1400 ms."""
     events = [event("start", t=0)]
     last_sample = -sample_interval_ms
-    first_alert = True
+    stable_reads = 0
+    last_notified_at = None
     for seq in range(frames):
         t = 100 + seq * interval_ms
         events.append(event("frame", seq=seq, t=t,
@@ -28,13 +29,18 @@ def repeated_offer(frames=30, interval_ms=100, sample_interval_ms=1400):
         if t - last_sample < sample_interval_ms:
             continue
         last_sample = t
+        stable_reads += 1
+        callback_at = t + 120
+        notify = stable_reads >= 2 and (last_notified_at is None or
+                                         callback_at - last_notified_at >= 25000)
+        if notify:
+            last_notified_at = callback_at
         events.append(event("inference_start", seq=seq, t=t))
-        events.append(event("inference_end", seq=seq, t=t + 120))
-        events.append(event("callback", seq=seq, t=t + 120,
+        events.append(event("inference_end", seq=seq, t=callback_at))
+        events.append(event("callback", seq=seq, t=callback_at,
                             context="OFFER_CANDIDATE", group="fixture-A",
-                            notified=first_alert, ui_applied=first_alert,
+                            notified=notify, ui_applied=notify,
                             guard_blocked=False, inference_ms=120))
-        first_alert = False
     events.append(event("stop", t=100 + frames * interval_ms + 300))
     return _sorted_events(events)
 
@@ -78,4 +84,5 @@ def all_scenarios():
             "map_offer_map": map_offer_map(),
             "equal_values_distinct_offers": equal_numbers_distinct_offers(),
             "stop_callback_discarded": stopped_with_late_callback(False),
-            "stop_callback_applied": stopped_with_late_callback(True)}
+            "stop_callback_applied": stopped_with_late_callback(True),
+            "long_stable_offer_realerts": repeated_offer(frames=350)}
