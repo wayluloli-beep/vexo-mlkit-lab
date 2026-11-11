@@ -526,3 +526,36 @@ jobs:
           else
             echo "PR #37 sem OfferEpisodeGate.java: teste Java não executado." >> "$GITHUB_STEP_SUMMARY"
           fi
+
+
+      - name: Revisão esquema privado V3 PR37
+        shell: bash
+        run: |
+          root="$RUNNER_TEMP/vexo-overlay-pr37"
+          if [[ -f "$root/app/src/main/java/com/vexo/mlkitlab/LiveCaptureState.java" ]]; then
+            sha=$(git -C "$root" rev-parse HEAD)
+            set +e
+            python tools/media_projection_security/diagnostic_v3_review.py \
+              --root "$root" --json > "$RUNNER_TEMP/pr37-diagnostic-v3.json"
+            status=$?
+            set -e
+            python - "$sha" "$status" "$RUNNER_TEMP/pr37-diagnostic-v3.json" <<'PY'
+          import json
+          import os
+          from pathlib import Path
+          import sys
+          sha, status, src = sys.argv[1:]
+          checks=json.loads(Path(src).read_text(encoding="utf-8"))["checks"]
+          lines=["### PR #37 — privacidade estrita do diagnóstico v3",
+                 "HEAD verificado: "+sha+" | scanner exit="+status]
+          for item in checks:
+              lines.append("- "+item["status"]+" "+item["code"]+": "+item["detail"])
+          lines.append("Inspeção estática, não prova privacidade absoluta em execução.")
+          output="\n\n".join(lines)+"\n"
+          print(output)
+          with open(os.environ["GITHUB_STEP_SUMMARY"],"a",encoding="utf-8") as out:
+              out.write(output)
+          PY
+          else
+            echo "PR #37 não acessível — schema v3 não aprovado." >> "$GITHUB_STEP_SUMMARY"
+          fi
