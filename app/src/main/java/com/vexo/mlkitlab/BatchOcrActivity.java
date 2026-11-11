@@ -356,7 +356,7 @@ public final class BatchOcrActivity extends Activity {
             StringBuilder diffs=new StringBuilder();
             int hits=0,fieldsTested=0;
             for (String key:OfferParser.KEYS) {
-                Object wanted=target(truth,key);
+                Object wanted=ReportFieldPolicy.expectedOrAbsent(target(truth,key));
                 String got=predicted.get(key);
                 if (got==null) got="";
                 if (wanted==null) {
@@ -448,14 +448,8 @@ public final class BatchOcrActivity extends Activity {
 
     private boolean equivalent(String field,Object expected,String actual) {
         if ("platform".equals(field)) return "99".equals(actual.trim());
-        if ("offerType".equals(field)) {
-            String e=expected.toString().toLowerCase(Locale.ROOT);
-            String a=actual.toLowerCase(Locale.ROOT);
-            return (!e.contains("moto") || a.contains("moto")) &&
-                (!e.contains("negocia") || a.contains("negocia")) &&
-                (!e.contains("priorit") || a.contains("priorit")) &&
-                (!e.contains("pgto.") || a.contains("pgto."));
-        }
+        if ("offerType".equals(field))
+            return OfferTypeComparator.equivalent(expected.toString(),actual);
         if ("payment".equals(field))
             return actual.toLowerCase(Locale.ROOT).contains(expected.toString().toLowerCase(Locale.ROOT));
         if ("negotiations".equals(field)) {
