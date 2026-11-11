@@ -102,7 +102,7 @@ jobs:
           script: |
             adb shell wm size
             adb shell wm density
-            gradle --no-daemon --max-workers=2 :app:connectedDebugAndroidTest || { adb logcat -d -s ActivityTaskManager:I VexoCaptureE2e:I | rg 'MediaProjectionPermissionActivity|VexoCaptureE2e' || true; exit 1; }
+            gradle --no-daemon --max-workers=2 :app:connectedDebugAndroidTest || { adb logcat -d -s ActivityTaskManager:I VexoCaptureE2e:I | grep -E 'MediaProjectionPermissionActivity|VexoCaptureE2e' || true; exit 1; }
             adb logcat -d -s VexoCaptureE2e:I
       - name: Anexar evidências do Android virtual
         if: always()
