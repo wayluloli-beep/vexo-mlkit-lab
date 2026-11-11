@@ -30,5 +30,34 @@ void extract() { checkFrameBudget(w,h); }"""
         self.assertEqual("FAIL", review_text(source)[0]["status"])
 
 
+    def test_guard_in_different_method_does_not_protect_resize(self):
+        source = """void initiate() {
+    checkFrameBudget(width,height);
+    ImageReader first=ImageReader.newInstance(width,height,1,3);
+}
+void resize(int w,int h) {
+    ImageReader second=ImageReader.newInstance(w,h,1,3);
+}"""
+        self.assertEqual("FAIL", review_text(source)[0]["status"])
+
+    def test_separate_budget_checks_per_method_satisfy_lexical_gate(self):
+        source = """void initiate() {
+    checkFrameBudget(width,height);
+    ImageReader first=ImageReader.newInstance(width,height,1,3);
+}
+void resize(int w,int h) {
+    checkFrameBudget(w,h);
+    ImageReader second=ImageReader.newInstance(w,h,1,3);
+}"""
+        self.assertEqual("PASS", review_text(source)[0]["status"])
+
+    def test_budget_check_only_in_comment_does_not_pass(self):
+        source = """void initiate() {
+    // checkFrameBudget(width,height);
+    ImageReader first=ImageReader.newInstance(width,height,1,3);
+}"""
+        self.assertEqual("FAIL", review_text(source)[0]["status"])
+
+
 if __name__ == "__main__":
     unittest.main()
