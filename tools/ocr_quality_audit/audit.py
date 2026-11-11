@@ -112,6 +112,122 @@ def _read(path: Path) -> dict[str, Any]:
     return doc
 
 
+
+def _audit_samples(samples: Any, per_field: dict[str, dict[str, Any]],
+                   declared: dict[str, Any], warnings: list[str]
+                   ) -> tuple[list[dict[str, Any]], dict[str, Any]]:
+    """Cross-check export's actual 'samples' structure, without inventing ground truth.
+
+    Status labels remain claims made by the exported report. This helper checks
+    their arithmetic and surfaces expected/actual evidence when supplied.
+    """
+    if not isinstance(samples, list):
+        raise ReportError("samples must be an array when provided")
+    sums: dict[str, list[int]] = {k: [0, 0] for k in per_field}
+    review: list[dict[str, Any]] = []
+    seen_ids: set[str] = set()
+    sample_checked = sample_correct = 0
+    invalid_basic: list[str] = []
+    usable_with_risk: list[str] = []
+    for index, sample in enumerate(samples):
+        if not isinstance(sample, dict) or not isinstance(sample.get("fields"), dict):
+            raise ReportError(f"samples[{index}] needs a fields object")
+        case = _name(sample.get("id"), f"samples[{index}].id")
+        if case in seen_ids:
+            raise ReportError(f"duplicate sample id: {case}")
+        seen_ids.add(case)
+        fields = sample["fields"]
+        case_checked = case_correct = 0
+        case_risks = 0
+        safety = sample.get("financialSafety", {})
+        basic_usable = safety.get("basicFieldsUsable") if isinstance(safety, dict) else None
+        evidence = sample.get("ocrEvidence", {})
+        if not isinstance(evidence, dict):
+            warnings.append(f"sample {case}: ocrEvidence is not an object")
+            evidence = {}
+        for name, item in fields.items():
+            if name not in per_field:
+                warnings.append(f"sample {case}: unexpected field {name!r}; check report field names")
+                continue
+            if not isinstance(item, dict):
+                raise ReportError(f"sample {case}/{name}: field detail must be an object")
+            status = item.get("status")
+            if status not in ("ok", "wrong", "missing"):
+                warnings.append(f"sample {case}/{name}: unrecognized status {status!r}; excluded from counts")
+                continue
+            case_checked += 1
+            sums[name][0] += 1
+            if status == "ok":
+                case_correct += 1
+                sums[name][1] += 1
+                x = _number(item.get("expected"))
+                y = _number(item.get("actual"))
+                if x is not None and y is not None and x != y:
+                    warnings.append(f"sample {case}/{name}: status ok but numeric expected/actual differ")
+                continue
+            kind = per_field[name]["riskCategory"]
+            if kind == OTHER:
+                continue
+            case_risks += 1
+            flag: dict[str, Any] = {
+                "field": name, "caseId": case, "riskCategory": kind,
+                "reportedStatus": status,
+                "status": "critical_review" if kind == FINANCIAL_DIRECT else "distance_review",
+            }
+            expected = item.get("expected")
+            actual = item.get("actual")
+            x, y = _number(expected), _number(actual)
+            if x is not None:
+                flag["expectedValue"] = str(x)
+            if y is not None:
+                flag["actualValue"] = str(y)
+            if x is not None and y is not None:
+                flag["absoluteDifference"] = str(abs(x - y))
+                if x != 0:
+                    flag["differencePercentOfExpected"] = round(float(abs(x - y) / abs(x) * 100), 2)
+            elif status == "missing":
+                flag["magnitudeUnquantified"] = True
+            signal = evidence.get(name)
+            if isinstance(signal, dict) and isinstance(signal.get("expectedNumberSeenInRawOCR"), bool):
+                flag["reportedExpectedNumberSeenInRawOCR"] = signal["expectedNumberSeenInRawOCR"]
+                flag["diagnosticCaution"] = "Indicative OCR evidence, not proof of OCR or parser origin"
+            review.append(flag)
+        sample_checked += case_checked
+        sample_correct += case_correct
+        if "tested" in sample and _count(sample["tested"], f"sample {case}.tested") != case_checked:
+            warnings.append(f"sample {case}: tested differs from recognized field statuses")
+        if "correct" in sample and _count(sample["correct"], f"sample {case}.correct") != case_correct:
+            warnings.append(f"sample {case}: correct differs from ok statuses")
+        if basic_usable is False:
+            invalid_basic.append(case)
+        if basic_usable is True and case_risks:
+            usable_with_risk.append(case)
+
+    if len(samples) != declared["testImages"]:
+        warnings.append("samples count differs from testImages")
+    if (sample_checked, sample_correct) != (declared["checked"], declared["correct"]):
+        warnings.append("sample status totals differ from summary; avoid interpreting summary as verified")
+    for name, (checked, correct) in sums.items():
+        field = per_field[name]
+        if (checked, correct) != (field["checked"], field["correct"]):
+            warnings.append(f"sample field totals disagree with perField.{name}")
+    if usable_with_risk:
+        warnings.append(
+            "basicFieldsUsable=true coexists with errors in financial/distance fields in: "
+            + ", ".join(usable_with_risk)
+            + "; this flag must not be interpreted as all financial fields correct"
+        )
+    return review, {
+        "sampleCount": len(samples), "statusChecked": sample_checked,
+        "statusCorrect": sample_correct, "statusErrors": sample_checked - sample_correct,
+        "basicFieldsUnusableCases": invalid_basic,
+        "basicFieldsUsableWithRiskIssues": usable_with_risk,
+        "financialReviewCount": sum(x["riskCategory"] == FINANCIAL_DIRECT for x in review),
+        "distanceReviewCount": sum(x["riskCategory"] == DISTANCE for x in review),
+        "evidenceOrigin": "status/expected/actual supplied by the generator; screenshots not independently reviewed",
+    }
+
+
 def analyze(report: dict[str, Any]) -> dict[str, Any]:
     if not isinstance(report, dict):
         raise ReportError("report must be a JSON object")
@@ -167,9 +283,18 @@ def analyze(report: dict[str, Any]) -> dict[str, Any]:
 
     # Only one documented optional detail format is accepted. Unknown case formats
     # are never guessed into measured results.
+    sample_audit: dict[str, Any] | None = None
+    sample_flags: list[dict[str, Any]] | None = None
+    if "samples" in report:
+        sample_flags, sample_audit = _audit_samples(
+            report["samples"], per_field,
+            {"testImages": images, "checked": total, "correct": correct}, warnings
+        )
     details = report.get("discrepancies")
     flagged: list[dict[str, Any]] = []
-    if details is None:
+    if sample_flags is not None:
+        flagged = sample_flags
+    elif details is None:
         warnings.append("no per-error ground truth: financial severity cannot be confirmed from aggregates")
     elif not isinstance(details, list):
         warnings.append("discrepancies is not an array; individual errors were not interpreted")
@@ -219,7 +344,7 @@ def analyze(report: dict[str, Any]) -> dict[str, Any]:
                    "discrepantReported": discrepancy_count, "processingErrors": processing_errors,
                    "accuracyPct": _pct(correct, total)},
         "perField": per_field, "riskBearingFieldsWithErrors": risk_fields,
-        "reviewFlags": flagged, "datasetMarkers": dataset, "warnings": warnings,
+        "reviewFlags": flagged, "sampleAudit": sample_audit, "datasetMarkers": dataset, "warnings": warnings,
         "scope": "Arithmetic/metadata audit only; original screenshots were not independently verified",
     }
 
@@ -290,12 +415,24 @@ def markdown(audit: dict[str, Any], comparison: dict[str, Any] | None = None) ->
             f"{x}" for x in audit["riskBearingFieldsWithErrors"]))
     else:
         lines.append("No aggregate errors flagged in recognized financial/distance field names.")
+    if audit.get("sampleAudit"):
+        info = audit["sampleAudit"]
+        lines.append(f"Sample statuses: {info['statusCorrect']}/{info['statusChecked']} correct")
+        lines.append(f"Review flags: {info['financialReviewCount']} financial, {info['distanceReviewCount']} distance")
+        if info["basicFieldsUnusableCases"]:
+            lines.append("Basic-field safety failed: " + ", ".join(info["basicFieldsUnusableCases"]))
+        if info["basicFieldsUsableWithRiskIssues"]:
+            lines.append("Basic usable, but has risk errors: " + ", ".join(info["basicFieldsUsableWithRiskIssues"]))
     if audit["reviewFlags"]:
         lines.append("")
         lines.append("Individual supplied discrepancies (only where the JSON contains details):")
         for flag in audit["reviewFlags"]:
-            lines.append(f"- {flag['field']}: {flag['status']}"
-                         + (f"; absolute difference {flag['absoluteDifference']}" if "absoluteDifference" in flag else ""))
+            lines.append(f"- {flag.get('caseId') or 'unidentified case'} / {flag['field']}: {flag['status']}"
+                         + (f"; source status {flag['reportedStatus']}" if "reportedStatus" in flag else "")
+                         + (f"; expected {flag['expectedValue']}" if "expectedValue" in flag else "")
+                         + (f"; actual {flag['actualValue']}" if "actualValue" in flag else "")
+                         + (f"; absolute difference {flag['absoluteDifference']}" if "absoluteDifference" in flag else "")
+                         + (f"; expected number seen in raw OCR: {flag['reportedExpectedNumberSeenInRawOCR']} (indicative only)" if "reportedExpectedNumberSeenInRawOCR" in flag else ""))
     lines.extend(["", "**A critical-review flag is a potential decision error, not confirmed monetary loss.**", "",
                   "## Warnings and limitations", ""])
     lines.extend(f"- {w}" for w in audit["warnings"])
