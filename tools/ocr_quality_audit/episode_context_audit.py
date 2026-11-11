@@ -9,7 +9,7 @@ from dataclasses import dataclass
 from collections import Counter
 import re
 
-_OPAQUE = re.compile(r"[A-Za-z0-9_-]{1,64}\\Z")
+_OPAQUE = re.compile(r"[A-Za-z0-9_-]{1,64}\Z")
 
 
 @dataclass(frozen=True)
