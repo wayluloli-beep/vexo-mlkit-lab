@@ -88,7 +88,7 @@ final class VexoOfferOverlay {
 
         LinearLayout values=new LinearLayout(context);
         values.setOrientation(LinearLayout.HORIZONTAL);
-        values.setGravity(Gravity.BASELINE);
+        values.setGravity(Gravity.CENTER_VERTICAL);
         row.addView(values);
         TextView big=text(initial,25,DARK,true);
         values.addView(big);
