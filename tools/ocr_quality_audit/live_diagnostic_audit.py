@@ -51,6 +51,8 @@ def analyze(doc):
         raise DiagnosticInputError("unexpected schema or fields")
     if any(type(doc[f]) is not str for f in STRINGS):
         raise DiagnosticInputError("invalid descriptive field")
+    if any(type(doc[key]) is not str for key in ENUMS):
+        raise DiagnosticInputError("invalid diagnostic enum type")
     if doc["status"] not in {"CAPTURE_ACTIVE", "CAPTURE_STOPPED"} or \
        doc["diagnosticStage"] not in STAGES or doc["capturedWindowVisibility"] not in VISIBILITY:
         raise DiagnosticInputError("invalid diagnostic enum")
