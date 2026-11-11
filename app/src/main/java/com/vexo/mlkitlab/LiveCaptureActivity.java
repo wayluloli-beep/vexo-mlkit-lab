@@ -1,6 +1,9 @@
 package com.vexo.mlkitlab;
 
 import android.app.Activity;
+import android.os.Build;
+import android.Manifest;
+import android.content.pm.PackageManager;
 import android.content.Intent;
 import android.graphics.Color;
 import android.media.projection.MediaProjectionManager;
@@ -43,6 +46,22 @@ public final class LiveCaptureActivity extends Activity {
         LinearLayout.LayoutParams statusLp=new LinearLayout.LayoutParams(-1,-2);
         statusLp.topMargin=20;
         root.addView(liveState,statusLp);
+
+        if(Build.VERSION.SDK_INT>=33 &&
+            checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS)!=
+                PackageManager.PERMISSION_GRANTED) {
+            TextView notice=new TextView(this);
+            notice.setText("Para usar o botão PARAR pela notificação, permita avisos do Vexo. Se negar, ainda pode interromper pelo app ou pelo Android.");
+            notice.setTextColor(0xffffcf8b);
+            notice.setTextSize(14);
+            root.addView(notice);
+            Button allowNotice=new Button(this);
+            allowNotice.setAllCaps(false);
+            allowNotice.setText("Habilitar aviso com botão PARAR (opcional)");
+            root.addView(allowNotice);
+            allowNotice.setOnClickListener(v ->
+                requestPermissions(new String[]{Manifest.permission.POST_NOTIFICATIONS},403));
+        }
 
         Button start=new Button(this);
         start.setAllCaps(false);
