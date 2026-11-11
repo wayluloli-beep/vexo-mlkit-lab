@@ -51,3 +51,21 @@ A auditoria detecta duplicação de aviso, alerta de mapa/post/UNCERTAIN, callba
 ## Regras de integração
 
 Não colocar fixtures da 99 real em CI. Gerar somente telas fictícias no próprio app/emulador. Em `Stop`, invalidar epoch antes de liberar MediaProjection e descartar resultados de ML Kit que acabarem depois. Resultado ambíguo não pode gerar análise financeira confirmada nem aceitação/recusa automática. No Android 14+, pedir consentimento por sessão, respeitar `onStop` e `FLAG_SECURE` conforme https://developer.android.com/media/grow/media-projection.
+
+
+## Nova rodada — latência, repetição e teste executável
+
+O campo opcional **`at_ms`** é um relógio monotônico fictício em milissegundos para o teste. `frame` pode incluir `context` e `group` rotulados **ANTES** do processamento como gabarito sintético. `callback` usa o mesmo `epoch`/`seq`; se um frame gabaritado `NON_OFFER` gera callback `OFFER_CANDIDATE`, o auditor sinaliza `candidate_on_non_offer_fixture_frame`. Se o callback aponta outro `group` em frame rotulado, sinaliza `candidate_identity_mismatch`. Sem gabarito explícito nesses frames, o verificador não inventa identidade ou classe verdadeira.
+
+O resultado `timing` do `stream_check.py` separa:
+- `firstCandidateLatencyP95Ms`: entre o **primeiro frame rotulado** da oferta fictícia e o primeiro callback `OFFER_CANDIDATE` correspondente;
+- `firstAlertLatencyP95Ms`: entre o mesmo frame e o primeiro callback que efetivamente notificou;
+- `ocrInferenceP95Ms`: P95 de `inference_ms` informados nos callbacks, calculado pelo percentil 95 de posto mais próximo;
+- `offersNeverDetectedInTrace`: ofertas fictícias visíveis nos frames que não receberam candidato;
+- `missingTimingEvidence` e `invalidNegativeDurations`: dados ausentes ou temporização incoerente. Sem timestamps suficientes, a latência é **null**, nunca 0 ms inventado.
+
+Execute `python tools/ocr_quality_audit/run_stream_fixtures.py`: **sete** cenários inventados são conferidos com resultados esperados (inclusive duas condições negativas que DEVEM produzir violações: callback aplicado depois de Stop e segundo alerta após 25 segundos para o mesmo card). A saída contém apenas contagens, tempos sintéticos e tipos de violação, sem identificadores sensíveis. Para todos os testes Python, `python tools/ocr_quality_audit/check.py` também executa este runner após o `unittest`. Os valores de 120 ms e P95 de 450 ms nos fixtures são parâmetros artificiais, **não** medição de aparelho.
+
+**Revisão concreta PR #23:** o serviço exige duas leituras consecutivas do mesmo `fingerprint` para alertar e usa janela de supressão `NOTIFY_INTERVAL_MS=25000`. Se a mesma oferta continuar visível por mais de 25 segundos, o código pode **alertar de novo**. Além disso, a identidade se baseia somente em tipo, preço, tempos e distâncias: duas ofertas diferentes com as mesmas métricas podem ser confundidas. A reprodução no fixture NÃO prova que o comportamento foi observado no dispositivo. O Android deve definir política de identidade e ciclo de vida da oferta sem guardar ou exportar OCR bruto, e um teste de longo período com o app sintético.
+
+**CI:** os testes estão no entrypoint Python `check.py` da branch do auditor; o workflow existente `build-apk.yml` compila Android mas **não invoca Python**. Agente 1 precisa adicionar no fluxo de integração em sua branch um passo que rode `python tools/ocr_quality_audit/check.py` quando os arquivos do auditor estiverem incorporados, antes de declarar CI Python integrado. Não modificar main automaticamente.
