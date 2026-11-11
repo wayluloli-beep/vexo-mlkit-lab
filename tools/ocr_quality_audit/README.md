@@ -31,6 +31,19 @@ Aceita `vexo-ocr-batch-report-v1`, com `appVersion`, `testImages`, `summary` (`c
 
 O suporte **opcional** a erros individuais espera uma lista `discrepancies`, com objetos como `{"field": "offerPrice", "caseId": "teste-local-1", "expected": "43,09", "actual": "4,09"}`. A alternativa `observed` é aceita no lugar de `actual`. Este trecho é **somente um exemplo sintético** de formato, não um resultado de teste real. Esse formato mais antigo continua aceito quando `samples` não existe; **o programa não tenta adivinhar** estruturas desconhecidas.
 
+## Métricas por oferta (sem confundir com a taxa por campo)
+
+Quando `samples` está disponível, o JSON de saída também contém `sampleAudit.offerRisk`. A mesma oferta é contada **no máximo uma vez em cada categoria**, mesmo que tenha vários erros:
+
+- `evaluatedOffers`: ofertas com ao menos um campo de status reconhecido (`ok`, `wrong`, `missing` ou `false_positive`).
+- `offersWithAnyError` / `anyErrorRatePct`: ofertas que contêm algum erro declarado, inclusive de metadados.
+- `offersWithDirectFinancialError`: ofertas com erro em preço, tarifa dinâmica, R$/km ou outro campo classificado como diretamente financeiro.
+- `offersWithDistanceError`: ofertas com erro de distância, que pode comprometer cálculo financeiro derivado.
+- `offersWithDecisionRelevantError` / `decisionRelevantErrorRatePct`: união das duas categorias anteriores — **uma oferta com dois erros é contada apenas uma vez**.
+- `offersWithFalsePositive`: ofertas com pelo menos uma extração indevida.
+
+Uma amostra sem status reconhecido **não é declarada como acerto** e não entra no denominador de `evaluatedOffers`; o auditor emite aviso. Quando não existem `samples`, não calculamos uma taxa por oferta a partir de totais agregados, pois isso exigiria adivinhar quais erros vieram da mesma imagem. As taxas mostram somente os **campos avaliados pelo gerador**, não todos os campos potencialmente visíveis ou todas as ofertas futuras. Não use `decisionRelevantErrorRatePct` como estimativa de frequência populacional em produção.
+
 ## Indicadores e como interpretá-los
 
 - **Acerto geral** = `correct / checked × 100`. Campos com `checked = 0` recebem `n/a`, jamais 100%.
