@@ -73,7 +73,7 @@ public final class FastRoiActivityProbe {
             if(value<0 || value>255) {
                 boolean old=active;
                 active=false;
-                return new Signal(false,false,old,255);
+                return new Signal(false,false,old,false,255);
             }
             sum+=Math.abs(reference[k]-value);
             deltaSinceLastFrame+=Math.abs(previous[k]-value);
