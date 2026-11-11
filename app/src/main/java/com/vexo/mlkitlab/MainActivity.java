@@ -241,8 +241,10 @@ public class MainActivity extends Activity {
                         baseline=new OfferParser.Offer();
                         confirm.setEnabled(false);
                         results.setVisibility(View.GONE);
-                        String detail=context==ScreenContextClassifier.Kind.COMPLETED_TRIP
-                            ? "histórico de corrida concluída"
+                        String detail=context==ScreenContextClassifier.Kind.SOCIAL_POST_WITH_SCREENSHOT
+                            ? "publicação de rede social com print de oferta"
+                            : context==ScreenContextClassifier.Kind.COMPLETED_TRIP
+                                ? "histórico de corrida concluída"
                             : context==ScreenContextClassifier.Kind.MAP_WITHOUT_OFFER
                                 ? "mapa/zonas dinâmicas sem oferta ativa"
                                 : "captura arquivada dentro de outro aplicativo";

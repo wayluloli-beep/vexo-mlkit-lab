@@ -21,11 +21,12 @@ public final class ScreenContextClassifier {
         COMPLETED_TRIP,
         MAP_WITHOUT_OFFER,
         ARCHIVED_OFFER_SCREENSHOT,
+        SOCIAL_POST_WITH_SCREENSHOT,
         UNCERTAIN;
 
         public boolean definitelyNotLiveOffer() {
             return this==COMPLETED_TRIP || this==MAP_WITHOUT_OFFER ||
-                this==ARCHIVED_OFFER_SCREENSHOT;
+                this==ARCHIVED_OFFER_SCREENSHOT || this==SOCIAL_POST_WITH_SCREENSHOT;
         }
     }
 
@@ -49,6 +50,13 @@ public final class ScreenContextClassifier {
         String t=norm(raw);
         if(t.isEmpty()) return Kind.UNCERTAIN;
 
+        // Uma postagem com print de oferta nao e uma oferta disponivel agora.
+        // Detectar duas evidencias da interface de publicacao, nao a palavra
+        // "posts" isoladamente; bloquear apenas quando ambas existirem.
+        if (has(t,"\\bposts\\b") &&
+            has(t,"escreva um comentario publico|escreva comentario publico"))
+            return Kind.SOCIAL_POST_WITH_SCREENSHOT;
+
         // Ordem deliberada: tela de historico com foto de oferta embutida
         // nao deve tornar-se oferta atual.
         if (has(t,"selecione uma acao|apagar este registro") &&
@@ -61,9 +69,16 @@ public final class ScreenContextClassifier {
                 has(t,"duracao|valor recebido|preco antecipado")))
             return Kind.COMPLETED_TRIP;
 
+        // Uma notificação "próxima viagem / você está online" pode ficar
+        // sobreposta a um card de oferta. Se QUALQUER sinal plausível do card
+        // sobreviver ao OCR, classificar como UNCERTAIN em vez de BLOQUEAR.
+        // Ausência de botão ou "min" não prova ausência de uma oferta.
+        boolean hasOfferContext=has(t,
+            "\\b(?:moto|negocia|prioritario|solicitacoes|pgto|entrega|aceitar|escolher)\\b");
+        boolean hasRouteContext=DISTANCE.matcher(t).find() ||
+            MINUTES.matcher(t).find();
         if (has(t,"proxima viagem|voce esta online") &&
-            !has(t,"\\baceitar\\b|\\bescolher\\b") &&
-            !has(t,"\\b\\d+\\s*min\\b"))
+            !hasOfferContext && !hasRouteContext)
             return Kind.MAP_WITHOUT_OFFER;
 
         Matcher d=DISTANCE.matcher(t);
