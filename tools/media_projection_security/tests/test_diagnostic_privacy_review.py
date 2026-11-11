@@ -4,7 +4,7 @@ import sys
 import unittest
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-from diagnostic_privacy_review import SAFE_VALUES, review_text
+from diagnostic_privacy_review import SAFE_VALUES, BASE_FIELDS, review_text
 
 REPORT_VALUES = "\n".join(
     f'    report.put("{key}", {value});'
@@ -58,9 +58,11 @@ public final class CaptureLatencyStats {
 """
 
 
-def by_code(state=STATE, activity=ACTIVITY, service=SERVICE, latency=LATENCY):
+def by_code(state=STATE, activity=ACTIVITY, service=SERVICE, latency=LATENCY,
+            require_latency=False):
     return {c["code"]: c["status"]
-            for c in review_text(state, activity, service, latency)}
+            for c in review_text(state, activity, service, latency,
+                                 require_latency=require_latency)}
 
 
 class DiagnosticPrivacyReviewTest(unittest.TestCase):
@@ -121,7 +123,17 @@ class DiagnosticPrivacyReviewTest(unittest.TestCase):
         self.assertEqual("FAIL", by_code(latency=bad)["OCR_LATENCY_BOUNDED_SAMPLE_WINDOW"])
 
     def test_missing_latency_source_stays_unverified(self):
-        self.assertEqual("FAIL", by_code(latency=None)["OCR_LATENCY_BOUNDED_SAMPLE_WINDOW"])
+        self.assertEqual("SKIP", by_code(latency=None)["OCR_LATENCY_BOUNDED_SAMPLE_WINDOW"])
+
+    def test_required_latency_source_missing_fails(self):
+        self.assertEqual("FAIL", by_code(latency=None,require_latency=True)["OCR_LATENCY_BOUNDED_SAMPLE_WINDOW"])
+
+    def test_original_clipboard_report_without_latency_is_supported(self):
+        body = "\\n".join(f'report.put("{k}", {v});' for k,v in SAFE_VALUES.items() if k in BASE_FIELDS)
+        old = STATE.replace(REPORT_VALUES, body)
+        checks = by_code(state=old,latency=None)
+        self.assertEqual("PASS", checks["EXPORT_SCHEMA_FIELD_ALLOWLIST"])
+        self.assertEqual("SKIP", checks["OCR_LATENCY_BOUNDED_SAMPLE_WINDOW"])
 
 
 if __name__ == "__main__":
