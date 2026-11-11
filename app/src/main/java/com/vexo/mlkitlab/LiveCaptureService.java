@@ -206,6 +206,12 @@ public final class LiveCaptureService extends Service {
                         if(!visible) {
                             episodes.uncertain();
                             LiveCaptureState.clearCandidate();
+                            // A janela deixou de estar visível: remover também o aviso
+                            // anterior da notificação, sem atingir sessão posterior.
+                            // Manter sob sessionLock evita callback A após STOP/START B.
+                            NotificationManager nm=(NotificationManager)
+                                getSystemService(NOTIFICATION_SERVICE);
+                            if(nm!=null) nm.notify(NOTIFICATION_ID,notification(false));
                         }
                     }
                     if(visible) scheduleOverlaySearching(session);
