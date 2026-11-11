@@ -29,6 +29,9 @@ public final class LiveCaptureState {
     private static final AtomicLong offerGateHeld=new AtomicLong();
     private static final AtomicLong offerCandidatesWithoutLogo=new AtomicLong();
     private static final CaptureLatencyStats latency=new CaptureLatencyStats();
+    // Latência ponta a ponta desde o frame adquirido até o alerta seguro.
+    private static final CaptureLatencyStats frameToAlertLatency=new CaptureLatencyStats();
+    private static final CaptureLatencyStats frameToOcrLatency=new CaptureLatencyStats();
     private static final CaptureContextEvidence contextEvidence=new CaptureContextEvidence();
 
     static synchronized void begin() {
@@ -47,6 +50,8 @@ public final class LiveCaptureState {
         offerGateHeld.set(0);
         offerCandidatesWithoutLogo.set(0);
         latency.reset();
+        frameToAlertLatency.reset();
+        frameToOcrLatency.reset();
         contextEvidence.reset();
         lastCandidate="";
         status="Capturando tela com autorização. Aguardando oferta confiável.";
@@ -59,6 +64,14 @@ public final class LiveCaptureState {
 
     static void ocrLatency(long milliseconds) {
         if(active) latency.record(milliseconds);
+    }
+
+    static void frameToOcrLatency(long ms) {
+        if(active) frameToOcrLatency.record(ms);
+    }
+
+    static void frameToAlertLatency(long ms) {
+        if(active) frameToAlertLatency.record(ms);
     }
 
     static void ocrAttempted() {
@@ -190,6 +203,14 @@ public final class LiveCaptureState {
             report.put("ocrLatencyP50Ms",timing[3]);
             report.put("ocrLatencyP95Ms",timing[4]);
             report.put("ocrLatencyMaxMs",timing[5]);
+            long[] endToEnd=frameToAlertLatency.snapshot();
+            report.put("frameToAlertSamples",endToEnd[0]);
+            report.put("frameToAlertP50Ms",endToEnd[3]);
+            report.put("frameToAlertP95Ms",endToEnd[4]);
+            report.put("frameToAlertMaxMs",endToEnd[5]);
+            long[] fromFrame=frameToOcrLatency.snapshot();
+            report.put("frameToOcrSamples",fromFrame[0]);
+            report.put("frameToOcrP95Ms",fromFrame[4]);
             report.put("offerContextCandidates",offerCandidates.get());
             report.put("screenContextUncertain",contextUncertain.get());
             report.put("screenContextRejected",contextRejected.get());
