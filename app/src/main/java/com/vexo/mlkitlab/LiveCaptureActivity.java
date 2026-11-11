@@ -62,6 +62,19 @@ public final class LiveCaptureActivity extends Activity {
             startService(stopIntent);
             info.setText("Solicitação de parada enviada. Para reiniciar é necessária uma nova autorização.");
         });
+        Button demo=new Button(this);
+        demo.setAllCaps(false);
+        demo.setText("Abrir oferta fictícia para conferir captura");
+        root.addView(demo);
+        demo.setOnClickListener(v ->
+            startActivity(new Intent(this,DemoOfferActivity.class)));
+
+        Button refresh=new Button(this);
+        refresh.setAllCaps(false);
+        refresh.setText("Atualizar resultado da captura");
+        root.addView(refresh);
+        refresh.setOnClickListener(v -> liveState.setText(LiveCaptureState.snapshot()));
+
         TextView caveat=new TextView(this);
         caveat.setText("Laboratório: nenhuma corrida é aceita/recusada. Uma leitura perfeita de um print não garante precisão em outras corridas. Se a tela estiver protegida pelo Android, não tentaremos contornar o bloqueio.");
         caveat.setTextColor(0xffffcf8b);
@@ -107,7 +120,7 @@ public final class LiveCaptureActivity extends Activity {
         service.putExtra(LiveCaptureService.EXTRA_CONSENT_DATA,data);
         try {
             androidx.core.content.ContextCompat.startForegroundService(this,service);
-            info.setText("Autorização recebida. Sessão local solicitada. Volte à 99 pelo seletor de apps. Para parar, volte aqui ou use a notificação persistente do Vexo.");
+            info.setText("Sessão solicitada. Primeiro teste na tela 'Oferta fictícia' ou no app escolhido pelo Android. Para parar, volte aqui ou use a notificação do Vexo.");
         } catch(Exception e) {
             info.setText("Falha ao iniciar o serviço de captura; nenhuma permissão será guardada.");
         }
