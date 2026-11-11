@@ -53,6 +53,26 @@ public final class FastRoiActivityProbeTest {
         assertTrue(p.inspect(new Pixels(180),66).risingEdge);
     }
 
+    @Test public void changedContentWithinActiveRegionStillRequestsInvestigation() {
+        FastRoiActivityProbe p=start();
+        assertTrue(p.inspect(new Pixels(180),33).risingEdge);
+        FastRoiActivityProbe.Signal second=p.inspect(new Pixels(225),66);
+        assertTrue(second.changed);
+        assertFalse(second.risingEdge);
+        assertTrue(second.changedSincePrevious);
+        // A -> B without map is a visual change, not proof of a new ride.
+    }
+
+    @Test public void unchangedActiveRegionDoesNotRepeatedlyWakeOnEveryFrame() {
+        FastRoiActivityProbe p=start();
+        p.inspect(new Pixels(230),33);
+        for(int i=2;i<30;i++) {
+            FastRoiActivityProbe.Signal state=p.inspect(new Pixels(230),i*33);
+            assertFalse(state.changedSincePrevious);
+            assertFalse(state.risingEdge);
+        }
+    }
+
     @Test public void backgroundChangesAlsoTriggerAndAreNotRideEvidence() {
         FastRoiActivityProbe p=start();
         // A map scroll or gallery image can trigger. OCR/context decide safety.
