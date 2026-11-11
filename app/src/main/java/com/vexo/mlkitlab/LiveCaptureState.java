@@ -60,6 +60,13 @@ public final class LiveCaptureState {
         alertCount.incrementAndGet();
     }
 
+    // Após a estabilidade voltar, revelar o MESMO resumo sem criar um novo alerta.
+    static synchronized void restoreCandidate(String summary) {
+        if(!active) return;
+        lastCandidate=summary==null?"":summary;
+        status="Mesma oferta confirmada novamente; sem novo aviso.";
+    }
+
     static synchronized void clearCandidate() {
         if(!active) return;
         lastCandidate="";
