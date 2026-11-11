@@ -3,12 +3,12 @@ android {
     namespace 'com.vexo.mlkitlab'
     compileSdk 35
     defaultConfig {
-        applicationId 'com.vexo.mlkitlab.v035'
+        applicationId 'com.vexo.mlkitlab.mediapreview'
         minSdk 23
         targetSdk 35
         testInstrumentationRunner 'androidx.test.runner.AndroidJUnitRunner'
-        versionCode 9
-        versionName '0.3.5'
+        versionCode 10
+        versionName '0.4.0-media-preview'
     }
     compileOptions {
         sourceCompatibility JavaVersion.VERSION_17
