@@ -37,6 +37,10 @@ class StreamCheckTests(unittest.TestCase):
                       {"kind": "callback", "epoch": 1, "context": "raw OCR"}):
             with self.subTest(event=event), self.assertRaises(StreamInputError):
                 parse_events(self.fixture([event]))
+        for event in ({"kind": ["frame"], "epoch": 1},
+                      {"kind": "callback", "epoch": 1, "context": ["UNCERTAIN"]}):
+            with self.subTest(malformed_enum=event), self.assertRaises(StreamInputError):
+                parse_events(self.fixture([event]))
         with self.assertRaises(StreamInputError):
             parse_events({"schema": "unknown", "events": []})
 
