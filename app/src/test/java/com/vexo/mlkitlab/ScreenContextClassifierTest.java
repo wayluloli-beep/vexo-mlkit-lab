@@ -112,6 +112,16 @@ public class ScreenContextClassifierTest {
             ScreenContextClassifier.Kind.OFFER_CANDIDATE);
     }
 
+    @Test public void modern99MapWordingSeparatesDistinctOfferEpisodes() {
+        kind("Buscando corridas. Ganhos do dia R$154,65",
+            ScreenContextClassifier.Kind.MAP_WITHOUT_OFFER);
+        kind("Procurando viagens +R$13",
+            ScreenContextClassifier.Kind.MAP_WITHOUT_OFFER);
+        kind("99 Negocia R$12,64 8 min (2,1 km) " +
+            "17 min (7,3 km) Aceitar. Buscando corridas",
+            ScreenContextClassifier.Kind.OFFER_CANDIDATE);
+    }
+
     @Test public void partialOrUnknownScreenDoesNotBecomeConfirmed() {
         kind("R$29,20 5 min (2,2 km) Pop Nova",ScreenContextClassifier.Kind.UNCERTAIN);
         kind("",ScreenContextClassifier.Kind.UNCERTAIN);
