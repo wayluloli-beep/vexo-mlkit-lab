@@ -41,7 +41,7 @@ def replay_episode_policy(observations, *, conservative=False):
         if observation.context not in {"OFFER", "DEFINITE_NON_OFFER", "UNCERTAIN"}:
             raise ValueError("invalid context")
         for value in (observation.group, observation.fingerprint):
-            if value and (not isinstance(value, str) or not _OPAQUE.fullmatch(value)):
+            if type(value) is not str or (value and not _OPAQUE.fullmatch(value)):
                 raise ValueError("fixture identity must be opaque")
         if observation.context != "OFFER":
             # PR25 calls nonOffer() even when classify() returned UNCERTAIN,
