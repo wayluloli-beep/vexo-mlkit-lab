@@ -350,3 +350,40 @@ jobs:
             fi
           done
           set -e
+
+      - name: Revisar expiração, lista e callback atrasado (PR29/PR30 read-only)
+        shell: bash
+        run: |
+          set +e
+          for pair in "29:feature/live-ocr-latency-metrics" "30:fix/demo-first-mediaproj-e2e"; do
+            IFS=: read -r number branch <<< "$pair"
+            dest="$RUNNER_TEMP/vexo-pr$number-temporal"
+            if git fetch --no-tags --depth=1 origin "refs/heads/$branch" && \
+               git worktree add --detach "$dest" FETCH_HEAD; then
+              sha=$(git -C "$dest" rev-parse HEAD)
+              python tools/media_projection_security/temporal_offer_safety.py \
+                --root "$dest" --json > "$RUNNER_TEMP/vexo-pr$number-temporal.json"
+              scan_status=$?
+              python - "$number" "$sha" "$scan_status" "$RUNNER_TEMP/vexo-pr$number-temporal.json" <<'PY'
+          import json
+          import os
+          import sys
+          from pathlib import Path
+          number, sha, status, path = sys.argv[1:]
+          checks = json.loads(Path(path).read_text(encoding="utf-8"))["checks"]
+          lines = ["### PR #" + number + " — política temporal e privacidade de replay",
+                   "SHA: " + sha + " ; scanner exit: " + status]
+          for item in checks:
+              lines.append("- " + item["status"] + " " + item["code"] + ": " + item["detail"])
+          lines.append("Gaps de fonte não são teste de Android: vídeo real NÃO foi "
+                       "baixado/enviado e nenhuma precisão foi medida. Nenhum APK é liberado.")
+          report = "\n\n".join(lines) + "\n"
+          print(report)
+          with open(os.environ["GITHUB_STEP_SUMMARY"], "a", encoding="utf-8") as out:
+              out.write(report)
+          PY
+            else
+              echo "PR #$number ausente; auditoria temporal não executada." >> "$GITHUB_STEP_SUMMARY"
+            fi
+          done
+          set -e
