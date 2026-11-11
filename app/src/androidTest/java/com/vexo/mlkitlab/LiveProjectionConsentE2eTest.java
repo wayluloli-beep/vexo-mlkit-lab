@@ -16,6 +16,8 @@ import org.json.JSONObject;
 import org.junit.Test;
 import org.junit.runner.RunWith;
 
+import java.util.regex.Pattern;
+
 /**
  * E2E real (APENAS EMULADOR):
  * clica no diálogo NATIVO do Android, sem injetar token e sem bypass,
@@ -27,13 +29,18 @@ import org.junit.runner.RunWith;
 @RunWith(AndroidJUnit4.class)
 public final class LiveProjectionConsentE2eTest {
     private static final long UI_TIMEOUT_MS=15000;
+    private static final String SYSTEM_UI="com.android.systemui";
+    private static final String[] ENTIRE_SCREEN_LABELS={
+        "Share entire screen","Entire screen","Compartilhar tela inteira",
+        "Compartilhar a tela inteira","Tela inteira"
+    };
     // Emulador com inicialização fria do modelo pode ser lento.
     // Isso não altera as metas de latência para uso real no telefone.
     private static final long OCR_TIMEOUT_MS=60000;
 
     private static UiObject2 first(UiDevice device,String...labels) {
         for(String label:labels) {
-            UiObject2 control=device.findObject(By.text(label));
+            UiObject2 control=device.findObject(By.text(label).pkg(SYSTEM_UI));
             if(control!=null) return control;
         }
         return null;
@@ -60,22 +67,22 @@ public final class LiveProjectionConsentE2eTest {
             throws Exception {
         // Android 14/15: se o diálogo oferece seleção de app ou tela, escolher
         // explicitamente "Entire screen" APENAS no emulador com dados falsos.
-        UiObject2 entire=awaitAny(device,3000,
-            "Entire screen","Tela inteira");
+        UiObject2 entire=first(device,ENTIRE_SCREEN_LABELS);
         if(entire==null) {
-            UiObject2 dropdown=awaitAny(device,UI_TIMEOUT_MS,
-                "A single app","Share one app","Um único app",
-                "Um aplicativo","Compartilhar um app");
-            assertNotNull("É obrigatório selecionar a tela inteira no emulador; " +
-                "não usar silenciosamente captura de apenas um aplicativo",dropdown);
-            dropdown.click();
-            entire=awaitAny(device,7000,"Entire screen","Tela inteira");
+            // O SystemUI usa IDs diferentes para a lista conforme a revisão do Android.
+            UiObject2 dropdown=device.wait(Until.findObject(By.res(Pattern.compile(
+                SYSTEM_UI+":id/screen_share_mode_(options|spinner)"))),UI_TIMEOUT_MS);
+            if(dropdown!=null) dropdown.click();
+            entire=awaitAny(device,UI_TIMEOUT_MS,ENTIRE_SCREEN_LABELS);
         }
-        assertNotNull("Android não ofereceu tela inteira; teste exige escopo explícito",entire);
+        assertNotNull("Opção nativa de tela inteira ausente. Janela atual: "+
+            device.getCurrentPackageName(),entire);
         entire.click();
-        UiObject2 start=awaitAny(device,UI_TIMEOUT_MS,"Start now","Start",
-            "Start recording","Share screen","Começar agora","Iniciar agora","Iniciar");
-        assertNotNull("Não foi possível confirmar o diálogo nativo MediaProjection",start);
+        UiObject2 start=awaitAny(device,UI_TIMEOUT_MS,"Start now","Start","Share",
+            "Start recording","Share screen","Começar agora","Iniciar agora","Iniciar",
+            "Compartilhar");
+        assertNotNull("Confirmação nativa de tela inteira ausente. Janela atual: "+
+            device.getCurrentPackageName(),start);
         start.click();
     }
 
