@@ -31,7 +31,8 @@ def audit_text(source: str) -> list[dict[str, str]]:
     braces = nested.count("{") > nested.count("}")
     guard = (locked and braces and
              ("epoch.get()!=session" in callback or "epoch.get()==session" in callback) and
-             "!active" in callback and "stopping" in callback)
+             "!active" in callback and "stopping" in callback and
+             max(epoch, active, stopping) < write < ui)
     goodstop = (
         "synchronized(sessionLock)" in stop and
         "epoch.incrementAndGet()" in stop and "active=false" in stop
