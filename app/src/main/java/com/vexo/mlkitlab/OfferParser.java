@@ -169,8 +169,9 @@ public final class OfferParser {
         else if (inApp) out.set("payment","No aplicativo");
 
         out.set("offerPrice",price(s));
+        // O OCR pode omitir "R$" mas preservar "1,28/km". Sem inventar o valor.
         out.set("perKm",number(first(s,
-            "R\\s*\\$\\s*(\\d{1,4}[.,]\\d{2})\\s*/\\s*k\\s*m\\b")));
+            "(?<![\\d.,])(?:R\\s*\\$\\s*)?(\\d{1,4}[.,]\\d{2})\\s*/\\s*k\\s*m\\b")));
         parseLegs(s,out);
 
         Matcher rider=p("([0-5][.,]\\d{2})\\s*[-·•.]?\\s*(\\d{1,5})\\s*corridas").matcher(s);
