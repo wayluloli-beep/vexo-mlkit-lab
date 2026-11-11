@@ -138,5 +138,35 @@ void resize(int w,int h) {
 
 
 
+    def test_bounded_fit_before_nested_callback_still_guards_reader(self):
+        source = """void initiate() {
+    int[] fitted=CaptureDimensions.fit(requestedWidth,requestedHeight);
+    width=fitted[0];height=fitted[1];
+    projection.registerCallback(new MediaProjection.Callback() {
+        @Override public void onStop() {
+            invalidateStoppedSession(session);
+        }
+        @Override public void onCapturedContentVisibilityChanged(boolean visible) {
+            capturedVisible=visible;
+        }
+    },captureHandler);
+    reader=ImageReader.newInstance(width,height,1,3);
+}"""
+        self.assertEqual("PASS", review_text(source, BOUNDED_DIMS)[0]["status"])
+
+    def test_guard_inside_old_callback_does_not_protect_outer_allocation(self):
+        source = """void initiate() {
+    projection.registerCallback(new MediaProjection.Callback() {
+        @Override public void onStop() {
+            int[] fitted=CaptureDimensions.fit(requestedWidth,requestedHeight);
+            width=fitted[0];height=fitted[1];
+        }
+    },captureHandler);
+    reader=ImageReader.newInstance(width,height,1,3);
+}"""
+        self.assertEqual("FAIL", review_text(source, BOUNDED_DIMS)[0]["status"])
+
+
+
 if __name__ == "__main__":
     unittest.main()
