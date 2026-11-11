@@ -43,7 +43,7 @@ class LifecycleReviewTests(unittest.TestCase):
 
     def test_sync_epoch_increment_before_post_accepted(self):
         fixed = SERVICE_BASE.replace("main.post(() -> shutdown());",
-                                     "epoch.incrementAndGet(); main.post(() -> shutdown());", 1)
+                                     "stopping=true; active=false; epoch.incrementAndGet(); main.post(() -> shutdown());", 1)
         self.assertEqual(statuses(fixed)["STOP_INVALIDATES_EPOCH_BEFORE_DISPATCH"], "PASS")
 
     def test_sync_invalidation_only_after_post_not_accepted(self):
@@ -76,6 +76,83 @@ class LifecycleReviewTests(unittest.TestCase):
     def test_required_android_service_missing_fails(self):
         with tempfile.TemporaryDirectory() as root:
             self.assertEqual(main(["--root", root, "--require-service"]), 1)
+
+
+    def test_pr24_style_locked_invalidation_helper_passes(self):
+        service = SERVICE_BASE.replace(
+            "main.post(() -> shutdown());",
+            "invalidateStoppedSession(session);", 1
+        ).replace("  private void resize(",
+            """  private void invalidateStoppedSession(long session) {
+     synchronized(sessionLock) {
+        if(epoch.get()!=session) return;
+        stopping=true;
+        active=false;
+        capturedVisible=false;
+        epoch.incrementAndGet();
+     }
+     main.post(this::shutdown);
+  }
+  private void resize(""")
+        self.assertEqual("PASS", statuses(service)["STOP_INVALIDATES_EPOCH_BEFORE_DISPATCH"])
+
+    def test_helper_that_posts_before_invalidating_still_fails(self):
+        service = SERVICE_BASE.replace(
+            "main.post(() -> shutdown());",
+            "invalidateStoppedSession(session);", 1
+        ).replace("  private void resize(",
+            """  private void invalidateStoppedSession(long session) {
+     main.post(this::shutdown);
+     synchronized(sessionLock) {
+        stopping=true; active=false; epoch.incrementAndGet();
+     }
+  }
+  private void resize(""")
+        self.assertEqual("FAIL", statuses(service)["STOP_INVALIDATES_EPOCH_BEFORE_DISPATCH"])
+
+    def test_helper_missing_lock_does_not_pass(self):
+        service = SERVICE_BASE.replace(
+            "main.post(() -> shutdown());",
+            "invalidateStoppedSession(session);", 1
+        ).replace("  private void resize(",
+            """  private void invalidateStoppedSession(long session) {
+     stopping=true; active=false; epoch.incrementAndGet();
+     main.post(this::shutdown);
+  }
+  private void resize(""")
+        self.assertEqual("FAIL", statuses(service)["STOP_INVALIDATES_EPOCH_BEFORE_DISPATCH"])
+
+    def test_helper_must_invalidate_active_and_stopping(self):
+        service = SERVICE_BASE.replace(
+            "main.post(() -> shutdown());",
+            "invalidateStoppedSession(session);", 1
+        ).replace("  private void resize(",
+            """  private void invalidateStoppedSession(long session) {
+     synchronized(sessionLock) {
+        epoch.incrementAndGet();
+     }
+     main.post(this::shutdown);
+  }
+  private void resize(""")
+        self.assertEqual("FAIL", statuses(service)["STOP_INVALIDATES_EPOCH_BEFORE_DISPATCH"])
+
+    def test_pr24_style_reader_ownership_is_released_on_failure(self):
+        service = SERVICE_BASE.replace(
+            "    try {\n      ImageReader replacement=ImageReader.newInstance(w,h,1,3);",
+            "    ImageReader replacement=null;\n    try {\n      replacement=ImageReader.newInstance(w,h,1,3);"
+        ).replace(
+            "} catch(Exception ex) {\n      main.post(() -> shutdown());",
+            "} catch(Exception ex) {\n      if(replacement!=null) replacement.close();\n      main.post(() -> shutdown());"
+        )
+        self.assertEqual("PASS", statuses(service)["RESIZE_REPLACEMENT_RELEASE_ON_EXCEPTION"])
+
+    def test_cleanup_before_reader_close_does_not_pass(self):
+        service = SERVICE_BASE.replace(
+            "} catch(Exception ex) {\n      main.post(() -> shutdown());",
+            "} catch(Exception ex) {\n      shutdown();\n      replacement.close();"
+        )
+        self.assertEqual("FAIL", statuses(service)["RESIZE_REPLACEMENT_RELEASE_ON_EXCEPTION"])
+
 
 
 if __name__ == "__main__":
