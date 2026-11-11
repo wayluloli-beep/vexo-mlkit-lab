@@ -38,7 +38,7 @@ public final class LiveCaptureActivity extends Activity {
         heading.setTextSize(23);
         root.addView(heading);
         info=new TextView(this);
-        info.setText("O Android vai pedir sua autorização. Se possível, selecione SOMENTE o aplicativo 99. Durante a sessão o Vexo lê pixels na memória, sem salvar imagens ou texto bruto. O motorista continua responsável por todas as decisões.");
+        info.setText("O Android pedirá sua autorização para compartilhar a tela. Para a OFERTA FICTÍCIA, escolha 'Tela inteira' ou o próprio Vexo (se disponível). Para um teste futuro na 99, escolha apenas a 99 quando o Android oferecer essa opção. Não compartilhe telas privadas nem teste enquanto dirige. A leitura fica no celular; o motorista decide as corridas.");
         info.setTextColor(0xffb0c6d5);
         info.setTextSize(16);
         LinearLayout.LayoutParams infoLp=new LinearLayout.LayoutParams(-1,-2);
