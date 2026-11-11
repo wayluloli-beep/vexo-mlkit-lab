@@ -8,6 +8,7 @@ import json
 from pathlib import Path
 
 SCHEMA = "vexo-live-capture-diagnostic-v1"
+SCHEMA_V2 = "vexo-live-capture-diagnostic-v2"
 COUNTERS = (
     "framesReceived", "ocrAttempts", "ocrCompleted", "ocrFailures",
     "offersAlerted", "offerContextCandidates", "screenContextUncertain",
@@ -22,6 +23,12 @@ STRINGS = {"app", "diagnosticExplanation", "privacyNote"}
 ENUMS = {"status", "diagnosticStage", "capturedWindowVisibility"}
 FIELDS = {"schema", "noFieldAccuracyMeasured", "containsScreenshotOrOcrText"} | STRINGS | ENUMS | set(COUNTERS)
 FIELDS_WITH_LATENCY = FIELDS | set(LATENCY)
+EVIDENCE_KEYS = (
+    "ocrReadsExamined", "readsWithPriceMarker", "readsWithActionButton",
+    "readsWithOfferModality", "readsWithTwoDistances", "readsWithTwoTimes",
+    "readsWith99Marker", "readsWithPartialOfferEvidence",
+)
+FIELDS_V2 = FIELDS_WITH_LATENCY | {"contextEvidenceCounts"}
 STAGES = {
     "WAITING_FOR_FRAMES", "NO_FRAMES_RECORDED", "FRAMES_WITHOUT_OCR_START",
     "OCR_FAILED", "OCR_NOT_COMPLETED", "OCR_OK_NO_CONFIRMED_OFFER",
@@ -47,7 +54,12 @@ def expected_stage(c, active):
 
 
 def analyze(doc):
-    if not isinstance(doc, dict) or set(doc) not in (FIELDS, FIELDS_WITH_LATENCY) or doc.get("schema") != SCHEMA:
+    if not isinstance(doc, dict):
+        raise DiagnosticInputError("report must be an object")
+    keys = set(doc)
+    version = doc.get("schema")
+    if not ((version == SCHEMA and keys in (FIELDS, FIELDS_WITH_LATENCY)) or
+            (version == SCHEMA_V2 and keys == FIELDS_V2)):
         raise DiagnosticInputError("unexpected schema or fields")
     if any(type(doc[f]) is not str for f in STRINGS):
         raise DiagnosticInputError("invalid descriptive field")
@@ -63,7 +75,7 @@ def analyze(doc):
     c = {key: doc[key] for key in COUNTERS}
     errors = []
     latency = None
-    if set(doc) == FIELDS_WITH_LATENCY:
+    if keys in (FIELDS_WITH_LATENCY, FIELDS_V2):
         if any(type(doc[f]) is not int or not 0 <= doc[f] <= 1_000_000_000 for f in LATENCY):
             raise DiagnosticInputError("invalid aggregate latency")
         latency = {key: doc[key] for key in LATENCY}
@@ -83,6 +95,25 @@ def analyze(doc):
         # Nearest-rank P95 is the maximum with 1-19 recorded samples.
         if 0 < sample_count <= 19 and latency["ocrLatencyP95Ms"] != latency["ocrLatencyMaxMs"]:
             errors.append("SMALL_SAMPLE_P95_MUST_EQUAL_MAX")
+
+    evidence = None
+    if version == SCHEMA_V2:
+        raw_evidence = doc["contextEvidenceCounts"]
+        if type(raw_evidence) is not dict or set(raw_evidence) != set(EVIDENCE_KEYS):
+            raise DiagnosticInputError("invalid evidence object or keys")
+        if any(type(raw_evidence[key]) is not int or
+               not 0 <= raw_evidence[key] <= 1_000_000_000 for key in EVIDENCE_KEYS):
+            raise DiagnosticInputError("invalid aggregate evidence counter")
+        evidence = {key: raw_evidence[key] for key in EVIDENCE_KEYS}
+        examined = evidence["ocrReadsExamined"]
+        if examined > c["ocrCompleted"]:
+            errors.append("EVIDENCE_READS_EXCEED_COMPLETED_OCR")
+        for key in EVIDENCE_KEYS[1:]:
+            if evidence[key] > examined:
+                errors.append("EVIDENCE_SIGNAL_EXCEEDS_READS")
+                break
+        if evidence["readsWithPartialOfferEvidence"] > evidence["readsWithPriceMarker"]:
+            errors.append("PARTIAL_OFFER_EXCEEDS_PRICE_MARKER")
 
     if c["ocrAttempts"] > c["framesReceived"]:
         errors.append("OCR_ATTEMPTS_EXCEED_FRAMES")
@@ -105,6 +136,9 @@ def analyze(doc):
         notes.append("FEW_OCR_COMPLETIONS_NO_PRECISION_CLAIM")
     if c["framesReceived"] > c["ocrCompleted"]:
         notes.append("FRAME_OCR_DIFFERENCE_MAY_BE_THROTTLING_NOT_FAILURE")
+    if evidence is not None:
+        notes.append("EVIDENCE_SIGNALS_OVERLAP_NOT_ACCURACY_DENOMINATORS")
+        notes.append("MISSING_MARKERS_MAY_BE_MAP_PLAYER_AD_OR_INCOMPLETE_OCR")
     if c["offersAlerted"]:
         cause = "ALERT_RECORDED_NOT_OCR_ACCURACY"
     elif c["framesReceived"] == 0:
@@ -127,6 +161,7 @@ def analyze(doc):
         "bottleneckHypothesis": cause,
         "counters": c,
         "latency": latency,
+        "contextEvidenceCounts": evidence,
         "notes": notes,
         "limits": "Counters cannot identify OCR content, prove offer identity, or certify 99 compatibility",
     }
