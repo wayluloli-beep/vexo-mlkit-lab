@@ -86,3 +86,34 @@ jobs:
           else
             echo "Agente 1 sem branch acessível; diagnóstico temporal não realizado." >> "$GITHUB_STEP_SUMMARY"
           fi
+
+      - name: Revisar orçamento de memória do ImageReader no Agente 1
+        shell: bash
+        run: |
+          if git fetch --no-tags --depth=1 origin refs/heads/feature/media-projection-lab; then
+            git worktree add --detach "$RUNNER_TEMP/vexo-memory-readonly" FETCH_HEAD
+            head_sha=$(git -C "$RUNNER_TEMP/vexo-memory-readonly" rev-parse HEAD)
+            set +e
+            python tools/media_projection_security/memory_review.py \
+              --root "$RUNNER_TEMP/vexo-memory-readonly" --json \
+              > "$RUNNER_TEMP/vexo-memory-result.json"
+            scan_code=$?
+            set -e
+            python - "$RUNNER_TEMP/vexo-memory-result.json" "$scan_code" "$head_sha" <<'PY'
+          import json
+          import os
+          import sys
+          from pathlib import Path
+          checks = json.loads(Path(sys.argv[1]).read_text(encoding="utf-8"))["checks"]
+          report = "### Agente 1 — memória ImageReader (análise estática)\\n\\n"
+          report += "Commit: " + sys.argv[3] + "; scanner exit: " + sys.argv[2] + "\\n\\n"
+          for c in checks:
+              report += "- " + c["status"] + " " + c["code"] + ": " + c["detail"] + "\\n"
+          report += "\\nLimite real de memória exige emulador e dispositivo.\\n"
+          print(report)
+          with open(os.environ["GITHUB_STEP_SUMMARY"], "a", encoding="utf-8") as out:
+              out.write(report)
+          PY
+          else
+            echo "Branch Android indisponível para scanner de memória." >> "$GITHUB_STEP_SUMMARY"
+          fi
