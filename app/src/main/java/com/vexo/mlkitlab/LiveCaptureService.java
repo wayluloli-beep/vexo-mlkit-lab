@@ -331,47 +331,74 @@ public final class LiveCaptureService extends Service {
         }
     }
 
+    private boolean sessionAlive(long session) {
+        return active && !stopping && capturedVisible && epoch.get()==session;
+    }
+
+    private void clearCandidateIfCurrent(long session) {
+        synchronized(sessionLock) {
+            if(sessionAlive(session)) {
+                lastFingerprint="";
+                consecutive=0;
+            }
+        }
+    }
+
     private void evaluate(String text,long session) {
-        // Somente 99 + contexto de oferta com dois trechos. Mapa/post/histórico ignorados.
+        // Não publicar mapa, post, histórico nem número financeiro incerto.
         if(text==null || !text.contains("99") ||
             ScreenContextClassifier.classify(text)!=
                 ScreenContextClassifier.Kind.OFFER_CANDIDATE) {
-            lastFingerprint="";consecutive=0;
+            clearCandidateIfCurrent(session);
             return;
         }
         OfferParser.Offer offer=OfferParser.parse(text);
         if(!FinancialGuard.assess(offer).canCalculate) {
-            lastFingerprint="";consecutive=0;
+            clearCandidateIfCurrent(session);
             return;
         }
         String price=offer.get("offerPrice");
         String trip=offer.get("tripKm");
         String duration=offer.get("tripMin");
         String pickup=offer.get("pickupKm");
-        if(price.isEmpty()||trip.isEmpty()||duration.isEmpty()||pickup.isEmpty()) return;
+        if(price.isEmpty()||trip.isEmpty()||duration.isEmpty()||pickup.isEmpty()) {
+            clearCandidateIfCurrent(session);
+            return;
+        }
         String fingerprint=String.join("|",offer.get("offerType"),price,trip,
-            duration,pickup,offer.get("pickupMin")); // fica apenas em RAM
-        if(fingerprint.equals(lastFingerprint)) consecutive++;
-        else {lastFingerprint=fingerprint;consecutive=1;}
-        if(consecutive<2 || epoch.get()!=session || !active) return;
-
-        long now=SystemClock.elapsedRealtime();
-        if(fingerprint.equals(lastNotified) && lastNotificationAt>=0 &&
-            now-lastNotificationAt<NOTIFY_INTERVAL_MS) return;
-        lastNotified=fingerprint;
-        lastNotificationAt=now;
-        LiveCaptureState.candidate("Preço R$"+price+" • viagem "+trip+
-            " km / "+duration+" min (confira na tela)");
-        // Sem preço/endereço na notificação de sistema. É só sugestão para conferir.
-        NotificationManager nm=(NotificationManager)getSystemService(NOTIFICATION_SERVICE);
-        if(nm!=null) nm.notify(NOTIFICATION_ID,notification(true));
+            duration,pickup,offer.get("pickupMin")); // apenas RAM
+        // A interrupção e a publicação usam o MESMO lock para impedir que
+        // uma conclusão atrasada publique depois do STOP.
+        synchronized(sessionLock) {
+            if(!sessionAlive(session)) return;
+            if(fingerprint.equals(lastFingerprint)) consecutive++;
+            else {lastFingerprint=fingerprint;consecutive=1;}
+            if(consecutive<2) return;
+            long now=SystemClock.elapsedRealtime();
+            if(fingerprint.equals(lastNotified) && lastNotificationAt>=0 &&
+                now-lastNotificationAt<NOTIFY_INTERVAL_MS) return;
+            if(!sessionAlive(session)) return;
+            lastNotified=fingerprint;
+            lastNotificationAt=now;
+            LiveCaptureState.candidate("Preço R$"+price+" • viagem "+trip+
+                " km / "+duration+" min (confira na tela)");
+            // Notificação sem valores, nomes ou endereços do passageiro.
+            NotificationManager nm=(NotificationManager)getSystemService(NOTIFICATION_SERVICE);
+            if(nm!=null) nm.notify(NOTIFICATION_ID,notification(true));
+        }
     }
 
     private void shutdown() {
-        if(stopping) return;
-        stopping=true;
-        active=false;
-        epoch.incrementAndGet(); // descarta callbacks OCR do consentimento anterior
+        if(cleanupDone) return; // cleanup na thread principal, uma vez por Service
+        cleanupDone=true;
+        synchronized(sessionLock) {
+            stopping=true;
+            active=false;
+            capturedVisible=false;
+            epoch.incrementAndGet(); // bloqueia callbacks antes de liberar recursos
+            lastFingerprint="";lastNotified="";consecutive=0;
+            LiveCaptureState.end("Captura parada. Uma nova sessão exige autorização.");
+        }
         final CaptureThrottle prev=gate;
         gate=null;
         if(prev!=null) prev.reset();
@@ -398,8 +425,6 @@ public final class LiveCaptureService extends Service {
             captureThread=null;
         }
         captureHandler=null;
-        lastFingerprint="";lastNotified="";consecutive=0;
-        LiveCaptureState.end("Captura parada. Uma nova sessão exige autorização.");
         if(Build.VERSION.SDK_INT>=24) stopForeground(STOP_FOREGROUND_REMOVE);
         else stopForeground(true);
         stopSelf();
