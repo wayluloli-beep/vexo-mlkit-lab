@@ -12,10 +12,17 @@ package com.vexo.mlkitlab;
  */
 public final class OfferEpisodeGate {
     private static final long MAX_MATCH_GAP_MS=5500L;
+    // Só rearmar sem mapa quando TRÊS leituras distintas e financeiras
+    // completas concordarem, bem depois do alerta original.
+    private static final long MIN_DIFFERENT_OFFER_GAP_MS=7500L;
     private String fingerprint="";
     private int matchedFrames=0;
     private int interveningUncertain=0;
     private long lastValidAtMs=-1;
+    private long lastAlertAtMs=-1;
+    private String pendingDifferent="";
+    private int pendingDifferentReads=0;
+    private long pendingDifferentLastMs=-1;
     private int absentFrames=0;
     private boolean alerted=false;
     private boolean summaryHidden=false;
@@ -34,6 +41,41 @@ public final class OfferEpisodeGate {
         }
         absentFrames=0;
         if(alerted) {
+            if(!next.equals(fingerprint)) {
+                // Mudança de valores isolada pode ser erro numérico do OCR:
+                // exigir 3 quadros completos iguais após 7,5s do aviso
+                // anterior. Sem preço/distâncias válidos essa função nem
+                // chega a ser chamada pelo serviço.
+                if(lastAlertAtMs<0 || elapsedMs<lastAlertAtMs ||
+                        elapsedMs-lastAlertAtMs<MIN_DIFFERENT_OFFER_GAP_MS) {
+                    pendingDifferent="";
+                    pendingDifferentReads=0;
+                    pendingDifferentLastMs=-1;
+                    return false;
+                }
+                if(!next.equals(pendingDifferent) || pendingDifferentLastMs<0 ||
+                        elapsedMs<pendingDifferentLastMs ||
+                        elapsedMs-pendingDifferentLastMs>MAX_MATCH_GAP_MS) {
+                    pendingDifferent=next;
+                    pendingDifferentReads=1;
+                } else {
+                    pendingDifferentReads=Math.min(3,pendingDifferentReads+1);
+                }
+                pendingDifferentLastMs=elapsedMs;
+                if(pendingDifferentReads<3) return false;
+                fingerprint=next;
+                lastAlertAtMs=elapsedMs;
+                pendingDifferent="";
+                pendingDifferentReads=0;
+                pendingDifferentLastMs=-1;
+                summaryHidden=false;
+                restorationPending=false;
+                restoreFrames=0;
+                return true; // alerta de possível NOVO episódio, não aceitar corrida
+            }
+            pendingDifferent="";
+            pendingDifferentReads=0;
+            pendingDifferentLastMs=-1;
             // O resumo oculto pode reaparecer somente após DUAS leituras
             // idênticas à oferta confirmada, sem disparar novo alerta.
             if(summaryHidden) {
@@ -63,6 +105,7 @@ public final class OfferEpisodeGate {
         interveningUncertain=0;
         if(matchedFrames<2) return false;
         alerted=true;
+        lastAlertAtMs=elapsedMs;
         summaryHidden=false;
         restorationPending=false;
         restoreFrames=0;
@@ -82,6 +125,9 @@ public final class OfferEpisodeGate {
             }
         }
         if(alerted) {
+            pendingDifferent="";
+            pendingDifferentReads=0;
+            pendingDifferentLastMs=-1;
             summaryHidden=true;
             restorationPending=false;
             restoreFrames=0;
@@ -118,10 +164,18 @@ public final class OfferEpisodeGate {
         interveningUncertain=0;
         lastValidAtMs=-1;
         alerted=false;
+        lastAlertAtMs=-1;
+        pendingDifferent="";
+        pendingDifferentReads=0;
+        pendingDifferentLastMs=-1;
         summaryHidden=false;
         restoreFrames=0;
         restorationPending=false;
         return closed;
+    }
+
+    public synchronized boolean hasActiveAlert() {
+        return alerted;
     }
 
     public synchronized void reset() {
@@ -131,6 +185,10 @@ public final class OfferEpisodeGate {
         lastValidAtMs=-1;
         absentFrames=0;
         alerted=false;
+        lastAlertAtMs=-1;
+        pendingDifferent="";
+        pendingDifferentReads=0;
+        pendingDifferentLastMs=-1;
         summaryHidden=false;
         restoreFrames=0;
         restorationPending=false;
