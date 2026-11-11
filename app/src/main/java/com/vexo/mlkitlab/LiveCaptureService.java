@@ -68,6 +68,9 @@ public final class LiveCaptureService extends Service {
     private volatile boolean capturedVisible=true;
     private long seen=0,read=0;
     private final OfferEpisodeGate episodes=new OfferEpisodeGate();
+    private final AtomicLong overlayGeneration=new AtomicLong(0);
+    // O controle da janela vive somente na thread principal.
+    private VexoOfferOverlay offerOverlay;
 
     @Override public void onCreate() {
         super.onCreate();
@@ -187,8 +190,19 @@ public final class LiveCaptureService extends Service {
             }
             @Override public void onCapturedContentVisibilityChanged(boolean visible) {
                 if(Build.VERSION.SDK_INT>=34) {
-                    capturedVisible=visible;
-                    LiveCaptureState.capturedContentVisibility(visible);
+                    synchronized(sessionLock) {
+                        // Callback enfileirado APÓS STOP não pode reescrever
+                        // a visibilidade de uma sessão antiga.
+                        if(!active || stopping || epoch.get()!=session) return;
+                        capturedVisible=visible;
+                        LiveCaptureState.capturedContentVisibility(visible);
+                        if(!visible) {
+                            episodes.uncertain();
+                            LiveCaptureState.clearCandidate();
+                        }
+                    }
+                    if(visible) scheduleOverlaySearching(session);
+                    else scheduleOverlayHide();
                 }
             }
         },captureHandler);
@@ -207,6 +221,7 @@ public final class LiveCaptureService extends Service {
             // Não anunciar 'captura ativa' antes do display existir de fato.
             LiveCaptureState.begin();
         }
+        scheduleOverlaySearching(session);
     }
 
     private void invalidateStoppedSession(long session) {
@@ -219,6 +234,7 @@ public final class LiveCaptureService extends Service {
             episodes.reset();
             LiveCaptureState.end("Captura encerrada pelo Android.");
         }
+        scheduleOverlayHide();
         main.post(this::shutdown); // cleanup é idempotente, independente do guard
     }
 
@@ -352,6 +368,35 @@ public final class LiveCaptureService extends Service {
         }
     }
 
+    private void scheduleOverlaySearching(long session) {
+        final long version=overlayGeneration.incrementAndGet();
+        main.post(() -> {
+            synchronized(sessionLock) {
+                if(version!=overlayGeneration.get() || !sessionAlive(session)) return;
+                if(offerOverlay==null) offerOverlay=new VexoOfferOverlay(this);
+                offerOverlay.searching();
+            }
+        });
+    }
+
+    private void scheduleOverlayOffer(long session,String numericSummary) {
+        final long version=overlayGeneration.incrementAndGet();
+        main.post(() -> {
+            synchronized(sessionLock) {
+                if(version!=overlayGeneration.get() || !sessionAlive(session)) return;
+                if(offerOverlay==null) offerOverlay=new VexoOfferOverlay(this);
+                offerOverlay.offer(numericSummary);
+            }
+        });
+    }
+
+    private void scheduleOverlayHide() {
+        overlayGeneration.incrementAndGet();
+        main.post(() -> {
+            if(offerOverlay!=null) offerOverlay.hide();
+        });
+    }
+
     private boolean sessionAlive(long session) {
         return active && !stopping && capturedVisible && epoch.get()==session;
     }
@@ -372,6 +417,7 @@ public final class LiveCaptureService extends Service {
             }
             if(closed) {
                 LiveCaptureState.clearCandidate();
+                scheduleOverlaySearching(session);
                 NotificationManager nm=(NotificationManager)getSystemService(
                     NOTIFICATION_SERVICE);
                 if(nm!=null) nm.notify(NOTIFICATION_ID,notification(false));
@@ -431,10 +477,12 @@ public final class LiveCaptureService extends Service {
                     // Restauração é apenas UI. Nunca emitir notificação de
                     // nova oferta após dois frames estáveis da mesma corrida.
                     LiveCaptureState.restoreCandidate(summary);
+                    scheduleOverlayOffer(session,summary);
                 }
                 return;
             }
             LiveCaptureState.candidate(summary);
+            scheduleOverlayOffer(session,summary);
             // Notificação sem valores, nomes ou endereços do passageiro.
             NotificationManager nm=(NotificationManager)getSystemService(NOTIFICATION_SERVICE);
             if(nm!=null) nm.notify(NOTIFICATION_ID,notification(true));
@@ -442,7 +490,8 @@ public final class LiveCaptureService extends Service {
     }
 
     private void shutdown() {
-        if(cleanupDone) return; // cleanup na thread principal, uma vez por Service
+        if(cleanupDone) return;
+        scheduleOverlayHide(); // cleanup na thread principal, uma vez por Service
         cleanupDone=true;
         synchronized(sessionLock) {
             stopping=true;
