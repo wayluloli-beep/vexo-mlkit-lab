@@ -26,7 +26,7 @@ class SyntheticTimingTests(unittest.TestCase):
         self.assertEqual(timing["fixtureOffersWithTimedFirstFrame"], 1)
         self.assertEqual(timing["offersNeverDetectedInTrace"], 0)
         self.assertEqual(timing["firstCandidateLatencyP95Ms"], 120)
-        self.assertEqual(timing["firstAlertLatencyP95Ms"], 120)
+        self.assertEqual(timing["firstAlertLatencyP95Ms"], 1520)
         self.assertEqual(timing["ocrInferenceP95Ms"], 120)
 
     def test_map_offer_map_not_two_offers(self):
@@ -72,6 +72,7 @@ class SyntheticTimingTests(unittest.TestCase):
         result = audit_document({"schema": "vexo-stream-events-v1", "events": records})
         self.assertEqual(result["violations"], [])
         self.assertEqual(result["timing"]["firstCandidateLatencyP95Ms"], 120)
+        self.assertEqual(result["timing"]["firstAlertLatencyP95Ms"], 1520)
 
     def test_timing_type_must_be_nonnegative_integer(self):
         with self.assertRaises(StreamInputError):
@@ -95,8 +96,15 @@ class SyntheticTimingTests(unittest.TestCase):
         self.assertIn("candidate_identity_mismatch",
                       [code for _, code in audit_stream(trace)["violations"]])
 
+    def test_long_stable_offer_causes_duplicate_notification_after_25s(self):
+        r = audit_stream(repeated_offer(frames=350))
+        self.assertIn("duplicate_notification", [v[1] for v in r["violations"]])
+        self.assertEqual(r["counts"]["unique_labeled_offers"], 1)
+        self.assertEqual(r["counts"]["notifications"], 1)
+        self.assertEqual(r["counts"]["notification_attempts"], 2)
+
     def test_synthetic_scenario_count(self):
-        self.assertEqual(len(all_scenarios()), 5)
+        self.assertEqual(len(all_scenarios()), 6)
 
 
 if __name__ == "__main__":
