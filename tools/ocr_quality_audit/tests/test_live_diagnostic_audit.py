@@ -30,6 +30,18 @@ class LiveDiagnosticTests(unittest.TestCase):
         self.assertEqual(result["bottleneckHypothesis"], "NO_CLASSIFIED_OFFER_EVIDENCE")
         self.assertNotIn("private placeholder", str(result))
 
+    def test_pr29_aggregate_proof_only_one_candidate_of_two_ocrs(self):
+        # Public GitHub CI aggregate counters only: no OCR text, no passengers.
+        result = analyze(example(framesReceived=29, ocrAttempts=2,
+                                 offerContextCandidates=1, screenContextUncertain=1,
+                                 financiallyUnconfirmedFrames=0,
+                                 awaitingTwoStableReadings=1))
+        self.assertTrue(result["consistentCounters"])
+        self.assertEqual(result["bottleneckHypothesis"],
+                         "STABILITY_NOT_CONFIRMED_OR_EPISODE_UNCLEAR")
+        self.assertEqual(result["counters"]["ocrCompleted"], 2)
+        self.assertEqual(result["counters"]["offersAlerted"], 0)
+
     def test_financial_guard_all_candidates_blocked(self):
         result = analyze(example(offerContextCandidates=2, screenContextUncertain=0,
                                  financiallyUnconfirmedFrames=2))
