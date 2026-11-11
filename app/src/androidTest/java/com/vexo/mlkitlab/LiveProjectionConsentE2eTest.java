@@ -57,15 +57,19 @@ public final class LiveProjectionConsentE2eTest {
             throws Exception {
         // Android 14/15: se o diálogo oferece seleção de app ou tela, escolher
         // explicitamente "Entire screen" APENAS no emulador com dados falsos.
-        UiObject2 dropdown=awaitAny(device,UI_TIMEOUT_MS,"A single app","Um único app",
-            "Um aplicativo");
-        if(dropdown!=null) {
+        UiObject2 entire=awaitAny(device,3000,
+            "Entire screen","Tela inteira");
+        if(entire==null) {
+            UiObject2 dropdown=awaitAny(device,UI_TIMEOUT_MS,
+                "A single app","Share one app","Um único app",
+                "Um aplicativo","Compartilhar um app");
+            assertNotNull("É obrigatório selecionar a tela inteira no emulador; " +
+                "não usar silenciosamente captura de apenas um aplicativo",dropdown);
             dropdown.click();
-            UiObject2 entire=awaitAny(device,7000,
-                "Entire screen","Tela inteira");
-            assertNotNull("Android não ofereceu opção de tela inteira no emulador",entire);
-            entire.click();
+            entire=awaitAny(device,7000,"Entire screen","Tela inteira");
         }
+        assertNotNull("Android não ofereceu tela inteira; teste exige escopo explícito",entire);
+        entire.click();
         UiObject2 start=awaitAny(device,UI_TIMEOUT_MS,"Start now","Start",
             "Start recording","Share screen","Começar agora","Iniciar agora","Iniciar");
         assertNotNull("Não foi possível confirmar o diálogo nativo MediaProjection",start);
@@ -114,13 +118,13 @@ public final class LiveProjectionConsentE2eTest {
             demo=instrumentation.startActivitySync(demoIntent);
             instrumentation.waitForIdleSync();
 
-            assertTrue("Não recebeu 2 frames, 2 leituras OCR e 1 alerta da tela " +
-                "fictícia durante MediaProjection",
-                awaitCounts(2,2,1,OCR_TIMEOUT_MS));
-            assertTrue("Card fictício não chegou ao resultado",
-                LiveCaptureState.snapshot().contains("Preço R$40,70"));
+            boolean recognized=awaitCounts(2,2,1,OCR_TIMEOUT_MS);
+            long[] observed=LiveCaptureState.counts();
+            String visibility=LiveCaptureState.captureVisibility();
+            boolean correctPrice=LiveCaptureState.snapshot().contains("Preço R$40,70");
 
-            // STOP durante uma captura real. Não permitir candidatos depois.
+            // TESTAR STOP MESMO QUANDO A LEITURA FALHA; caso contrário
+            // um assert de OCR mascararia regressões no ciclo de vida.
             Intent stop=new Intent(context,LiveCaptureService.class)
                 .setAction(LiveCaptureService.ACTION_STOP);
             context.startService(stop);
@@ -129,11 +133,24 @@ public final class LiveProjectionConsentE2eTest {
                     android.os.SystemClock.elapsedRealtime()<stopDeadline) {
                 Thread.sleep(250);
             }
-            assertTrue("STOP não encerrou a sessão autorizada",
-                LiveCaptureState.snapshot().startsWith("SEM CAPTURA:"));
+            boolean stopped=LiveCaptureState.snapshot().startsWith("SEM CAPTURA:");
             Thread.sleep(1800);
-            assertFalse("OCR antigo não pode reabrir oferta após STOP",
-                LiveCaptureState.snapshot().contains("Preço R$40,70"));
+            boolean noLateOffer=!LiveCaptureState.snapshot().contains("Preço R$40,70");
+
+            assertTrue("STOP não encerrou sessão autorizada",stopped);
+            assertTrue("Callback OCR tardio reabriu oferta após STOP",noLateOffer);
+            assertTrue("Não chegaram pixels do MediaProjection; frames="+
+                observed[0]+", janela="+visibility,observed[0]>=2);
+            assertTrue("Pixels chegaram, mas ML Kit não concluiu 2 leituras; "+
+                "frames="+observed[0]+", OCR iniciado="+observed[3]+
+                ", concluído="+observed[1]+", falhas OCR="+observed[4]+
+                ", janela="+visibility,observed[1]>=2);
+            assertTrue("ML Kit concluiu, mas nenhuma oferta segura foi emitida; "+
+                "frames="+observed[0]+", OCR="+observed[1]+
+                ", avisos="+observed[2]+", janela="+visibility,
+                observed[2]>=1 && recognized);
+            assertTrue("Oferta fictícia reconhecida mas preço não exibido",
+                correctPrice);
         } finally {
             Intent stop=new Intent(context,LiveCaptureService.class)
                 .setAction(LiveCaptureService.ACTION_STOP);

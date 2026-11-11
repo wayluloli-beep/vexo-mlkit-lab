@@ -1,12 +1,14 @@
 package com.vexo.mlkitlab;
 
 /**
- * Conta episódios VISUAIS de oferta, não número de frames ou tempo em tela.
- * Sem dados pessoais, histórico, persistência nem relógio/cooldown.
+ * Identidade de EPISÓDIO VISUAL de oferta, não do texto numérico isolado.
  *
- * Duas leituras válidas iguais confirmam o episódio. Dois frames seguidos
- * de mapa/outra tela encerram a oferta e permitem detectar uma nova com
- * valores idênticos. Uma única falha de OCR não reabre alerta já emitido.
+ * Somente dois quadros inequivocamente sem oferta encerram o episódio.
+ * OCR parcial/incerto NÃO é prova de que a oferta desapareceu.
+ * Depois do primeiro alerta, um novo fingerprint sem essa transição
+ * pode ser só erro numérico do OCR, portanto NÃO gera outro alerta.
+ *
+ * Dados conservados apenas durante a sessão, somente na memória local.
  */
 public final class OfferEpisodeGate {
     private String fingerprint="";
@@ -16,33 +18,47 @@ public final class OfferEpisodeGate {
 
     public synchronized boolean observe(String next) {
         if(next==null || next.isEmpty()) {
-            nonOffer();
+            uncertain();
             return false;
         }
         absentFrames=0;
+        if(alerted) {
+            // Pode ser o mesmo card com erro de OCR, ou um segundo card com
+            // valores diferentes sem transição observável. Não adivinhar.
+            return false;
+        }
         if(!next.equals(fingerprint)) {
             fingerprint=next;
             matchedFrames=1;
-            alerted=false;
         } else {
             matchedFrames=Math.min(2,matchedFrames+1);
         }
-        if(matchedFrames<2 || alerted) return false;
+        if(matchedFrames<2) return false;
         alerted=true;
         return true;
     }
 
-    // true apenas quando a antiga oferta desapareceu por dois frames;
-    // chamadas posteriores não podem disparar notificações repetidas.
+    /** OCR parcial, oclusão, guarda financeira ou tela ambígua. */
+    public synchronized void uncertain() {
+        absentFrames=0;
+        if(!alerted) matchedFrames=0; // exige dois frames válidos consecutivos
+    }
+
+    /**
+     * Quadro definitivamente sem oferta ativa (mapa/post/histórico).
+     * true somente ao encerrar um episódio no segundo quadro seguro.
+     */
     public synchronized boolean nonOffer() {
         absentFrames=Math.min(2,absentFrames+1);
-        matchedFrames=0;
-        if(absentFrames>=2 && (!fingerprint.isEmpty() || alerted)) {
-            fingerprint="";
-            alerted=false;
-            return true;
+        if(absentFrames<2) {
+            if(!alerted) matchedFrames=0;
+            return false;
         }
-        return false;
+        boolean closed=alerted || !fingerprint.isEmpty();
+        fingerprint="";
+        matchedFrames=0;
+        alerted=false;
+        return closed;
     }
 
     public synchronized void reset() {
