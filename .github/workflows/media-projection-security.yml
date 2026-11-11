@@ -1,0 +1,24 @@
+name: Vexo — MediaProjection Safety Gate
+
+on:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  safety-contract:
+    name: Auditoria MediaProjection (Python offline)
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - name: Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Testes de regressão com fixtures sintéticas
+        run: python -m unittest discover -s tools/media_projection_security/tests -p 'test_*.py' -v
+      - name: Verificar Manifest e caminho de captura presente no PR
+        run: python tools/media_projection_security/check_contract.py --root .
