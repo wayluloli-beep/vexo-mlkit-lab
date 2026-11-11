@@ -7,7 +7,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from stream_audit import Event, audit_stream
 from stream_fixtures import (repeated_offer, map_offer_map, equal_numbers_distinct_offers,
-                             stopped_with_late_callback, all_scenarios)
+                             stopped_with_late_callback, all_scenarios, varying_first_detection_latencies)
 from stream_timing import timing_metrics, _p95
 from stream_check import audit_document, parse_events, StreamInputError
 
@@ -103,8 +103,16 @@ class SyntheticTimingTests(unittest.TestCase):
         self.assertEqual(r["counts"]["notifications"], 1)
         self.assertEqual(r["counts"]["notification_attempts"], 2)
 
+    def test_p95_uses_multiple_labeled_offers(self):
+        trace = varying_first_detection_latencies()
+        self.assertEqual(audit_stream(trace)["violations"], [])
+        m = timing_metrics(trace)
+        self.assertEqual(m["fixtureOffersWithTimedFirstFrame"], 5)
+        self.assertEqual(m["firstCandidateLatencyP95Ms"], 450)
+        self.assertEqual(m["firstAlertLatencyP95Ms"], 450)
+
     def test_synthetic_scenario_count(self):
-        self.assertEqual(len(all_scenarios()), 6)
+        self.assertEqual(len(all_scenarios()), 7)
 
 
 if __name__ == "__main__":
