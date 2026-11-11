@@ -46,6 +46,48 @@ public final class ScreenContextClassifier {
     private static final Pattern DISTANCE=Pattern.compile("\\b\\d{1,4}(?:[.,]\\d{1,3})?\\s*(?:km|m)\\b");
     private static final Pattern MINUTES=Pattern.compile("\\b\\d{1,3}\\s*min\\b");
 
+    // Bits de evidência em RAM. Não mudam a decisão do classificador.
+    public static final int EVIDENCE_PRICE=1;
+    public static final int EVIDENCE_ACTION=1<<1;
+    public static final int EVIDENCE_MODALITY=1<<2;
+    public static final int EVIDENCE_TWO_DISTANCES=1<<3;
+    public static final int EVIDENCE_TWO_MINUTES=1<<4;
+    public static final int EVIDENCE_LITERAL_99=1<<5;
+    public static final int EVIDENCE_PARTIAL_OFFER=1<<6;
+
+    /**
+     * "99" da plataforma, nunca os dois dígitos finais de "R$0,99".
+     * Evita atribuir identidade da 99 a preço, rota ou número de perfil.
+     */
+    public static boolean has99PlatformMarker(String raw) {
+        String t=norm(raw);
+        return has(t,"(?<![\\p{L}\\d.,$])99(?![\\p{L}\\d.,])");
+    }
+
+    public static int diagnosticEvidenceMask(String raw) {
+        String t=norm(raw);
+        int bits=0;
+        boolean price=PRICE.matcher(t).find();
+        boolean action=has(t,"\\baceitar\\b|\\bescolher\\b");
+        boolean modality=has(t,"(?<![\\p{L}\\d.,$])99(?![\\p{L}\\d.,])|\\b(?:moto|negocia|prioritario|solicitacoes|pgto|entrega)\\b");
+        int distanceCount=0;
+        Matcher distances=DISTANCE.matcher(t);
+        while(distances.find()) distanceCount++;
+        int minuteCount=0;
+        Matcher minutes=MINUTES.matcher(t);
+        while(minutes.find()) minuteCount++;
+        if(price) bits|=EVIDENCE_PRICE;
+        if(action) bits|=EVIDENCE_ACTION;
+        if(modality) bits|=EVIDENCE_MODALITY;
+        if(distanceCount>=2) bits|=EVIDENCE_TWO_DISTANCES;
+        if(minuteCount>=2) bits|=EVIDENCE_TWO_MINUTES;
+        if(has99PlatformMarker(raw)) bits|=EVIDENCE_LITERAL_99;
+        // Sinal fraco = só diagnóstico, NUNCA emite oferta.
+        if(price && (modality || distanceCount>0 || minuteCount>0))
+            bits|=EVIDENCE_PARTIAL_OFFER;
+        return bits;
+    }
+
     public static Kind classify(String raw) {
         String t=norm(raw);
         if(t.isEmpty()) return Kind.UNCERTAIN;
@@ -87,7 +129,7 @@ public final class ScreenContextClassifier {
         Matcher m=MINUTES.matcher(t);
         int minutes=0;
         while(m.find()) minutes++;
-        boolean modality=has(t,"\\b(?:99|moto|negocia|prioritario|solicitacoes|pgto|entrega)\\b");
+        boolean modality=has(t,"(?<![\\p{L}\\d.,$])99(?![\\p{L}\\d.,])|\\b(?:moto|negocia|prioritario|solicitacoes|pgto|entrega)\\b");
         boolean action=has(t,"\\baceitar\\b|\\bescolher\\b");
         boolean price=PRICE.matcher(t).find();
 

@@ -26,6 +26,7 @@ public final class LiveCaptureState {
     private static final AtomicLong financeRejected=new AtomicLong();
     private static final AtomicLong waitingConfirmation=new AtomicLong();
     private static final CaptureLatencyStats latency=new CaptureLatencyStats();
+    private static final CaptureContextEvidence contextEvidence=new CaptureContextEvidence();
 
     static synchronized void begin() {
         frames.set(0);
@@ -40,6 +41,7 @@ public final class LiveCaptureState {
         financeRejected.set(0);
         waitingConfirmation.set(0);
         latency.reset();
+        contextEvidence.reset();
         lastCandidate="";
         status="Capturando tela com autorização. Aguardando oferta confiável.";
         active=true;
@@ -63,6 +65,10 @@ public final class LiveCaptureState {
 
     static void capturedContentVisibility(boolean visible) {
         if(active) visibility=visible?"visível":"oculto";
+    }
+
+    static void recordContextEvidence(int mask) {
+        if(active) contextEvidence.record(mask);
     }
 
     static void classifiedOffer() {
@@ -123,6 +129,8 @@ public final class LiveCaptureState {
             contextRejected.get(),financeRejected.get(),waitingConfirmation.get()};
     }
 
+    public static long[] contextEvidenceCounts() { return contextEvidence.snapshot(); }
+
     public static String captureVisibility() { return visibility; }
 
     public static synchronized String snapshot() {
@@ -150,7 +158,7 @@ public final class LiveCaptureState {
             n[0],n[3],n[1],n[4],n[2],active);
         try {
             JSONObject report=new JSONObject();
-            report.put("schema","vexo-live-capture-diagnostic-v1");
+            report.put("schema","vexo-live-capture-diagnostic-v2");
             report.put("app","Vexo Captura 0.4 experimental");
             report.put("status",active?"CAPTURE_ACTIVE":"CAPTURE_STOPPED");
             report.put("diagnosticStage",stage);
@@ -172,6 +180,19 @@ public final class LiveCaptureState {
             report.put("screenContextRejected",contextRejected.get());
             report.put("financiallyUnconfirmedFrames",financeRejected.get());
             report.put("awaitingTwoStableReadings",waitingConfirmation.get());
+            // Sobreposições são normais: contagens de evidência não somam
+            // 100% e não revelam qualquer valor/texto da corrida.
+            long[] ev=contextEvidence.snapshot();
+            JSONObject evidence=new JSONObject();
+            evidence.put("ocrReadsExamined",ev[0]);
+            evidence.put("readsWithPriceMarker",ev[1]);
+            evidence.put("readsWithActionButton",ev[2]);
+            evidence.put("readsWithOfferModality",ev[3]);
+            evidence.put("readsWithTwoDistances",ev[4]);
+            evidence.put("readsWithTwoTimes",ev[5]);
+            evidence.put("readsWith99Marker",ev[6]);
+            evidence.put("readsWithPartialOfferEvidence",ev[7]);
+            report.put("contextEvidenceCounts",evidence);
             report.put("capturedWindowVisibility",visibility);
             report.put("noFieldAccuracyMeasured",true);
             report.put("containsScreenshotOrOcrText",false);
@@ -180,7 +201,7 @@ public final class LiveCaptureState {
             return report.toString(2);
         } catch(JSONException ex) {
             // Um erro de serialização nunca deve expor o texto reconhecido.
-            return "{\"schema\":\"vexo-live-capture-diagnostic-v1\",\"error\":\"REPORT_ENCODING\"}";
+            return "{\"schema\":\"vexo-live-capture-diagnostic-v2\",\"error\":\"REPORT_ENCODING\"}";
         }
     }
 
