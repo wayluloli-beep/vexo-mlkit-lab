@@ -29,6 +29,14 @@ public class CaptureContextEvidenceTest {
         assertFalse((flags&ScreenContextClassifier.EVIDENCE_TWO_DISTANCES)!=0);
     }
 
+    @Test public void neverMistakesMoneyAmountFor99Platform() {
+        assertFalse(ScreenContextClassifier.has99PlatformMarker("Desconto R$0,99"));
+        assertFalse(ScreenContextClassifier.has99PlatformMarker("Valor R$99,90"));
+        assertFalse(ScreenContextClassifier.has99PlatformMarker("Valor R$ 99,90"));
+        assertFalse(ScreenContextClassifier.has99PlatformMarker("999 corridas"));
+        assertTrue(ScreenContextClassifier.has99PlatformMarker("99 Negocia R$12,64"));
+    }
+
     @Test public void counterOverlapDoesNotEqualClassificationAndResetWorks() {
         CaptureContextEvidence evidence=new CaptureContextEvidence();
         evidence.record(ScreenContextClassifier.diagnosticEvidenceMask(
