@@ -47,6 +47,11 @@ def compare(first, second):
     if evidence_a is not None:
         evidence_delta = {key: evidence_b[key] - evidence_a[key] for key in evidence_a}
         resets.extend(key for key, delta in evidence_delta.items() if delta < 0)
+    v3_a, v3_b = a["v3Counters"], b["v3Counters"]
+    v3_delta = None
+    if v3_a is not None:
+        v3_delta = {key: v3_b[key] - v3_a[key] for key in v3_a}
+        resets.extend(key for key, delta in v3_delta.items() if delta < 0)
     notes = ["NO_SESSION_ID_OR_SNAPSHOT_TIMESTAMP_IN_REPORT"]
     if resets:
         return {"canCompare": False, "reason": "POSSIBLE_SESSION_RESET_OR_INCONSISTENT_COUNTERS",
@@ -61,6 +66,13 @@ def compare(first, second):
             anomalies.append("P95_DROPPED_BELOW_PREVIOUS_MAX_WITH_SMALL_SAMPLE_WINDOW")
         if delta_samples > diffs["ocrAttempts"]:
             anomalies.append("NEW_LATENCY_SAMPLES_EXCEED_NEW_OCR_ATTEMPTS")
+    if v3_delta is not None:
+        if v3_delta["discardedStaleOcrFrames"] > diffs["ocrCompleted"]:
+            anomalies.append("NEW_STALE_FRAMES_EXCEED_NEW_OCR_COMPLETIONS")
+        if v3_delta["candidatesWithout99Logo"] > diffs["offerContextCandidates"]:
+            anomalies.append("NEW_NO_LOGO_CANDIDATES_EXCEED_NEW_CANDIDATES")
+        if v3_delta["offerGateHeldFrames"] > diffs["offerContextCandidates"]:
+            anomalies.append("NEW_HELD_FRAMES_EXCEED_NEW_CANDIDATES")
     if diffs["ocrCompleted"] > diffs["ocrAttempts"]:
         anomalies.append("NEW_OCR_COMPLETIONS_EXCEED_NEW_ATTEMPTS")
     if diffs["offersAlerted"] > diffs["offerContextCandidates"]:
@@ -71,6 +83,7 @@ def compare(first, second):
         "counterDeltasIfSameSession": diffs,
         "latencySampleDeltaIfSameSession": delta_samples,
         "evidenceDeltasIfSameSession": evidence_delta,
+        "v3CounterDeltasIfSameSession": v3_delta,
         "crossSnapshotAnomalies": anomalies,
         "notes": notes,
         "interpretation": "Counter differences are conditional; uncertain classifications are not proven OCR errors; p95 can fluctuate without performance improvement",
