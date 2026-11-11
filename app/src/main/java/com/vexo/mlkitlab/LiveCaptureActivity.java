@@ -24,6 +24,7 @@ public final class LiveCaptureActivity extends Activity {
     private static final int REQUEST_CAPTURE=401;
     private TextView info, liveState;
     private boolean asking=false;
+    private boolean demoAfterConsent=false;
 
     @Override public void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
@@ -37,7 +38,7 @@ public final class LiveCaptureActivity extends Activity {
         heading.setTextSize(23);
         root.addView(heading);
         info=new TextView(this);
-        info.setText("O Android vai pedir sua autorização. Se possível, selecione SOMENTE o aplicativo 99. Durante a sessão o Vexo lê pixels na memória, sem salvar imagens ou texto bruto. O motorista continua responsável por todas as decisões.");
+        info.setText("O Android pedirá sua autorização para compartilhar a tela. Para a OFERTA FICTÍCIA, escolha 'Tela inteira' ou o próprio Vexo (se disponível). Para um teste futuro na 99, escolha apenas a 99 quando o Android oferecer essa opção. Não compartilhe telas privadas nem teste enquanto dirige. A leitura fica no celular; o motorista decide as corridas.");
         info.setTextColor(0xffb0c6d5);
         info.setTextSize(16);
         LinearLayout.LayoutParams infoLp=new LinearLayout.LayoutParams(-1,-2);
@@ -72,7 +73,16 @@ public final class LiveCaptureActivity extends Activity {
         LinearLayout.LayoutParams lp=new LinearLayout.LayoutParams(-1,-2);
         lp.topMargin=30;
         root.addView(start,lp);
-        start.setOnClickListener(v -> requestConsent());
+        start.setOnClickListener(v -> requestConsent(false));
+
+        // Fluxo de laboratório explícito: após o próprio usuário autorizar,
+        // abrir imediatamente o card FICTÍCIO. Evita gastar a primeira
+        // inferência lenta do emulador na tela de controles do Vexo.
+        Button demoConsent=new Button(this);
+        demoConsent.setAllCaps(false);
+        demoConsent.setText("Autorizar e testar oferta fictícia");
+        root.addView(demoConsent);
+        demoConsent.setOnClickListener(v -> requestConsent(true));
 
         Button stop=new Button(this);
         stop.setAllCaps(false);
@@ -130,8 +140,9 @@ public final class LiveCaptureActivity extends Activity {
         if(liveState!=null) liveState.setText(LiveCaptureState.snapshot());
     }
 
-    private void requestConsent() {
+    private void requestConsent(boolean launchDemo) {
         if(asking) return;
+        demoAfterConsent=launchDemo;
         MediaProjectionManager mgr=(MediaProjectionManager)getSystemService(MEDIA_PROJECTION_SERVICE);
         if(mgr==null) {
             info.setText("MediaProjection indisponível neste aparelho.");
@@ -150,6 +161,8 @@ public final class LiveCaptureActivity extends Activity {
         super.onActivityResult(requestCode,resultCode,data);
         if(requestCode!=REQUEST_CAPTURE) return;
         asking=false;
+        boolean launchDemo=demoAfterConsent;
+        demoAfterConsent=false;
         if(resultCode!=RESULT_OK || data==null) {
             info.setText("Permissão de captura não concedida. Nenhuma leitura foi iniciada.");
             return;
@@ -160,7 +173,11 @@ public final class LiveCaptureActivity extends Activity {
         service.putExtra(LiveCaptureService.EXTRA_CONSENT_DATA,data);
         try {
             androidx.core.content.ContextCompat.startForegroundService(this,service);
-            info.setText("Sessão solicitada. Primeiro teste na tela 'Oferta fictícia' ou no app escolhido pelo Android. Para parar, volte aqui ou use a notificação do Vexo.");
+            info.setText("Sessão solicitada. Para parar, volte aqui ou use a notificação do Vexo.");
+            if(launchDemo) {
+                // Teste local, não abre nem controla 99/Uber e não reutiliza token.
+                startActivity(new Intent(this,DemoOfferActivity.class));
+            }
         } catch(Exception e) {
             info.setText("Falha ao iniciar o serviço de captura; nenhuma permissão será guardada.");
         }
