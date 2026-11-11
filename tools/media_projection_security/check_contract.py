@@ -123,8 +123,11 @@ def audit(root: Path, require_capture: bool = False) -> list[dict]:
         "Usar ImageReader com frame recente, limite de fila e descarte de antigos"))
     findings.append(finding(
         "IMAGE_CLOSE_FINALLY",
-        bool(re.search(r"\bfinally\s*\{", service_code)) and
-        bool(re.search(r"\b[A-Za-z_]\w*\.close\s*\(", service_code)),
+        bool(re.search(r"\bfinally\s*\{[^}]*\b[A-Za-z_]\w*\.close\s*\(",
+                       service_code, flags=re.DOTALL)) and
+        any(re.search(r"\bfinally\s*\{[^}]*\b" + re.escape(var) +
+                      r"\.close\s*\(", service_code, flags=re.DOTALL)
+            for var in re.findall(r"\bImage\s+([A-Za-z_]\w*)\s*=", service_code)),
         "Fechar Image adquirido em finally; revisar fluxo de exceções manualmente"))
     findings.append(finding(
         "RESOURCE_RELEASE",
