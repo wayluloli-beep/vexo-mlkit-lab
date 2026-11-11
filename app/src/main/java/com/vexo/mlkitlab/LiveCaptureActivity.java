@@ -37,6 +37,13 @@ public final class LiveCaptureActivity extends Activity {
         heading.setTextColor(Color.WHITE);
         heading.setTextSize(23);
         root.addView(heading);
+
+        // Controle P0 visível mesmo no emulador com tela pequena e texto longo.
+        Button demoConsent=new Button(this);
+        demoConsent.setAllCaps(false);
+        demoConsent.setText("Autorizar e testar oferta fictícia");
+        root.addView(demoConsent);
+        demoConsent.setOnClickListener(v -> requestConsent(true));
         info=new TextView(this);
         info.setText("O Android pedirá sua autorização para compartilhar a tela. Para a OFERTA FICTÍCIA, escolha 'Tela inteira' ou o próprio Vexo (se disponível). Para um teste futuro na 99, escolha apenas a 99 quando o Android oferecer essa opção. Não compartilhe telas privadas nem teste enquanto dirige. A leitura fica no celular; o motorista decide as corridas.");
         info.setTextColor(0xffb0c6d5);
@@ -78,12 +85,6 @@ public final class LiveCaptureActivity extends Activity {
         // Fluxo de laboratório explícito: após o próprio usuário autorizar,
         // abrir imediatamente o card FICTÍCIO. Evita gastar a primeira
         // inferência lenta do emulador na tela de controles do Vexo.
-        Button demoConsent=new Button(this);
-        demoConsent.setAllCaps(false);
-        demoConsent.setText("Autorizar e testar oferta fictícia");
-        root.addView(demoConsent);
-        demoConsent.setOnClickListener(v -> requestConsent(true));
-
         Button stop=new Button(this);
         stop.setAllCaps(false);
         stop.setText("Parar captura agora");
