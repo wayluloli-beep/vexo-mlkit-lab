@@ -45,7 +45,7 @@ public class MainActivity extends Activity {
     private final int blue = 0xFF1AB7CF;
     private final int muted = 0xFFADBCC9;
     private final LinkedHashMap<String,EditText> inputs = new LinkedHashMap<>();
-    private TextView status, rawOutput, memory;
+    private TextView status, rawOutput, memory, safetyStatus;
     private LinearLayout results, rawPanel;
     private Button choose, confirm, openOriginal, toggleRaw;
     private Uri chosenUri;
@@ -97,11 +97,15 @@ public class MainActivity extends Activity {
         scroll.addView(root);
 
         append(root, label("VEXO",30,blue,true),0);
-        append(root,label("Leitor de ofertas  •  Laboratório 0.3",18,Color.WHITE,true),6);
+        append(root,label("Leitor de ofertas  •  Laboratório 0.3.4",18,Color.WHITE,true),6);
         append(root,label("O ML Kit reconhece as letras. O Vexo separa os campos. Você confere e só depois salva.",14,muted,false),12);
 
         choose = button("Escolher print da galeria", blue, Color.BLACK);
         append(root,choose,24); choose.setOnClickListener(v -> chooseImage());
+
+        Button batch = button("Teste automático · lote de prints",0xFF334357,Color.WHITE);
+        append(root,batch,10);
+        batch.setOnClickListener(v -> startActivity(new Intent(this,BatchOcrActivity.class)));
 
         status = label("Selecione uma imagem para começar",14,muted,false);
         append(root,status,14);
@@ -126,6 +130,8 @@ public class MainActivity extends Activity {
         results.setVisibility(View.GONE);
         results.addView(label("OFERTA INTERPRETADA",14,blue,true));
         append(results,label("Confira os campos com o print. Se o OCR não encontrar algo, deixe vazio ou preencha manualmente.",13,muted,false),8);
+        safetyStatus=label("",14,0xFFF4C27C,true);
+        append(results,safetyStatus,12);
 
         for (int i=0; i<OfferParser.KEYS.length; i++) {
             String key=OfferParser.KEYS[i];
@@ -235,6 +241,9 @@ public class MainActivity extends Activity {
                         EditText field=inputs.get(key);
                         if(field!=null) field.setText(baseline.get(key));
                     }
+                    FinancialGuard.Assessment audit=FinancialGuard.assess(baseline);
+                    safetyStatus.setText(audit.message);
+                    safetyStatus.setTextColor(audit.canCalculate ? 0xFF9FE0C1 : 0xFFFFC27A);
                     results.setVisibility(View.VISIBLE);
                     status.setText("Leitura concluída: "+baseline.filled()+" de "+
                         OfferParser.KEYS.length+" campos preenchidos. Confira e corrija antes de salvar.");
