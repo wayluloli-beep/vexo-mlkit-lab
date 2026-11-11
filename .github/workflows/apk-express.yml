@@ -1,0 +1,80 @@
+name: Vexo APK Express (experimental)
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - 'build/apk-express-*'
+  pull_request:
+    branches:
+      - '**'
+    paths:
+      - 'app/**'
+      - 'gradle/**'
+      - 'gradle.properties'
+      - 'settings.gradle*'
+      - 'build.gradle*'
+      - 'Vexo_Leitor_MLKit_Projeto_Android.zip'
+      - '.github/workflows/apk-express.yml'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: apk-express-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  apk-experimental:
+    name: Compilar APK sem aguardar emulador
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Java 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - name: Android SDK 35
+        shell: bash
+        run: |
+          set -euo pipefail
+          SDK_MANAGER=$(find "$ANDROID_HOME/cmdline-tools" -type f -path "*/bin/sdkmanager" | sort -V | tail -n 1)
+          test -n "$SDK_MANAGER"
+          "$SDK_MANAGER" --install "platforms;android-35" "build-tools;35.0.0"
+      - name: Gradle 8.11.1 com cache
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.11.1'
+          cache-read-only: ${{ github.event_name == 'pull_request' }}
+      - name: Preparar projeto existente
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ ! -f settings.gradle ] && [ ! -f settings.gradle.kts ]; then
+            unzip -nq Vexo_Leitor_MLKit_Projeto_Android.zip
+          fi
+          test -f app/build.gradle -o -f app/build.gradle.kts
+      - name: Compilar somente APK debug
+        run: gradle --no-daemon --build-cache :app:assembleDebug
+      - name: Identificar artefato pelo SHA
+        id: metadata
+        shell: bash
+        run: |
+          set -euo pipefail
+          SHORT_SHA="${GITHUB_SHA:0:12}"
+          echo "short_sha=$SHORT_SHA" >> "$GITHUB_OUTPUT"
+          mkdir -p dist
+          cp app/build/outputs/apk/debug/app-debug.apk "dist/Vexo-EXPERIMENTAL-${SHORT_SHA}.apk"
+          printf 'EXPERIMENTAL - NAO HOMOLOGADO\nCommit: %s\nRun: %s\nBranch: %s\n' "$GITHUB_SHA" "$GITHUB_RUN_ID" "$GITHUB_REF_NAME" > dist/BUILD-INFO.txt
+          sha256sum dist/*.apk > dist/SHA256SUMS.txt
+      - name: Publicar APK experimental
+        uses: actions/upload-artifact@v4
+        with:
+          name: Vexo-EXPERIMENTAL-${{ steps.metadata.outputs.short_sha }}-run-${{ github.run_id }}
+          path: dist/
+          retention-days: 7
+          if-no-files-found: error
