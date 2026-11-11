@@ -8,7 +8,7 @@ Este PR é deliberadamente um **PROTÓTIPO ISOLADO E SEM EFEITO NO APK**. Adicio
 
 1. \`FastCardVisualTracker.java\`: recebe um provedor de **luminância amostrada** (não cria bitmap/cópia da tela), guarda 96 valores efêmeros em RAM de uma região **já confirmada** como card por um detector independente, e procura a mesma região dentro de ~24 pixels a cada frame recebido. Busca grosseira + refinamento de 1 pixel. Se o card some ou não corresponde, retorna \`disappeared\` **no próprio frame**, para que a integração oculte números antigos imediatamente. Se a região reaparecer, retorna \`appeared\`; não envia notificação, não considera foto da Galeria oferta real nem fornece ID de corrida.
 2. \`FastOcrScheduler.java\`: um OCR por vez, só para um card presente, sem fila de frames antigos; por exemplo, janela mínima de 120 ms **não é duração de leitura ML Kit nem promessa de 8 FPS OCR**. Um callback antigo, após desaparecimento/STOP/restart, não pode concluir o ticket atual. A sessão \`epoch\` e a validação de frescor/FinancialGuard do serviço Android continuam obrigatórias.
-3. **21 testes JUnit sintéticos** (\`FastCardVisualTrackerTest\`: 12, \`FastOcrSchedulerTest\`: 9). Verificam drift 1px, 9 deslocamentos, ausência em primeiro frame, não piscar com 301 frames, rejeição de fundo sem textura, STOP/reset, tempo monotônico, um só OCR em voo e invalidação imediata de resultado antigo. Resultados precisam de CI no SHA da branch; testes unitários não são medição de FPS/latência nem prova da 99.
+3. **35 testes JUnit sintéticos escritos no total** (\`FastCardVisualTrackerTest\`: 12, \`FastOcrSchedulerTest\`: 9). Verificam drift 1px, 9 deslocamentos, ausência em primeiro frame, não piscar com 301 frames, rejeição de fundo sem textura, STOP/reset, tempo monotônico, um só OCR em voo e invalidação imediata de resultado antigo. Resultados precisam de CI no SHA da branch; testes unitários não são medição de FPS/latência nem prova da 99.
 
 ## Arquitetura solicitada, da mais rápida à mais cara
 
@@ -28,6 +28,14 @@ MediaProjection (com permissão Android) -> ImageReader (frames contínuos)
 \`\`\`
 
 **Atenção:** 30 frames recebidos por segundo NÃO significam 30 inferências ML Kit por segundo. No relatório v3 no telefone: p50 individual OCR=482 ms, p95=1252 ms, máximo=3447 ms. O novo rastreador barato pode reagir antes da inferência, porém só depois do OCR completar é possível mostrar números confirmados. Para mostrar valores em menos de 0,5 s, precisamos medir e otimizar o **recorte ROI**, aquecimento e processamento no aparelho real. Não inventar resultados.
+
+## Complemento: gatilho inicial e leitura RGBA sem copiar tela
+
+- \`FastRoiActivityProbe.java\`: com referência **de um frame comprovadamente sem oferta** e uma ROI configurada, compara 96 pontos na mesma região de todos os frames. Qualquer mudança relevante gera \`risingEdge\` **no primeiro frame recebido** para pedir OCR. Voltar à imagem de fundo sinaliza \`returnedToBaseline\`. Uma mudança de MAP, anúncio ou Galeria também pode disparar; isto é **somente um gatilho de investigação**, não prova de card da 99 e nunca pode emitir aviso financeiro sozinho.
+- \`RgbaLumaPixels.java\`: adaptador de \`Image.Plane\` RGBA com \`rowStride\` e \`pixelStride\`, lendo luminância por ponto de um \`ByteBuffer\` read-only. Não faz \`Bitmap.createBitmap\` nem cópia de frame. O objeto é **transitório e só pode ser usado antes de \`Image.close()\`**, jamais guardado por uma thread de OCR.
+- \`FastRoiActivityProbeTest.java\` (8 casos) e \`RgbaLumaPixelsTest.java\` (6 casos) completam a prova sintética. Total na branch: **35 testes JUnit escritos** (12 visual + 9 scheduler + 8 probe + 6 RGBA). Só chamar de PASS depois da conclusão do CI no HEAD exato.
+
+*Fluxo recomendado para a primeira oferta:* o ROI fixo, posicionado a partir de perfil de tela/ancoragem e validado em configuração de laboratório, detecta visualmente alteração. Isso dispara OCR da região. Depois que o parser/classificador confirma o card, \`FastCardVisualTracker.armFromVerifiedCard\` passa a segui-lo com ±24px sem depender de novas inferências. Se o card some, esconder números e invalidar callbacks; se apenas mudou o mapa, o classificador deve recusar o alerta. Não existe garantia universal de ROI na 99 sem testes de variantes/densidades/rotação.
 
 ## Próxima integração, isolada pelo agente Android
 
