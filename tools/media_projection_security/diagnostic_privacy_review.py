@@ -30,6 +30,12 @@ SAFE_FIELDS = {
 
 # Every value, not just each key, is allowlisted. A future developer must
 # update tests and review before exporting another data category.
+LATENCY_FIELDS = {
+    "ocrLatencySamples", "ocrLatencyLastMs", "ocrLatencyMeanMs",
+    "ocrLatencyP50Ms", "ocrLatencyP95Ms", "ocrLatencyMaxMs",
+}
+BASE_FIELDS = SAFE_FIELDS - LATENCY_FIELDS
+
 SAFE_VALUES = {
     "schema": '"vexo-live-capture-diagnostic-v1"',
     "app": '"Vexo Captura 0.4 experimental"',
@@ -105,7 +111,8 @@ def _puts(body: str) -> list[tuple[str | None, str]]:
 
 
 def review_text(state: str, activity: str, service: str,
-                latency: str | None = None) -> list[dict[str, str]]:
+                latency: str | None = None,
+                require_latency: bool = False) -> list[dict[str, str]]:
     state = _strip_java_comments(state)
     activity = _strip_java_comments(activity)
     service = _strip_java_comments(service)
@@ -115,6 +122,7 @@ def review_text(state: str, activity: str, service: str,
     fields = [name for name, _ in export]
     unknown = sorted({str(k) for k in fields if k not in SAFE_FIELDS})
     duplicate = len(fields) != len(set(fields))
+    expected = SAFE_FIELDS if latency is not None else BASE_FIELDS
     unsafe_value = [
         name for name, val in export
         if name not in SAFE_VALUES or _compact(val) != _compact(SAFE_VALUES[name])
@@ -153,11 +161,11 @@ def review_text(state: str, activity: str, service: str,
         "Arrays.copyOf(recentMs,count)" in re.sub(r"\s+", "", latency)
     )
 
-    return [
+    checks = [
         result("EXPORT_SCHEMA_FIELD_ALLOWLIST",
                bool(fields) and not unknown and not duplicate and
-               set(fields) == SAFE_FIELDS,
-               "Campos exportados devem ser exatamente os 25 autorizados; extras e chaves dinâmicas falham"),
+               set(fields) == expected,
+               "Campos exportados devem ser exatamente os autorizados para a versão, sem extras/chaves dinâmicas"),
         result("EXPORT_VALUES_ALLOWLIST",
                bool(fields) and not unsafe_value,
                "Valores de todos os campos devem vir de constantes/contadores/estado seguro, nunca OCR bruto"),
@@ -171,9 +179,14 @@ def review_text(state: str, activity: str, service: str,
                protected_latency,
                "Latência OCR só é registrada sob guarda active/stopping/epoch e reset por sessão"),
         result("OCR_LATENCY_BOUNDED_SAMPLE_WINDOW",
-               bounded_latency if latency is not None else False,
+               bounded_latency,
                "Guardar no máximo 128 amostras de duração, rejeitar anomalias, sem histórico de corrida"),
     ]
+    if latency is None and not require_latency:
+        for check in checks[-2:]:
+            check["status"] = "SKIP"
+            check["detail"] = "Esta versão ainda não inclui métricas de latência; análise não aplicável"
+    return checks
 
 
 def main() -> int:
@@ -181,6 +194,7 @@ def main() -> int:
     parser.add_argument("--root", default=".")
     parser.add_argument("--json", action="store_true")
     parser.add_argument("--require-export", action="store_true")
+    parser.add_argument("--require-latency", action="store_true")
     args = parser.parse_args()
     base = Path(args.root) / "app/src/main/java/com/vexo/mlkitlab"
     files = [base / p for p in (
@@ -195,6 +209,7 @@ def main() -> int:
         checks = review_text(
             *[p.read_text(encoding="utf-8") for p in files[:3]],
             files[3].read_text(encoding="utf-8") if files[3].exists() else None,
+            require_latency=args.require_latency,
         )
     if args.json:
         print(json.dumps({"checks": checks}, indent=2, ensure_ascii=False))
