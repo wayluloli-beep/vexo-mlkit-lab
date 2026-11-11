@@ -22,6 +22,8 @@ except ImportError:
 def compare(first, second):
     a = analyze(first)
     b = analyze(second)
+    if first["schema"] != second["schema"]:
+        return {"canCompare": False, "reason": "INCOMPATIBLE_DIAGNOSTIC_VERSIONS"}
     if not a["consistentCounters"] or not b["consistentCounters"]:
         return {
             "canCompare": False,
@@ -39,7 +41,13 @@ def compare(first, second):
         delta_samples = latency_b["ocrLatencySamples"] - latency_a["ocrLatencySamples"]
         if delta_samples < 0:
             resets.append("ocrLatencySamples")
-    notes = ["NO_SESSION_ID_OR_SNAPSHOT_TIMESTAMP_IN_V1"]
+    evidence_a = a["contextEvidenceCounts"]
+    evidence_b = b["contextEvidenceCounts"]
+    evidence_delta = None
+    if evidence_a is not None:
+        evidence_delta = {key: evidence_b[key] - evidence_a[key] for key in evidence_a}
+        resets.extend(key for key, delta in evidence_delta.items() if delta < 0)
+    notes = ["NO_SESSION_ID_OR_SNAPSHOT_TIMESTAMP_IN_REPORT"]
     if resets:
         return {"canCompare": False, "reason": "POSSIBLE_SESSION_RESET_OR_INCONSISTENT_COUNTERS",
                 "decreasedCounters": sorted(resets), "notes": notes}
@@ -62,6 +70,7 @@ def compare(first, second):
         "sessionContinuityProven": False,
         "counterDeltasIfSameSession": diffs,
         "latencySampleDeltaIfSameSession": delta_samples,
+        "evidenceDeltasIfSameSession": evidence_delta,
         "crossSnapshotAnomalies": anomalies,
         "notes": notes,
         "interpretation": "Counter differences are conditional; uncertain classifications are not proven OCR errors; p95 can fluctuate without performance improvement",
