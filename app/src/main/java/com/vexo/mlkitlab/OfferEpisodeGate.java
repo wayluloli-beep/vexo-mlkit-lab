@@ -32,13 +32,17 @@ public final class OfferEpisodeGate {
         return true;
     }
 
-    public synchronized void nonOffer() {
+    // true apenas quando a antiga oferta desapareceu por dois frames;
+    // chamadas posteriores não podem disparar notificações repetidas.
+    public synchronized boolean nonOffer() {
         absentFrames=Math.min(2,absentFrames+1);
         matchedFrames=0;
-        if(absentFrames>=2) {
+        if(absentFrames>=2 && (!fingerprint.isEmpty() || alerted)) {
             fingerprint="";
             alerted=false;
+            return true;
         }
+        return false;
     }
 
     public synchronized void reset() {
