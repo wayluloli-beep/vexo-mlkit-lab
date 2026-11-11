@@ -23,6 +23,7 @@
             android:foregroundServiceType="mediaProjection"
             android:stopWithTask="false" />
         <activity android:name="com.vexo.mlkitlab.LiveCaptureActivity" android:exported="false" />
+        <activity android:name="com.vexo.mlkitlab.VisualRadarLabActivity" android:exported="false" />
         <activity android:name="com.vexo.mlkitlab.DemoOfferActivity" android:exported="false" />
         <activity android:name="com.vexo.mlkitlab.BatchOcrActivity" android:exported="false" />
         <activity android:name="com.vexo.mlkitlab.MainActivity" android:exported="true">
