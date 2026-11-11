@@ -11,8 +11,10 @@ from pathlib import Path
 
 try:
     from .stream_audit import Event, audit_stream
+    from .stream_timing import timing_metrics
 except ImportError:
     from stream_audit import Event, audit_stream
+    from stream_timing import timing_metrics
 
 SCHEMA = "vexo-stream-events-v1"
 MAX_FILE_BYTES = 2_000_000
@@ -20,7 +22,7 @@ MAX_EVENTS = 20_000
 VALID_KINDS = {"start", "stop", "frame", "callback", "inference_start", "inference_end"}
 VALID_CONTEXTS = {"OFFER_CANDIDATE", "NON_OFFER", "UNCERTAIN"}
 BOOL_FIELDS = {"guard_blocked", "notified", "history_written", "unsafe_financial", "ui_applied"}
-INT_FIELDS = {"epoch", "seq", "inference_ms", "roi_passes"}
+INT_FIELDS = {"epoch", "seq", "inference_ms", "roi_passes", "at_ms"}
 ALLOWED_FIELDS = {f.name for f in fields(Event)}
 GROUP_RE = re.compile(r"[A-Za-z0-9_-]{1,64}\Z")
 
@@ -60,7 +62,10 @@ def parse_events(doc):
 
 
 def audit_document(doc):
-    return audit_stream(parse_events(doc))
+    events = parse_events(doc)
+    report = audit_stream(events)
+    report["timing"] = timing_metrics(events)
+    return report
 
 
 def _no_duplicate_keys(pairs):
