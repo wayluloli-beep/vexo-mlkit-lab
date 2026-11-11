@@ -301,3 +301,52 @@ jobs:
           else
             echo "PR #26 indisponível; revisão de consentimento/E2E não executada." >> "$GITHUB_STEP_SUMMARY"
           fi
+
+      - name: Revisar diagnóstico clipboard PR28 e latência PR29 (read-only)
+        shell: bash
+        run: |
+          set +e
+          for pair in "28:feature/share-safe-capture-diagnostics" "29:feature/live-ocr-latency-metrics"; do
+            IFS=: read -r number branch <<< "$pair"
+            dest="$RUNNER_TEMP/vexo-pr$number-privacy"
+            echo "Inspecionando PR #$number (somente fonte, sem dados de corrida)"
+            if git fetch --no-tags --depth=1 origin "refs/heads/$branch" && \
+               git worktree add --detach "$dest" FETCH_HEAD; then
+              sha=$(git -C "$dest" rev-parse HEAD)
+              if [[ "$number" == "29" ]]; then
+                python tools/media_projection_security/diagnostic_privacy_review.py \
+                  --root "$dest" --require-export --require-latency --json > "$RUNNER_TEMP/pr$number-privacy.json"
+              else
+                python tools/media_projection_security/diagnostic_privacy_review.py \
+                  --root "$dest" --require-export --json > "$RUNNER_TEMP/pr$number-privacy.json"
+              fi
+              scan_status=$?
+              python - "$number" "$sha" "$scan_status" "$RUNNER_TEMP/pr$number-privacy.json" <<'PY'
+          import json
+          import os
+          from pathlib import Path
+          import sys
+          number, sha, exit_code, path = sys.argv[1:]
+          items = json.loads(Path(path).read_text(encoding="utf-8"))["checks"]
+          counts = {key: sum(c["status"] == key for c in items)
+                    for key in ("PASS", "FAIL", "SKIP")}
+          lines = [
+              "### PR #" + number + " — exportação voluntária e métricas (inspeção fonte)",
+              "SHA inspecionado: " + sha,
+              "Status da ferramenta: " + exit_code + "; " +
+              ", ".join(str(counts[k]) + " " + k for k in counts),
+          ]
+          for item in items:
+              lines.append("- " + item["status"] + " " + item["code"] + ": " + item["detail"])
+          lines.append("Contadores técnicos ainda são metadados. O clipboard é compartilhado: "
+                       "exigir clique consciente, aviso de privacidade e teste Android.")
+          report = "\n\n".join(lines) + "\n"
+          print(report)
+          with open(os.environ["GITHUB_STEP_SUMMARY"], "a", encoding="utf-8") as out:
+              out.write(report)
+          PY
+            else
+              echo "PR #$number indisponível; não aprovado." >> "$GITHUB_STEP_SUMMARY"
+            fi
+          done
+          set -e
