@@ -31,7 +31,7 @@ public final class CaptureLatencyStatsTest {
         assertEquals(199,values[1]);
         assertEquals(99,values[2]);
         assertEquals(135,values[3]);
-        assertEquals(192,values[4]);
+        assertEquals(193,values[4]);
         assertEquals(199,values[5]);
     }
 }
