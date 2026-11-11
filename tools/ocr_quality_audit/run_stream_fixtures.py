@@ -11,6 +11,7 @@ EXPECTED_VIOLATIONS = {
     "stop_callback_discarded": set(),
     "stop_callback_applied": {"callback_after_stop_applied"},
     "long_stable_offer_realerts": {"duplicate_notification"},
+    "latency_p95_five_offers": set(),
 }
 
 
@@ -30,6 +31,7 @@ def run_suite():
                       "notifications": summary.get("notifications", 0),
                       "notificationAttempts": summary.get("notification_attempts", 0),
                       "firstCandidateP95Ms": metrics["firstCandidateLatencyP95Ms"],
+                      "firstAlertP95Ms": metrics["firstAlertLatencyP95Ms"],
                       "inferenceP95Ms": metrics["ocrInferenceP95Ms"]})
     return {"scenarios": len(cases), "passed": sum(c["pass"] for c in cases),
             "cases": cases, "scope": "synthetic offline OCR timing only"}
