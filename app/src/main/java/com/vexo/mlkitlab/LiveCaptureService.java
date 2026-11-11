@@ -340,7 +340,14 @@ public final class LiveCaptureService extends Service {
     private void clearCandidateIfCurrent(long session) {
         synchronized(sessionLock) {
             if(sessionAlive(session)) {
-                if(episodes.nonOffer()) LiveCaptureState.clearCandidate();
+                if(episodes.nonOffer()) {
+                    LiveCaptureState.clearCandidate();
+                    // Nunca manter alerta antigo na notificação quando o
+                    // motorista já voltou ao mapa ou a outra tela.
+                    NotificationManager nm=(NotificationManager)getSystemService(
+                        NOTIFICATION_SERVICE);
+                    if(nm!=null) nm.notify(NOTIFICATION_ID,notification(false));
+                }
             }
         }
     }
