@@ -73,6 +73,12 @@ def main(argv: list[str] | None = None) -> int:
     result = unittest.TextTestRunner(verbosity=2).run(tests)
     if not result.wasSuccessful():
         return 1
+    # Validate generated temporal fixtures too; no Android or real screenshots.
+    from run_stream_fixtures import run_suite
+    fixtures = run_suite()
+    print(f"Temporal synthetic fixtures: {fixtures['passed']}/{fixtures['scenarios']} expected outcomes.")
+    if fixtures["passed"] != fixtures["scenarios"]:
+        return 1
     if args.report:
         return check_report(args.report)
     print("PASS: Python-only synthetic audit checks. Android/ML Kit not executed.")
