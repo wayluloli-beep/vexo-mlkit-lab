@@ -380,6 +380,9 @@ public final class LiveCaptureService extends Service {
     }
 
     private void evaluate(String text,long session) {
+        // Somente bits agregados de evidência: sem log ou retenção do OCR.
+        LiveCaptureState.recordContextEvidence(
+            ScreenContextClassifier.diagnosticEvidenceMask(text));
         ScreenContextClassifier.Kind context=
             ScreenContextClassifier.classify(text==null?"":text);
         if(context!=ScreenContextClassifier.Kind.OFFER_CANDIDATE ||
