@@ -39,7 +39,9 @@ def review_text(source: str) -> list[dict[str, str]]:
 
     # For E2E failures, make the three separate counts observable without
     # logging any image, OCR text, route, token, or passenger information.
-    counter_lines = bool(re.search(r"\bLiveCaptureState\s*\.\s*counts\s*\(", test))
+    helper_counts = block(code, "awaitCounts") or ""
+    counter_lines = bool(re.search(r"\bLiveCaptureState\s*\.\s*counts\s*\(",
+                                   test + "\n" + (helper_counts if "awaitCounts(" in test else "")))
     named_metrics = all(re.search(r"\b" + key + r"\b", test, re.I)
                         for key in ("frames", "ocr", "avisos"))
     # Multiple distinct assert stages or independent wait attempts. A single
@@ -54,12 +56,14 @@ def review_text(source: str) -> list[dict[str, str]]:
     # if a second dedicated @Test handles STOP with a real state assertion.
     stop_at = test.find("LiveCaptureService.ACTION_STOP")
     ocr_assert = re.search(r"\bassertTrue\s*\([^;]*\bawaitCounts\s*\(", test, flags=re.DOTALL)
-    stop_independent = stop_at >= 0 and (
-        ocr_assert is None or stop_at < ocr_assert.start() or
-        bool(re.search(r"@Test[\s\S]{0,230}\bvoid\s+\w*(?:stop|Stop)\w*\s*\(", code[
-            code.find("nativeConsentThenFakeOfferProducesRealFramesAndStops") + 30:
-        ]))
-    )
+    # A dedicated STOP @Test is valid even when the main E2E test does not
+    # contain an ACTION_STOP itself.
+    other_tests = code[code.find("nativeConsentThenFakeOfferProducesRealFramesAndStops") + 30:]
+    dedicated_stop = bool(re.search(
+        r"@Test[\s\S]{0,230}\bvoid\s+\w*(?:stop|Stop)\w*\s*\(",
+        other_tests))
+    stop_independent = dedicated_stop or (
+        stop_at >= 0 and (ocr_assert is None or stop_at < ocr_assert.start()))
     # No bypass, screenshots saved on CI, or OCR text logged.
     suspicious = re.search(
         r"\b(?:takeScreenshot|FileOutputStream|openFileOutput|MediaStore|"
