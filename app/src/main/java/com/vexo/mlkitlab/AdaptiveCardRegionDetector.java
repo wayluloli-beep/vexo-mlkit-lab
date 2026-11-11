@@ -19,7 +19,7 @@ public final class AdaptiveCardRegionDetector {
     private static final int MIN_COMPONENT_CELLS=9;
     private static final int MIN_MEAN_NEW_CHANGE=20;
     private int width, height, cols, rows, count;
-    private int[] baseline, previous, current, queue;
+    private int[] baseline, previous, deltaPrevious, queue;
     private byte[] changed, visited;
     private boolean armed;
     private long lastAt=-1;
@@ -49,7 +49,7 @@ public final class AdaptiveCardRegionDetector {
         cols=Math.max(20,Math.min(MAX_COLS,width/12));
         rows=Math.max(20,Math.min(MAX_ROWS,height/12));
         count=cols*rows;
-        baseline=new int[count];previous=new int[count];current=new int[count];
+        baseline=new int[count];previous=new int[count];deltaPrevious=new int[count];
         changed=new byte[count];visited=new byte[count];queue=new int[count];
         for(int i=0;i<count;i++) {
             int value=sample(pixels,i%cols,i/cols);
@@ -71,10 +71,10 @@ public final class AdaptiveCardRegionDetector {
         for(int i=0;i<count;i++) {
             int val=sample(pixels,i%cols,i/cols);
             if(val<0 || val>255) {reset();return new Result(false,false,false,true,0,0,null);}
-            current[i]=val;
             changed[i]=(byte)(Math.abs(val-baseline[i])>=PIXEL_DELTA?1:0);
             changes+=changed[i];
-            changedSinceLast+=Math.abs(val-previous[i]);
+            deltaPrevious[i]=Math.abs(val-previous[i]);
+            changedSinceLast+=deltaPrevious[i];
             previous[i]=val;
             visited[i]=0;
         }
@@ -84,6 +84,7 @@ public final class AdaptiveCardRegionDetector {
 
         long bestScore=-1;
         int bx=0,by=0,bw=0,bh=0,components=0;
+        int bx0=0,by0=0,bx1=0,by1=0;
         for(int root=0;root<count;root++) {
             if(changed[root]==0 || visited[root]!=0) continue;
             int first=0,last=0, minX=cols,minY=rows,maxX=0,maxY=0,area=0;
@@ -119,16 +120,25 @@ public final class AdaptiveCardRegionDetector {
             long score=((long)area*1000/bboxCells)*area;
             if(score>bestScore){
                 bestScore=score;bx=x0;by=y0;bw=rw;bh=rh;
+                bx0=minX;by0=minY;bx1=maxX;by1=maxY;
             }
         }
+        boolean relevantChange=changedSinceLast/count>=MIN_MEAN_NEW_CHANGE;
         FastCardVisualTracker.Box box=null;
         if(bestScore>=0) {
+            int localSum=0,localN=0;
+            for(int gy=by0;gy<=by1;gy++)
+                for(int gx=bx0;gx<=bx1;gx++) {
+                    localSum+=deltaPrevious[gy*cols+gx];
+                    localN++;
+                }
+            relevantChange=localN>0 && localSum/localN>=MIN_MEAN_NEW_CHANGE;
             int marginX=Math.max(2,bw/25),marginY=Math.max(2,bh/20);
             int x0=Math.max(0,bx-marginX),y0=Math.max(0,by-marginY);
             int x1=Math.min(width,bx+bw+marginX),y1=Math.min(height,by+bh+marginY);
             box=new FastCardVisualTracker.Box(x0,y0,x1-x0,y1-y0);
         }
-        return new Result(true,box!=null,changedSinceLast/count>=MIN_MEAN_NEW_CHANGE,
+        return new Result(true,box!=null,relevantChange,
                           false,components,changes,box);
     }
 
@@ -140,7 +150,7 @@ public final class AdaptiveCardRegionDetector {
 
     public synchronized void reset() {
         armed=false;lastAt=-1;width=0;height=0;cols=0;rows=0;count=0;
-        baseline=null;previous=null;current=null;changed=null;visited=null;queue=null;
+        baseline=null;previous=null;deltaPrevious=null;changed=null;visited=null;queue=null;
     }
     public synchronized boolean isArmed(){return armed;}
 }
