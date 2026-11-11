@@ -81,12 +81,36 @@ public final class OfferEpisodeGateTest {
         assertEquals("uma oferta com leitura instável deve dar um alerta",1,notifications);
     }
 
-    @Test public void uncertainBetweenTwoPreConfirmationFramesPreventsFalseAgreement() {
+    @Test public void onePartialOcrBetweenTwoCompleteReadsStillConfirms() {
         OfferEpisodeGate g=new OfferEpisodeGate();
-        assertFalse(g.observe("offerA"));
+        assertFalse(g.observeAt("offerA",1000));
         g.uncertain();
-        assertFalse(g.observe("offerA"));
-        assertTrue(g.observe("offerA"));
+        assertTrue("Duas leituras completas e iguais em poucos segundos",
+            g.observeAt("offerA",2400));
+    }
+
+    @Test public void twoPartialReadsBreakConfirmation() {
+        OfferEpisodeGate g=new OfferEpisodeGate();
+        assertFalse(g.observeAt("offerA",1000));
+        g.uncertain();
+        g.uncertain();
+        assertFalse(g.observeAt("offerA",2300));
+        assertTrue(g.observeAt("offerA",3400));
+    }
+
+    @Test public void distantReadsAndMapNeverCreateFakeConfirmation() {
+        OfferEpisodeGate g=new OfferEpisodeGate();
+        assertFalse(g.observeAt("offerA",1000));
+        g.uncertain();
+        assertFalse("Passou da janela máxima",
+            g.observeAt("offerA",7000));
+        assertTrue(g.observeAt("offerA",8100));
+
+        g.reset();
+        assertFalse(g.observeAt("offerA",1000));
+        g.nonOffer();
+        assertFalse("Mapa quebra confirmação",g.observeAt("offerA",2500));
+        assertTrue(g.observeAt("offerA",3500));
     }
 
     @Test public void definiteMapThenSameFingerprintIsNewEpisode() {
