@@ -22,7 +22,7 @@ VALID_CONTEXTS = {"OFFER_CANDIDATE", "NON_OFFER", "UNCERTAIN"}
 BOOL_FIELDS = {"guard_blocked", "notified", "history_written", "unsafe_financial", "ui_applied"}
 INT_FIELDS = {"epoch", "seq", "inference_ms", "roi_passes"}
 ALLOWED_FIELDS = {f.name for f in fields(Event)}
-GROUP_RE = re.compile(r"[A-Za-z0-9_-]{1,64}\\Z")
+GROUP_RE = re.compile(r"[A-Za-z0-9_-]{1,64}\Z")
 
 
 class StreamInputError(ValueError):
