@@ -4,6 +4,12 @@ import android.app.Activity;
 import android.os.Bundle;
 import android.content.Intent;
 import android.net.Uri;
+import android.content.Context;
+import android.content.ClipData;
+import android.content.ClipboardManager;
+import androidx.core.content.FileProvider;
+import java.io.File;
+import java.io.FileOutputStream;
 import android.graphics.Bitmap;
 import android.graphics.BitmapFactory;
 import android.graphics.Color;
@@ -47,7 +53,7 @@ public final class BatchOcrActivity extends Activity {
     private static final int MAX_ENTRY_BYTES = 7 * 1024 * 1024;
     private static final int MAX_CASES = 200;
     private final int bg = 0xFF0B1018, panel = 0xFF1A2430, cyan = 0xFF1CB8CA;
-    private Button select, export;
+    private Button select, export, share, copy;
     private TextView status, totals;
     private ProgressBar progress;
     private LinearLayout resultsView;
@@ -91,7 +97,7 @@ public final class BatchOcrActivity extends Activity {
         root.setPadding(dp(20),dp(32),dp(20),dp(40));
         scroll.addView(root);
         add(root,txt("VEXO",30,cyan,true),0);
-        add(root,txt("OCR • Teste automático 0.3.1",19,Color.WHITE,true),5);
+        add(root,txt("OCR • Teste automático 0.3.1.1",19,Color.WHITE,true),5);
         add(root,txt("Selecione o ZIP de homologação uma única vez. O ML Kit lê todas as imagens e o Vexo compara cada resultado com o gabarito.",14,0xFFB1C2D0,false),12);
         add(root,txt("Local e sem internet. Não salva ofertas de teste no histórico. O relatório não inclui imagens, endereços ou texto bruto.",12,0xFF87DBC8,false),12);
         select=button("Selecionar ZIP e testar tudo",cyan);
@@ -106,6 +112,12 @@ public final class BatchOcrActivity extends Activity {
         export=button("Exportar relatório JSON",0xFF334357);
         export.setEnabled(false); add(root,export,12);
         export.setOnClickListener(v -> chooseExport());
+        share=button("Compartilhar JSON direto (sem salvar)",cyan);
+        share.setEnabled(false); add(root,share,10);
+        share.setOnClickListener(v -> shareReport());
+        copy=button("Copiar JSON para a área de transferência",0xFF334357);
+        copy.setEnabled(false); add(root,copy,10);
+        copy.setOnClickListener(v -> copyReport());
 
         add(root,txt("RESULTADOS POR IMAGEM",15,cyan,true),25);
         resultsView=new LinearLayout(this);
@@ -129,7 +141,7 @@ public final class BatchOcrActivity extends Activity {
         Intent i=new Intent(Intent.ACTION_CREATE_DOCUMENT);
         i.setType("application/json");
         i.addCategory(Intent.CATEGORY_OPENABLE);
-        i.putExtra(Intent.EXTRA_TITLE,"vexo-ocr-batch-0.3.1-report.json");
+        i.putExtra(Intent.EXTRA_TITLE,"vexo-ocr-batch-0.3.1.1-report.json");
         startActivityForResult(i,SAVE_REPORT);
     }
     @Override protected void onActivityResult(int req, int code, Intent data) {
@@ -138,9 +150,10 @@ public final class BatchOcrActivity extends Activity {
         if (req==SAVE_REPORT) {
             try (OutputStream stream=getContentResolver().openOutputStream(data.getData(),"wt")) {
                 if (stream==null) throw new Exception("Arquivo não disponível");
-                stream.write(reportJson.getBytes(StandardCharsets.UTF_8));
+                byte[] output=reportJson.getBytes(StandardCharsets.UTF_8);
+                stream.write(output);
                 stream.flush();
-                Toast.makeText(this,"Relatório exportado.",Toast.LENGTH_LONG).show();
+                Toast.makeText(this,"JSON gravado ("+output.length+" bytes).",Toast.LENGTH_LONG).show();
             } catch (Exception e) { status.setText("Falha ao exportar: "+e.getMessage()); }
         } else if (req==PICK_BATCH) {
             try {
@@ -173,6 +186,8 @@ public final class BatchOcrActivity extends Activity {
         progress.setProgress(0);
         resultsView.removeAllViews();
         export.setEnabled(false);
+        share.setEnabled(false);
+        copy.setEnabled(false);
         byte[] manifest=null;
         int cumulative=0;
         try (InputStream input=getContentResolver().openInputStream(zipUri)) {
@@ -386,7 +401,7 @@ public final class BatchOcrActivity extends Activity {
             images.clear();
             JSONObject report=new JSONObject();
             report.put("schema","vexo-ocr-batch-report-v1");
-            report.put("appVersion","0.3.1");
+            report.put("appVersion","0.3.1.1");
             report.put("generator","Android Google ML Kit + OfferParser 0.3");
             report.put("timestampMs",System.currentTimeMillis());
             report.put("testImages",cases.size());
@@ -406,6 +421,8 @@ public final class BatchOcrActivity extends Activity {
             report.put("samples",evaluations);
             reportJson=report.toString(2);
             export.setEnabled(true);
+            share.setEnabled(true);
+            copy.setEnabled(true);
             double pct=checked==0?0:100.0*matched/checked;
             totals.setText(String.format(Locale.forLanguageTag("pt-BR"),
                 "%d/%d campos corretos (%.1f%%) • %d falhas de processamento",
@@ -415,6 +432,45 @@ public final class BatchOcrActivity extends Activity {
             status.setText("Erro ao gerar o relatório: "+e.getMessage());
         }
     }
+
+    /** Envia um arquivo JSON real usando content:// com permissão temporária.
+     * Evita depender do gerenciador de arquivos para salvar e depois anexar.
+     */
+    private void shareReport() {
+        if (reportJson.isEmpty()) return;
+        try {
+            File folder=new File(getCacheDir(),"reports");
+            if (!folder.exists() && !folder.mkdirs()) throw new Exception("Pasta local indisponível");
+            File file=new File(folder,"vexo-ocr-relatorio-0.3.1.1.json");
+            byte[] content=reportJson.getBytes(StandardCharsets.UTF_8);
+            try (FileOutputStream out=new FileOutputStream(file,false)) {
+                out.write(content);
+                out.flush();
+                out.getFD().sync();
+            }
+            if (file.length()!=content.length || file.length()==0)
+                throw new Exception("Relatório não foi gravado corretamente");
+            Uri uri=FileProvider.getUriForFile(this,
+                getPackageName()+".fileprovider",file);
+            Intent intent=new Intent(Intent.ACTION_SEND);
+            intent.setType("application/json");
+            intent.putExtra(Intent.EXTRA_STREAM,uri);
+            intent.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);
+            intent.setClipData(ClipData.newRawUri("Vexo OCR JSON",uri));
+            startActivity(Intent.createChooser(intent,"Enviar relatório Vexo"));
+        } catch (Exception e) {
+            status.setText("Não consegui compartilhar: "+e.getMessage());
+        }
+    }
+
+    private void copyReport() {
+        if (reportJson.isEmpty()) return;
+        ClipboardManager clipboard=(ClipboardManager)getSystemService(Context.CLIPBOARD_SERVICE);
+        if (clipboard==null) { status.setText("Área de transferência indisponível"); return; }
+        clipboard.setPrimaryClip(ClipData.newPlainText("Vexo OCR relatório",reportJson));
+        Toast.makeText(this,"JSON copiado. Cole no ChatGPT.",Toast.LENGTH_LONG).show();
+    }
+
     @Override protected void onDestroy() {
         if (recognizer!=null) { recognizer.close(); recognizer=null; }
         super.onDestroy();
