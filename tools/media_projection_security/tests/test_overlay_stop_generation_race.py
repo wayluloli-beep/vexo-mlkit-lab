@@ -27,9 +27,9 @@ class OverlayScheduler:
 class OverlayStopRaceTests(unittest.TestCase):
     def test_old_hide_must_not_remove_new_session_overlay(self):
         scheduler = OverlayScheduler(guard_hide=True)
-        scheduler.hide()  # old session STOP queued
-        scheduler.show()  # new session starts before main queue drains
-        for callback in scheduler.queue:
+        scheduler.hide()  # old session STOP queued from another thread
+        scheduler.show()  # new session starts; emulate show B posted before stale hide A
+        for callback in reversed(scheduler.queue):
             callback()
         self.assertTrue(scheduler.visible)
 
@@ -37,7 +37,7 @@ class OverlayStopRaceTests(unittest.TestCase):
         scheduler = OverlayScheduler(guard_hide=False)
         scheduler.hide()
         scheduler.show()
-        for callback in scheduler.queue:
+        for callback in reversed(scheduler.queue):
             callback()
         self.assertFalse(scheduler.visible,
                          "An old STOP hide can remove a new session overlay")
