@@ -20,6 +20,25 @@ jobs:
           python-version: '3.12'
       - name: Testes de regressão com fixtures sintéticas
         run: python -m unittest discover -s tools/media_projection_security/tests -p 'test_*.py' -v
+      - name: Checar notificação obsoleta no HEAD Android PR38 (read-only)
+        shell: bash
+        run: |
+          git fetch --no-tags --depth=1 origin refs/heads/fix/require-offer-transition
+          git worktree add --detach "$RUNNER_TEMP/vexo-pr38" FETCH_HEAD
+          python - "$RUNNER_TEMP/vexo-pr38" <<'PY'
+          from pathlib import Path
+          import sys
+          root=Path(sys.argv[1])
+          source=(root/"app/src/main/java/com/vexo/mlkitlab/LiveCaptureService.java").read_text()
+          a=source.index("onCapturedContentVisibilityChanged(boolean visible)")
+          b=source.index("},captureHandler);",a)
+          callback=source[a:b]
+          print("PR38 HEAD notification contract:",
+                "PASS" if "notification(false)" in callback else "FAIL P1")
+          if "notification(false)" not in callback:
+              with open(__import__("os").environ["GITHUB_STEP_SUMMARY"],"a") as out:
+                  out.write("P1: PR38 visibility=false clears candidate but leaves foreground offer notification stale.\\n")
+          PY
       - name: Verificar Manifest e caminho de captura presente no PR
         run: python tools/media_projection_security/check_contract.py --root .
       - name: Diagnóstico sem escrita da branch Android do Agente 1
