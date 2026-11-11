@@ -97,11 +97,15 @@ public class MainActivity extends Activity {
         scroll.addView(root);
 
         append(root, label("VEXO",30,blue,true),0);
-        append(root,label("Leitor de ofertas  •  Laboratório 0.3",18,Color.WHITE,true),6);
+        append(root,label("Leitor de ofertas  •  Laboratório 0.3.1",18,Color.WHITE,true),6);
         append(root,label("O ML Kit reconhece as letras. O Vexo separa os campos. Você confere e só depois salva.",14,muted,false),12);
 
         choose = button("Escolher print da galeria", blue, Color.BLACK);
         append(root,choose,24); choose.setOnClickListener(v -> chooseImage());
+
+        Button batch = button("Teste automático · lote de prints",0xFF334357,Color.WHITE);
+        append(root,batch,10);
+        batch.setOnClickListener(v -> startActivity(new Intent(this,BatchOcrActivity.class)));
 
         status = label("Selecione uma imagem para começar",14,muted,false);
         append(root,status,14);
