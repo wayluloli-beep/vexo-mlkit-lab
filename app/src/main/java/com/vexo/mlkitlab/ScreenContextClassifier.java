@@ -154,8 +154,7 @@ public final class ScreenContextClassifier {
                 "buscando corridas|procurando corridas|"+
                 "buscando viagens|procurando viagens|"+
                 "voce esta offline|ficar online") &&
-            !hasOfferContext && !hasRouteContext &&
-            !PRICE.matcher(t).find())
+            !hasOfferContext && !hasRouteContext)
             return Kind.MAP_WITHOUT_OFFER;
 
         Matcher d=DISTANCE.matcher(t);
