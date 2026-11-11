@@ -45,8 +45,10 @@ def review_text(source: str) -> list[dict[str, str]]:
     # Multiple distinct assert stages or independent wait attempts. A single
     # awaitCounts(frames,ocr,alerts) does not identify the failed stage.
     staged_asserts = (
-        len(re.findall(r"\bassert(?:True|Equals|False|NotNull)\s*\(", test)) >= 5 or
-        len(re.findall(r"\bawaitCounts\s*\(", test)) >= 3
+        len(re.findall(r"\bawaitCounts\s*\(", test)) >= 3 or
+        all(re.search(r"\bassert(?:True|Equals)\s*\([^;]*\[\s*" + idx + r"\s*\]",
+                      test, flags=re.DOTALL)
+            for idx in ("0", "1", "2"))
     )
     # A STOP test is independent if it precedes any hard OCR assertion, or
     # if a second dedicated @Test handles STOP with a real state assertion.
