@@ -150,8 +150,12 @@ public final class ScreenContextClassifier {
             "\\b(?:moto|negocia|prioritario|solicitacoes|pgto|entrega|aceitar|escolher)\\b");
         boolean hasRouteContext=DISTANCE.matcher(t).find() ||
             MINUTES.matcher(t).find();
-        if (has(t,"proxima viagem|voce esta online") &&
-            !hasOfferContext && !hasRouteContext)
+        if (has(t,"proxima viagem|voce esta online|"+
+                "buscando corridas|procurando corridas|"+
+                "buscando viagens|procurando viagens|"+
+                "voce esta offline|ficar online") &&
+            !hasOfferContext && !hasRouteContext &&
+            !PRICE.matcher(t).find())
             return Kind.MAP_WITHOUT_OFFER;
 
         Matcher d=DISTANCE.matcher(t);
