@@ -25,6 +25,7 @@ public final class LiveCaptureState {
     private static final AtomicLong contextUncertain=new AtomicLong();
     private static final AtomicLong financeRejected=new AtomicLong();
     private static final AtomicLong waitingConfirmation=new AtomicLong();
+    private static final CaptureLatencyStats latency=new CaptureLatencyStats();
 
     static synchronized void begin() {
         frames.set(0);
@@ -38,6 +39,7 @@ public final class LiveCaptureState {
         contextUncertain.set(0);
         financeRejected.set(0);
         waitingConfirmation.set(0);
+        latency.reset();
         lastCandidate="";
         status="Capturando tela com autorização. Aguardando oferta confiável.";
         active=true;
@@ -45,6 +47,10 @@ public final class LiveCaptureState {
 
     static void frameReceived() {
         if(active) frames.incrementAndGet();
+    }
+
+    static void ocrLatency(long milliseconds) {
+        if(active) latency.record(milliseconds);
     }
 
     static void ocrAttempted() {
@@ -110,6 +116,8 @@ public final class LiveCaptureState {
             ocrStarted.get(),ocrFailures.get()};
     }
 
+    public static long[] ocrLatencyStats() { return latency.snapshot(); }
+
     public static long[] stageCounts() {
         return new long[]{offerCandidates.get(),contextUncertain.get(),
             contextRejected.get(),financeRejected.get(),waitingConfirmation.get()};
@@ -126,6 +134,7 @@ public final class LiveCaptureState {
             " • contextos de oferta: "+offerCandidates.get()+
             " • leituras incertas: "+contextUncertain.get()+
             " • guardas financeiras: "+financeRejected.get()+
+            " • OCR p95: "+latency.snapshot()[4]+" ms"+
             " • janela: "+visibility+
             (active && !lastCandidate.isEmpty()?"\n"+lastCandidate:"");
     }
@@ -151,6 +160,13 @@ public final class LiveCaptureState {
             report.put("ocrCompleted",n[1]);
             report.put("ocrFailures",n[4]);
             report.put("offersAlerted",n[2]);
+            long[] timing=latency.snapshot();
+            report.put("ocrLatencySamples",timing[0]);
+            report.put("ocrLatencyLastMs",timing[1]);
+            report.put("ocrLatencyMeanMs",timing[2]);
+            report.put("ocrLatencyP50Ms",timing[3]);
+            report.put("ocrLatencyP95Ms",timing[4]);
+            report.put("ocrLatencyMaxMs",timing[5]);
             report.put("offerContextCandidates",offerCandidates.get());
             report.put("screenContextUncertain",contextUncertain.get());
             report.put("screenContextRejected",contextRejected.get());
