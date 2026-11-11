@@ -201,5 +201,59 @@ class AuditTests(unittest.TestCase):
 
 
 
+    def test_false_positive_is_checked_mismatch_not_ignored(self):
+        # Matches BatchOcrActivity rule: expected null, unexpected extraction.
+        doc = {"schema": "vexo-ocr-batch-report-v1", "appVersion": "test-synthetic",
+               "testImages": 1, "summary": {"checked": 2, "correct": 1,
+                   "discrepant": 1, "processingErrors": 0, "accuracyPct": 50},
+               "perField": {"offerPrice": {"checked": 1, "correct": 0},
+                            "platform": {"checked": 1, "correct": 1}},
+               "samples": [{"id": "synthetic-false-positive", "tested": 2, "correct": 1,
+                   "fields": {
+                       "offerPrice": {"expected": None, "actual": "33,30", "status": "false_positive"},
+                       "platform": {"expected": "99", "actual": "99", "status": "ok"},
+                   }}]}
+        result = analyze(doc)
+        info = result["sampleAudit"]
+        self.assertEqual(info["statusChecked"], 2)
+        self.assertEqual(info["statusCorrect"], 1)
+        self.assertEqual(info["falsePositiveCount"], 1)
+        self.assertEqual(info["falsePositiveFields"], {"offerPrice": 1})
+        self.assertFalse(any("sample status totals differ" in w for w in result["warnings"]))
+        flag = result["reviewFlags"][0]
+        self.assertEqual(flag["reportedStatus"], "false_positive")
+        self.assertEqual(flag["status"], "critical_review")
+        self.assertTrue(flag["magnitudeUnquantified"])
+        self.assertNotIn("absoluteDifference", flag)
+        self.assertIn("False positives: 1", markdown(result))
+
+    def test_false_positive_nonfinancial_counts_even_without_review_flag(self):
+        doc = {"schema": "vexo-ocr-batch-report-v1", "appVersion": "test-synthetic",
+               "testImages": 1, "summary": {"checked": 1, "correct": 0,
+                   "discrepant": 1, "processingErrors": 0, "accuracyPct": 0},
+               "perField": {"rides": {"checked": 1, "correct": 0}},
+               "samples": [{"id": "synthetic-other", "tested": 1, "correct": 0,
+                    "fields": {"rides": {"expected": None, "actual": "50", "status": "false_positive"}}}]}
+        result = analyze(doc)
+        self.assertEqual(result["sampleAudit"]["falsePositiveCount"], 1)
+        self.assertEqual(result["totals"]["errors"], 1)
+        self.assertEqual(result["reviewFlags"], [])
+        self.assertFalse(any("sample field totals disagree" in w for w in result["warnings"]))
+
+    def test_false_positive_invalid_export_warns_but_not_accepted_as_correct(self):
+        doc = {"schema": "vexo-ocr-batch-report-v1", "appVersion": "test-synthetic",
+               "testImages": 1, "summary": {"checked": 1, "correct": 0,
+                   "discrepant": 1, "processingErrors": 0, "accuracyPct": 0},
+               "perField": {"surge": {"checked": 1, "correct": 0}},
+               "samples": [{"id": "synthetic-invalid", "tested": 1, "correct": 0,
+                    "fields": {"surge": {"expected": 1.5, "actual": "",
+                                         "status": "false_positive"}}}]}
+        result = analyze(doc)
+        self.assertEqual(result["sampleAudit"]["falsePositiveCount"], 1)
+        self.assertTrue(any("false_positive expected must be null" in w for w in result["warnings"]))
+        self.assertTrue(any("false_positive actual should be non-empty" in w for w in result["warnings"]))
+
+
+
 if __name__ == "__main__":
     unittest.main()
