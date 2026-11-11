@@ -42,7 +42,6 @@ public class InstrumentedOcrSmokeTest {
         paint.setColor(Color.BLACK);
         paint.setTypeface(Typeface.create(Typeface.DEFAULT,Typeface.BOLD));
         paint.setTextSize(67f);
-        paint.setLetterSpacing(0f);
         float y=145f;
         for (String line:lines) {
             canvas.drawText(line,85f,y,paint);
