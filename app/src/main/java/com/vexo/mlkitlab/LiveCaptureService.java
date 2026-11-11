@@ -468,6 +468,8 @@ public final class LiveCaptureService extends Service {
             return;
         }
         LiveCaptureState.classifiedOffer();
+        if(!ScreenContextClassifier.has99PlatformMarker(text))
+            LiveCaptureState.candidateWithoutLogo();
         OfferParser.Offer offer=OfferParser.parse(text);
         if(!FinancialGuard.assess(offer).canCalculate) {
             LiveCaptureState.rejectedFinance();
@@ -498,7 +500,11 @@ public final class LiveCaptureService extends Service {
             String summary="Preço R$"+price+" • viagem "+trip+
                 " km / "+duration+" min (confira na tela)";
             if(!newEpisode) {
-                LiveCaptureState.awaitingConfirmation();
+                // Se já houve alerta nesta sessão, não é espera inicial:
+                // estamos deliberadamente bloqueando duplicação/nova identidade.
+                if(episodes.hasActiveAlert())
+                    LiveCaptureState.offerHeldByGate();
+                else LiveCaptureState.awaitingConfirmation();
                 if(episodes.consumeRestoredSummary()) {
                     // Restauração é apenas UI. Nunca emitir notificação de
                     // nova oferta após dois frames estáveis da mesma corrida.
