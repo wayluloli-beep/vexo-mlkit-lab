@@ -117,3 +117,35 @@ jobs:
           else
             echo "Branch Android indisponível para scanner de memória." >> "$GITHUB_STEP_SUMMARY"
           fi
+
+      - name: Auditar ordem de consentimento, foreground e callback do Agente 1
+        shell: bash
+        run: |
+          if git fetch --no-tags --depth=1 origin refs/heads/feature/media-projection-lab; then
+            git worktree add --detach "$RUNNER_TEMP/vexo-order-readonly" FETCH_HEAD
+            sha=$(git -C "$RUNNER_TEMP/vexo-order-readonly" rev-parse HEAD)
+            set +e
+            python tools/media_projection_security/ordering_review.py \
+              --root "$RUNNER_TEMP/vexo-order-readonly" --require-service --json \
+              > "$RUNNER_TEMP/vexo-order-results.json"
+            exit_code=$?
+            set -e
+            python - "$RUNNER_TEMP/vexo-order-results.json" "$sha" "$exit_code" <<'PY'
+          import json
+          import os
+          import sys
+          from pathlib import Path
+          checks = json.loads(Path(sys.argv[1]).read_text(encoding="utf-8"))["checks"]
+          lines = ["### Ordem MediaProjection / Agente 1 (inspeção estática)",
+                   "Commit: " + sys.argv[2] + " ; exit: " + sys.argv[3]]
+          for item in checks:
+              lines.append("- " + item["status"] + " " + item["code"] + ": " + item["detail"])
+          lines.append("A ordem lexical não prova sucesso do consentimento nem comportamento runtime.")
+          report = "\n\n".join(lines) + "\n"
+          print(report)
+          with open(os.environ["GITHUB_STEP_SUMMARY"], "a", encoding="utf-8") as out:
+              out.write(report)
+          PY
+          else
+            echo "Agente 1 indisponível para auditoria de ordem." >> "$GITHUB_STEP_SUMMARY"
+          fi
