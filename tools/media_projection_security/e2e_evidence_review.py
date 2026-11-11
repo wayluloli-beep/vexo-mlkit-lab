@@ -12,17 +12,49 @@ from pathlib import Path
 import re
 
 from check_contract import _strip_java_comments
-from lifecycle_review import block
 
 
 def finding(code: str, passed: bool, detail: str) -> dict[str, str]:
     return {"code": code, "status": "PASS" if passed else "FAIL", "detail": detail}
 
 
+def _method_body(source: str, name: str) -> str | None:
+    """Locate a Java method body, including declarations with throws."""
+    match = re.search(
+        r"\b" + re.escape(name) +
+        r"\s*\([^)]*\)\s*(?:throws\s+[\w.,\s]+)?\{",
+        source,
+    )
+    if not match:
+        return None
+    begin = match.end()
+    depth = 1
+    quote = None
+    escaping = False
+    for at in range(begin, len(source)):
+        ch = source[at]
+        if quote:
+            if escaping:
+                escaping = False
+            elif ch == "\\":
+                escaping = True
+            elif ch == quote:
+                quote = None
+        elif ch in ("'", '"'):
+            quote = ch
+        elif ch == "{":
+            depth += 1
+        elif ch == "}":
+            depth -= 1
+            if depth == 0:
+                return source[begin:at]
+    return None
+
+
 def review_text(source: str) -> list[dict[str, str]]:
     code = _strip_java_comments(source)
-    dialog = block(code, "approveThroughSystemDialog") or ""
-    test = block(code, "nativeConsentThenFakeOfferProducesRealFramesAndStops") or ""
+    dialog = _method_body(code, "approveThroughSystemDialog") or ""
+    test = _method_body(code, "nativeConsentThenFakeOfferProducesRealFramesAndStops") or ""
     # No exact UI label is treated as proof of actual scope: the test must
     # REQUIRE the chosen scope, instead of silently proceeding if absent.
     optional_scope = bool(re.search(
@@ -39,7 +71,7 @@ def review_text(source: str) -> list[dict[str, str]]:
 
     # For E2E failures, make the three separate counts observable without
     # logging any image, OCR text, route, token, or passenger information.
-    helper_counts = block(code, "awaitCounts") or ""
+    helper_counts = _method_body(code, "awaitCounts") or ""
     counter_lines = bool(re.search(r"\bLiveCaptureState\s*\.\s*counts\s*\(",
                                    test + "\n" + (helper_counts if "awaitCounts(" in test else "")))
     named_metrics = all(re.search(r"\b" + key + r"\b", test, re.I)
