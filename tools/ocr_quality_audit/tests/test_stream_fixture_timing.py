@@ -78,6 +78,23 @@ class SyntheticTimingTests(unittest.TestCase):
             parse_events({"schema": "vexo-stream-events-v1", "events": [
                 {"kind": "start", "epoch": 1, "at_ms": "100"}]})
 
+    def test_non_offer_frame_cannot_be_misread_as_live_offer(self):
+        from stream_fixtures import event
+        trace = [event("start", t=0), event("frame", seq=0, t=100, context="NON_OFFER"),
+                 event("callback", seq=0, t=160, context="OFFER_CANDIDATE",
+                       group="invented", notified=True)]
+        codes = [code for _, code in audit_stream(trace)["violations"]]
+        self.assertIn("candidate_on_non_offer_fixture_frame", codes)
+
+    def test_callback_cannot_swap_identity_from_labeled_fixture(self):
+        from stream_fixtures import event
+        trace = [event("start", t=0), event("frame", seq=0, t=100,
+                         context="OFFER_CANDIDATE", group="fixture-A"),
+                 event("callback", seq=0, t=160, context="OFFER_CANDIDATE",
+                       group="fixture-B", notified=True)]
+        self.assertIn("candidate_identity_mismatch",
+                      [code for _, code in audit_stream(trace)["violations"]])
+
     def test_synthetic_scenario_count(self):
         self.assertEqual(len(all_scenarios()), 5)
 
