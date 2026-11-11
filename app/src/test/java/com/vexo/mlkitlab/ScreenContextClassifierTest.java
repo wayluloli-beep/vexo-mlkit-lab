@@ -46,6 +46,31 @@ public class ScreenContextClassifierTest {
             ScreenContextClassifier.Kind.OFFER_CANDIDATE);
     }
 
+    @Test public void onlineOverlayMustNotHidePlausibleRealOffer() {
+        // OCR perdeu o botão Aceitar e o sufixo "min", mas preservou
+        // parte do card de corrida sob a notificação do mapa.
+        kind("Você está online Próxima viagem 99 Moto R$28,80 1,3x " +
+            "4,98 971 corridas 9 (3 km) 24 (11,8 km)",
+            ScreenContextClassifier.Kind.UNCERTAIN);
+
+        // Mesmo sem reconhecer as distâncias, os marcadores de modalidade
+        // devem impedir um bloqueio automático irreversível.
+        kind("Próxima viagem 99 Negocia R$23,90 " +
+            "Perfil Premium Cartão verif.",
+            ScreenContextClassifier.Kind.UNCERTAIN);
+
+        // A informação de trajeto sem botão também exige revisão humana.
+        kind("Você está online 9 min (3 km) 24 min (11,8 km) R$40,70",
+            ScreenContextClassifier.Kind.UNCERTAIN);
+    }
+
+    @Test public void ordinaryMapWithSurgeZonesStillIsNotOffer() {
+        kind("Você está online Próxima viagem +R$21 +R$13 R$154,65",
+            ScreenContextClassifier.Kind.MAP_WITHOUT_OFFER);
+        kind("Próxima viagem R$ 154,65 +R$20",
+            ScreenContextClassifier.Kind.MAP_WITHOUT_OFFER);
+    }
+
     @Test public void partialOrUnknownScreenDoesNotBecomeConfirmed() {
         kind("R$29,20 5 min (2,2 km) Pop Nova",ScreenContextClassifier.Kind.UNCERTAIN);
         kind("",ScreenContextClassifier.Kind.UNCERTAIN);
