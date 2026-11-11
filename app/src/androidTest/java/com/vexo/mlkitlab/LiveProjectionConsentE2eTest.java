@@ -26,7 +26,9 @@ import org.junit.runner.RunWith;
 @RunWith(AndroidJUnit4.class)
 public final class LiveProjectionConsentE2eTest {
     private static final long UI_TIMEOUT_MS=15000;
-    private static final long OCR_TIMEOUT_MS=30000;
+    // Emulador com inicialização fria do modelo pode ser lento.
+    // Isso não altera as metas de latência para uso real no telefone.
+    private static final long OCR_TIMEOUT_MS=60000;
 
     private static UiObject2 first(UiDevice device,String...labels) {
         for(String label:labels) {
@@ -94,14 +96,15 @@ public final class LiveProjectionConsentE2eTest {
         final UiDevice device=UiDevice.getInstance(instrumentation);
         final android.content.Context context=instrumentation.getTargetContext();
         Activity control=null;
-        Activity demo=null;
         try {
             Intent intent=new Intent(context,LiveCaptureActivity.class);
             intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
             control=instrumentation.startActivitySync(intent);
             instrumentation.waitForIdleSync();
 
-            expectAndClick(device,"Autorizar e iniciar leitura de tela");
+            // Teste voluntário abre a demo assim que consentimento é dado,
+            // não desperdiçando OCR lento na tela de controles do Vexo.
+            expectAndClick(device,"Autorizar e testar oferta fictícia");
             approveThroughSystemDialog(device); // consentimento via UI do SISTEMA
 
             // Só depois de existir display virtual, o estado será ACTIVE.
@@ -113,14 +116,17 @@ public final class LiveProjectionConsentE2eTest {
             assertTrue("FGS/getMediaProjection/createVirtualDisplay não ativaram",
                 LiveCaptureState.snapshot().startsWith("CAPTURA ATIVA:"));
 
-            Intent demoIntent=new Intent(context,DemoOfferActivity.class);
-            demoIntent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
-            demo=instrumentation.startActivitySync(demoIntent);
+            UiObject2 demoCard=device.wait(
+                Until.findObject(By.text("99 Moto")),UI_TIMEOUT_MS);
+            assertNotNull("A tela fictícia não abriu após a autorização",demoCard);
             instrumentation.waitForIdleSync();
 
             boolean recognized=awaitCounts(2,2,1,OCR_TIMEOUT_MS);
             long[] observed=LiveCaptureState.counts();
             long[] stages=LiveCaptureState.stageCounts();
+            long[] timing=LiveCaptureState.ocrLatencyStats();
+            String latencySummary=" OCR latencySamples="+timing[0]+
+                ", OCR p50="+timing[3]+"ms, OCR p95="+timing[4]+"ms";
             String visibility=LiveCaptureState.captureVisibility();
             String stageSummary=" contextOffer="+stages[0]+
                 ", contextUncertain="+stages[1]+
@@ -150,10 +156,11 @@ public final class LiveProjectionConsentE2eTest {
             assertTrue("Pixels chegaram, mas ML Kit não concluiu 2 leituras; "+
                 "frames="+observed[0]+", OCR iniciado="+observed[3]+
                 ", concluído="+observed[1]+", falhas OCR="+observed[4]+
-                ", janela="+visibility,observed[1]>=2);
+                ", janela="+visibility+latencySummary,observed[1]>=2);
             assertTrue("ML Kit concluiu, mas nenhuma oferta segura foi emitida; "+
                 "frames="+observed[0]+", OCR="+observed[1]+
-                ", avisos="+observed[2]+", janela="+visibility+stageSummary,
+                ", avisos="+observed[2]+", janela="+visibility+
+                stageSummary+latencySummary,
                 observed[2]>=1 && recognized);
             assertTrue("Oferta fictícia reconhecida mas preço não exibido",
                 correctPrice);
@@ -161,7 +168,7 @@ public final class LiveProjectionConsentE2eTest {
             Intent stop=new Intent(context,LiveCaptureService.class)
                 .setAction(LiveCaptureService.ACTION_STOP);
             try {context.startService(stop);} catch(Exception ignored) {}
-            if(demo!=null) demo.runOnUiThread(demo::finish);
+            try {device.pressBack();} catch(Exception ignored) {}
             if(control!=null) control.runOnUiThread(control::finish);
         }
     }
