@@ -147,6 +147,7 @@ public final class OfferParser {
         String s=raw.replace('\u00a0',' ').replace('＄','$')
             .replace('−','-').replace('–','-').replace('×','x');
 
+        boolean deliveryMoto=has(s,"\\b(?:Entrega\\s+Moto|Moto\\s+Entrega)\\b");
         boolean moto=has(s,"\\bMoto\\b");
         boolean negotiate=has(s,"\\bNegocia\\b");
         boolean priority=has(s,"Priorit[aá]rio");
@@ -158,6 +159,7 @@ public final class OfferParser {
         boolean isUber=has(s,"\\bUber(?:X)?\\b|\\bComfort\\b");
         out.set("platform",is99?"99":isUber?"Uber":"");
 
+        if (deliveryMoto) out.set("offerType","Entrega Moto");
         if (moto && negotiate) out.set("offerType","Moto Negocia");
         else if (moto) out.set("offerType","Moto");
         else if (priority) out.set("offerType","Prioritário");
