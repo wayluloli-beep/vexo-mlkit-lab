@@ -64,6 +64,23 @@ public class ScreenContextClassifierTest {
             ScreenContextClassifier.Kind.UNCERTAIN);
     }
 
+    @Test public void fullSocialPostIsNotLiveButAnOverlayAloneIsUncertain() {
+        kind("Posts Comentário: alguém publicou imagem. " +
+            "Escreva um comentário público. 99 Negocia R$227,86 " +
+            "6 min (1,9 km) 86 min (67 km) Aceitar por R$227,86",
+            ScreenContextClassifier.Kind.SOCIAL_POST_WITH_SCREENSHOT);
+
+        // Texto sobreposto sem os controles próprios da rede social:
+        // não confundir com uma captura de post arquivado.
+        kind("99 Moto R$7,90 9 min (5,7 km) 9 min (4,9 km) " +
+            "Aceitar Alguém comentou que a viagem está cara",
+            ScreenContextClassifier.Kind.OFFER_CANDIDATE);
+
+        // Uma única palavra genérica não justifica bloquear.
+        kind("Posts 99 Moto R$28,80 9 min (3 km) 24 min (11,8 km) Aceitar",
+            ScreenContextClassifier.Kind.OFFER_CANDIDATE);
+    }
+
     @Test public void ordinaryMapWithSurgeZonesStillIsNotOffer() {
         kind("Você está online Próxima viagem +R$21 +R$13 R$154,65",
             ScreenContextClassifier.Kind.MAP_WITHOUT_OFFER);
