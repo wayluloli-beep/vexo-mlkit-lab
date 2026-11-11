@@ -66,3 +66,47 @@ Uma amostra sem status reconhecido **não é declarada como acerto** e não entr
 ## Critérios mínimos sugeridos antes de homologar para produção
 
 Construir um conjunto de teste independente e representativo, com imagens de 99 (e de cada outra plataforma que se pretenda suportar), diversidade de aparelhos, temas, fontes, resoluções, tarifas dinâmicas, intervalos de distância e casos difíceis. Registrar rótulos verificados manualmente, gerar IDs anônimos estáveis para os casos, comparar as mesmas imagens entre versões e acompanhar taxa de **erro crítico financeiro por oferta**, além das taxas por campo. Definir limites de aceitação com a equipe do produto; este utilitário **não os inventa**.
+
+
+## Metadados de lotes com ofertas repetidas (auditoria independente)
+
+Quando o lote mistura ofertas e posts/mapas e contém versões com sobreposição
+da **mesma oferta**, não chamar 8 screenshots de 8 ofertas independentes.
+
+O utilitário **cohort_audit.py** recebe somente um JSON LOCAL com metadados
+revisados por pessoa (não carrega imagens, OCR bruto ou endereços).
+Cada entrada precisa de:
+
+- imageId: identificador opaco único da imagem;
+- truthKind: live_offer, not_live_offer ou unknown, rotulado por humano;
+- predictedKind: offer_candidate, not_live_offer ou uncertain;
+- offerGroupId: mesmo identificador opaco para versões da MESMA oferta; usar
+  somente em live_offer. Sem grupo rotulado, excluir do denominador de ofertas únicas;
+- fields: mapa de campos conferidos contendo status ok, wrong, missing ou
+  false_positive. Campo sem gabarito conferido deve ficar fora do mapa.
+
+Exemplo 100% sintético:
+
+~~~json
+[
+  {"imageId":"fiction-1","offerGroupId":"offer-A","truthKind":"live_offer",
+   "predictedKind":"offer_candidate","fields":{"tripKm":{"status":"ok"}}},
+  {"imageId":"fiction-2","offerGroupId":"offer-A","truthKind":"live_offer",
+   "predictedKind":"offer_candidate","fields":{"tripKm":{"status":"missing"}}},
+  {"imageId":"fiction-3","truthKind":"not_live_offer",
+   "predictedKind":"uncertain","fields":{}}
+]
+~~~
+
+Rodar localmente: python tools/ocr_quality_audit/cohort_audit.py /caminho/privado/rotulos.json
+
+A saída é somente agregada: imagens e campos avaliados, ofertas únicas agrupadas,
+grupos com múltiplas variantes, grupos com erro em alguma variante, falsa aceitação
+de não-ofertas e falso bloqueio de ofertas. Não publica IDs, preços, rotas nem
+textos. Os grupos com erro são medidas de risco entre variantes, NÃO porcentagem
+representativa de corridas independentes.
+
+**Alerta de subtipo:** o auditor avisa se offerType tem status ok mas expected
+difere de actual (exemplo: Entrega Moto vs Moto). Não modifica automaticamente
+a contagem publicada pelo Android; é necessário corrigir a regra do gerador e
+reexecutar o lote. Não incluir dados privados ou manifest real no GitHub.
