@@ -92,8 +92,18 @@ jobs:
           target: google_apis
           arch: x86_64
           profile: pixel_6
+          avd-name: vexo-ci
           disable-animations: true
-          script: gradle --no-daemon :app:connectedDebugAndroidTest
+          # Mantém a proporção e o tamanho em dp do Pixel 6, com menos pixels
+          # para o renderizador por software do runner. O prazo do app é o mesmo.
+          pre-emulator-launch-script: |
+            vexo_avd_config="${ANDROID_AVD_HOME:-${ANDROID_USER_HOME:-$HOME/.android}/avd}/vexo-ci.avd/config.ini" && sed -i -E '/^hw\.lcd\.(width|height|density)[[:space:]]*=/d' "$vexo_avd_config" && printf '%s\n' 'hw.lcd.width=480' 'hw.lcd.height=1068' 'hw.lcd.density=186' >> "$vexo_avd_config"
+            gradle --no-daemon :app:assembleDebug :app:assembleDebugAndroidTest
+          script: |
+            adb shell wm size
+            adb shell wm density
+            gradle --no-daemon --max-workers=2 :app:connectedDebugAndroidTest || { adb logcat -d -s ActivityTaskManager:I VexoCaptureE2e:I | rg 'MediaProjectionPermissionActivity|VexoCaptureE2e' || true; exit 1; }
+            adb logcat -d -s VexoCaptureE2e:I
       - name: Anexar evidências do Android virtual
         if: always()
         uses: actions/upload-artifact@v4

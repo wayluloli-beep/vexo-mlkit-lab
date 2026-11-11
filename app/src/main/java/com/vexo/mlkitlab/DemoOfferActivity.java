@@ -6,6 +6,7 @@ import android.graphics.Typeface;
 import android.graphics.drawable.GradientDrawable;
 import android.os.Bundle;
 import android.view.Gravity;
+import android.view.View;
 import android.widget.Button;
 import android.widget.LinearLayout;
 import android.widget.ScrollView;
@@ -16,6 +17,27 @@ import android.widget.TextView;
  * Os dados e o botão "Aceitar" são ficção visual e NÃO acionam corridas.
  */
 public final class DemoOfferActivity extends Activity {
+    private View activityMarker;
+    private boolean markerBright;
+    // Um detalhe visual muda a cada segundo para o display entregar quadros novos.
+    private final Runnable refreshMarker=new Runnable() {
+        @Override public void run() {
+            markerBright=!markerBright;
+            activityMarker.setBackgroundColor(markerBright?0xff45d4e2:0xff2d6071);
+            activityMarker.postDelayed(this,1000);
+        }
+    };
+
+    @Override protected void onResume() {
+        super.onResume();
+        activityMarker.post(refreshMarker);
+    }
+
+    @Override protected void onPause() {
+        activityMarker.removeCallbacks(refreshMarker);
+        super.onPause();
+    }
+
     private int dp(int n) {
         return (int)(n*getResources().getDisplayMetrics().density+0.5f);
     }
@@ -41,8 +63,10 @@ public final class DemoOfferActivity extends Activity {
         scroll.addView(root);
 
         root.addView(line("VEXO • TESTE DE CAPTURA",20,true,0xff45d4e2));
+        activityMarker=new View(this);
+        activityMarker.setBackgroundColor(0xff2d6071);
+        root.addView(activityMarker,new LinearLayout.LayoutParams(dp(32),dp(3)));
         root.addView(line("DADOS FICTÍCIOS — isto NÃO é uma corrida real",13,true,0xffffcc8e));
-        root.addView(line("Deixe esta tela visível por alguns segundos com a captura ativa. Depois volte ao Vexo para conferir o resultado.",14,false,0xffa1b7ca));
 
         LinearLayout card=new LinearLayout(this);
         card.setOrientation(LinearLayout.VERTICAL);
@@ -65,7 +89,6 @@ public final class DemoOfferActivity extends Activity {
         fake.setGravity(Gravity.CENTER);
         fake.setBackgroundColor(0xffe4a900);
         card.addView(fake);
-        root.addView(line("O botão 'Aceitar' acima é APENAS um texto ilustrativo. O Vexo nunca aceita ou recusa corridas.",13,false,0xffa1b7ca));
 
         Button back=new Button(this);
         back.setAllCaps(false);

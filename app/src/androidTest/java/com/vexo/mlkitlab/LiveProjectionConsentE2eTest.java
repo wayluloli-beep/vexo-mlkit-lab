@@ -4,6 +4,8 @@ import static org.junit.Assert.*;
 
 import android.app.Activity;
 import android.content.Intent;
+import android.view.View;
+import android.widget.Button;
 
 import androidx.test.ext.junit.runners.AndroidJUnit4;
 import androidx.test.platform.app.InstrumentationRegistry;
@@ -12,8 +14,12 @@ import androidx.test.uiautomator.UiDevice;
 import androidx.test.uiautomator.UiObject2;
 import androidx.test.uiautomator.Until;
 
+import org.json.JSONObject;
 import org.junit.Test;
 import org.junit.runner.RunWith;
+
+import java.util.ArrayList;
+import java.util.regex.Pattern;
 
 /**
  * E2E real (APENAS EMULADOR):
@@ -26,13 +32,18 @@ import org.junit.runner.RunWith;
 @RunWith(AndroidJUnit4.class)
 public final class LiveProjectionConsentE2eTest {
     private static final long UI_TIMEOUT_MS=15000;
+    private static final String SYSTEM_UI="com.android.systemui";
+    private static final String[] ENTIRE_SCREEN_LABELS={
+        "Share entire screen","Entire screen","Compartilhar tela inteira",
+        "Compartilhar a tela inteira","Tela inteira"
+    };
     // Emulador com inicialização fria do modelo pode ser lento.
     // Isso não altera as metas de latência para uso real no telefone.
     private static final long OCR_TIMEOUT_MS=60000;
 
     private static UiObject2 first(UiDevice device,String...labels) {
         for(String label:labels) {
-            UiObject2 control=device.findObject(By.text(label));
+            UiObject2 control=device.findObject(By.text(label).pkg(SYSTEM_UI));
             if(control!=null) return control;
         }
         return null;
@@ -49,32 +60,45 @@ public final class LiveProjectionConsentE2eTest {
         return null;
     }
 
-    private static void expectAndClick(UiDevice device,String label) {
-        UiObject2 button=device.wait(Until.findObject(By.text(label)),UI_TIMEOUT_MS);
-        assertNotNull("Não apareceu o botão de teste: "+label,button);
-        button.click();
+    private static void clickDemoButton(android.app.Instrumentation instrumentation,
+            Activity control) {
+        final String label="Autorizar e testar oferta fictícia";
+        instrumentation.runOnMainSync(() -> {
+            ArrayList<View> matches=new ArrayList<>();
+            control.getWindow().getDecorView().findViewsWithText(
+                matches,label,View.FIND_VIEWS_WITH_TEXT);
+            for(View view:matches) {
+                if(view instanceof Button && label.contentEquals(((Button)view).getText()) &&
+                    view.isShown() && view.isEnabled()) {
+                    assertTrue("O botão de demonstração não tem ação",view.performClick());
+                    android.util.Log.i("VexoCaptureE2e","Botão da demonstração acionado");
+                    return;
+                }
+            }
+            fail("Botão da demonstração indisponível na tela do Vexo");
+        });
     }
 
     private static void approveThroughSystemDialog(UiDevice device)
             throws Exception {
         // Android 14/15: se o diálogo oferece seleção de app ou tela, escolher
         // explicitamente "Entire screen" APENAS no emulador com dados falsos.
-        UiObject2 entire=awaitAny(device,3000,
-            "Entire screen","Tela inteira");
+        UiObject2 entire=first(device,ENTIRE_SCREEN_LABELS);
         if(entire==null) {
-            UiObject2 dropdown=awaitAny(device,UI_TIMEOUT_MS,
-                "A single app","Share one app","Um único app",
-                "Um aplicativo","Compartilhar um app");
-            assertNotNull("É obrigatório selecionar a tela inteira no emulador; " +
-                "não usar silenciosamente captura de apenas um aplicativo",dropdown);
-            dropdown.click();
-            entire=awaitAny(device,7000,"Entire screen","Tela inteira");
+            // O SystemUI usa IDs diferentes para a lista conforme a revisão do Android.
+            UiObject2 dropdown=device.wait(Until.findObject(By.res(Pattern.compile(
+                SYSTEM_UI+":id/screen_share_mode_(options|spinner)"))),UI_TIMEOUT_MS);
+            if(dropdown!=null) dropdown.click();
+            entire=awaitAny(device,UI_TIMEOUT_MS,ENTIRE_SCREEN_LABELS);
         }
-        assertNotNull("Android não ofereceu tela inteira; teste exige escopo explícito",entire);
+        assertNotNull("Opção nativa de tela inteira ausente. Janela atual: "+
+            device.getCurrentPackageName(),entire);
         entire.click();
-        UiObject2 start=awaitAny(device,UI_TIMEOUT_MS,"Start now","Start",
-            "Start recording","Share screen","Começar agora","Iniciar agora","Iniciar");
-        assertNotNull("Não foi possível confirmar o diálogo nativo MediaProjection",start);
+        UiObject2 start=awaitAny(device,UI_TIMEOUT_MS,"Start now","Start","Share",
+            "Start recording","Share screen","Começar agora","Iniciar agora","Iniciar",
+            "Compartilhar");
+        assertNotNull("Confirmação nativa de tela inteira ausente. Janela atual: "+
+            device.getCurrentPackageName(),start);
         start.click();
     }
 
@@ -104,7 +128,9 @@ public final class LiveProjectionConsentE2eTest {
 
             // Teste voluntário abre a demo assim que consentimento é dado,
             // não desperdiçando OCR lento na tela de controles do Vexo.
-            expectAndClick(device,"Autorizar e testar oferta fictícia");
+            // Aciona o mesmo botão do app na thread de UI. A aprovação a
+            // seguir ainda exige os controles do SystemUI.
+            clickDemoButton(instrumentation,control);
             approveThroughSystemDialog(device); // consentimento via UI do SISTEMA
 
             // Só depois de existir display virtual, o estado será ACTIVE.
@@ -125,8 +151,11 @@ public final class LiveProjectionConsentE2eTest {
             long[] observed=LiveCaptureState.counts();
             long[] stages=LiveCaptureState.stageCounts();
             long[] timing=LiveCaptureState.ocrLatencyStats();
+            long discardedStale=new JSONObject(LiveCaptureState.safeDiagnosticReport())
+                .getLong("discardedStaleOcrFrames");
             String latencySummary=" OCR latencySamples="+timing[0]+
-                ", OCR p50="+timing[3]+"ms, OCR p95="+timing[4]+"ms";
+                ", OCR p50="+timing[3]+"ms, OCR p95="+timing[4]+"ms"+
+                ", descartados por atraso="+discardedStale;
             String visibility=LiveCaptureState.captureVisibility();
             String stageSummary=" contextOffer="+stages[0]+
                 ", contextUncertain="+stages[1]+
@@ -164,6 +193,9 @@ public final class LiveProjectionConsentE2eTest {
                 observed[2]>=1 && recognized);
             assertTrue("Oferta fictícia reconhecida mas preço não exibido",
                 correctPrice);
+            android.util.Log.i("VexoCaptureE2e","frames="+observed[0]+
+                ", leituras="+observed[1]+", alertas="+observed[2]+
+                ", STOP confirmado"+latencySummary);
         } finally {
             Intent stop=new Intent(context,LiveCaptureService.class)
                 .setAction(LiveCaptureService.ACTION_STOP);
