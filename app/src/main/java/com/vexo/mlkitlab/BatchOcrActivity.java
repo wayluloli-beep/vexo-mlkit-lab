@@ -97,7 +97,7 @@ public final class BatchOcrActivity extends Activity {
         root.setPadding(dp(20),dp(32),dp(20),dp(40));
         scroll.addView(root);
         add(root,txt("VEXO",30,cyan,true),0);
-        add(root,txt("OCR • Teste automático 0.3.1.1",19,Color.WHITE,true),5);
+        add(root,txt("OCR • Teste automático 0.3.2",19,Color.WHITE,true),5);
         add(root,txt("Selecione o ZIP de homologação uma única vez. O ML Kit lê todas as imagens e o Vexo compara cada resultado com o gabarito.",14,0xFFB1C2D0,false),12);
         add(root,txt("Local e sem internet. Não salva ofertas de teste no histórico. O relatório não inclui imagens, endereços ou texto bruto.",12,0xFF87DBC8,false),12);
         select=button("Selecionar ZIP e testar tudo",cyan);
@@ -146,7 +146,7 @@ public final class BatchOcrActivity extends Activity {
         Intent i=new Intent(Intent.ACTION_CREATE_DOCUMENT);
         i.setType("application/json");
         i.addCategory(Intent.CATEGORY_OPENABLE);
-        i.putExtra(Intent.EXTRA_TITLE,"vexo-ocr-batch-0.3.1.1-report.json");
+        i.putExtra(Intent.EXTRA_TITLE,"vexo-ocr-batch-0.3.2-report.json");
         startActivityForResult(i,SAVE_REPORT);
     }
     @Override protected void onActivityResult(int req, int code, Intent data) {
@@ -325,6 +325,11 @@ public final class BatchOcrActivity extends Activity {
                 }
                 stats(key,ok);
             }
+            FinancialGuard.Assessment audit=FinancialGuard.assess(predicted);
+            JSONObject safety=new JSONObject();
+            safety.put("basicFieldsUsable",audit.canCalculate);
+            safety.put("reasons",new JSONArray(audit.reasons));
+            row.put("financialSafety",safety);
             row.put("fields",fields);
             row.put("correct",hits);
             row.put("tested",fieldsTested);
@@ -335,6 +340,7 @@ public final class BatchOcrActivity extends Activity {
             cardBox.setBackground(shape(panel));
             add(cardBox,txt(row.getString("id")+"  •  "+hits+"/"+fieldsTested+" campos",16,
                     hits==fieldsTested ? 0xFF77DEB1 : 0xFFFFC27A,true),0);
+            if (!audit.canCalculate) add(cardBox,txt("FINANCEIRO: conferir campos — "+String.join("; ",audit.reasons),12,0xFFFFC27A,false),7);
             if (diffs.length()>0) add(cardBox,txt(diffs.toString().trim(),12,0xFFB9C6D0,false),7);
             else add(cardBox,txt("Nenhuma divergência nos campos avaliados.",12,0xFF9FD5BC,false),7);
             add(resultsView,cardBox,10);
@@ -357,7 +363,7 @@ public final class BatchOcrActivity extends Activity {
             case "platform": return "99";
             case "offerType": {
                 String t=gt.optString("offer_kind","");
-                if (t.contains("Moto") || t.contains("Negocia") || t.contains("Prioritário")) return t;
+                if (t.contains("Moto") || t.contains("Negocia") || t.contains("Prioritário") || t.contains("Pgto.")) return t;
                 return null;
             }
             case "offerPrice": return gt.opt("price_brl")==JSONObject.NULL ? null : gt.opt("price_brl");
@@ -382,7 +388,8 @@ public final class BatchOcrActivity extends Activity {
             String a=actual.toLowerCase(Locale.ROOT);
             return (!e.contains("moto") || a.contains("moto")) &&
                 (!e.contains("negocia") || a.contains("negocia")) &&
-                (!e.contains("priorit") || a.contains("priorit"));
+                (!e.contains("priorit") || a.contains("priorit")) &&
+                (!e.contains("pgto.") || a.contains("pgto."));
         }
         if ("payment".equals(field))
             return actual.toLowerCase(Locale.ROOT).contains(expected.toString().toLowerCase(Locale.ROOT));
@@ -412,7 +419,7 @@ public final class BatchOcrActivity extends Activity {
             images.clear();
             JSONObject report=new JSONObject();
             report.put("schema","vexo-ocr-batch-report-v1");
-            report.put("appVersion","0.3.1.1");
+            report.put("appVersion","0.3.2");
             report.put("generator","Android Google ML Kit + OfferParser 0.3");
             report.put("timestampMs",System.currentTimeMillis());
             report.put("testImages",cases.size());
@@ -454,7 +461,7 @@ public final class BatchOcrActivity extends Activity {
         try {
             File folder=new File(getCacheDir(),"reports");
             if (!folder.exists() && !folder.mkdirs()) throw new Exception("Pasta local indisponível");
-            File file=new File(folder,"vexo-ocr-relatorio-0.3.1.1.json");
+            File file=new File(folder,"vexo-ocr-relatorio-0.3.2.json");
             byte[] content=reportJson.getBytes(StandardCharsets.UTF_8);
             try (FileOutputStream out=new FileOutputStream(file,false)) {
                 out.write(content);
