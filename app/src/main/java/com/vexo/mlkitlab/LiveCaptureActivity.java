@@ -16,7 +16,7 @@ import android.view.Gravity;
  */
 public final class LiveCaptureActivity extends Activity {
     private static final int REQUEST_CAPTURE=401;
-    private TextView info;
+    private TextView info, liveState;
     private boolean asking=false;
 
     @Override public void onCreate(Bundle savedInstanceState) {
@@ -37,6 +37,12 @@ public final class LiveCaptureActivity extends Activity {
         LinearLayout.LayoutParams infoLp=new LinearLayout.LayoutParams(-1,-2);
         infoLp.topMargin=28;
         root.addView(info,infoLp);
+        liveState=new TextView(this);
+        liveState.setTextColor(0xff83e4c4);
+        liveState.setTextSize(16);
+        LinearLayout.LayoutParams statusLp=new LinearLayout.LayoutParams(-1,-2);
+        statusLp.topMargin=20;
+        root.addView(liveState,statusLp);
 
         Button start=new Button(this);
         start.setAllCaps(false);
@@ -64,6 +70,11 @@ public final class LiveCaptureActivity extends Activity {
         lp2.topMargin=20;
         root.addView(caveat,lp2);
         setContentView(root);
+    }
+
+    @Override protected void onResume() {
+        super.onResume();
+        if(liveState!=null) liveState.setText(LiveCaptureState.snapshot());
     }
 
     private void requestConsent() {
