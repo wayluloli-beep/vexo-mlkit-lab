@@ -26,6 +26,8 @@ public final class LiveCaptureState {
     private static final AtomicLong financeRejected=new AtomicLong();
     private static final AtomicLong waitingConfirmation=new AtomicLong();
     private static final AtomicLong staleOcrFrames=new AtomicLong();
+    private static final AtomicLong offerGateHeld=new AtomicLong();
+    private static final AtomicLong offerCandidatesWithoutLogo=new AtomicLong();
     private static final CaptureLatencyStats latency=new CaptureLatencyStats();
     private static final CaptureContextEvidence contextEvidence=new CaptureContextEvidence();
 
@@ -42,6 +44,8 @@ public final class LiveCaptureState {
         financeRejected.set(0);
         waitingConfirmation.set(0);
         staleOcrFrames.set(0);
+        offerGateHeld.set(0);
+        offerCandidatesWithoutLogo.set(0);
         latency.reset();
         contextEvidence.reset();
         lastCandidate="";
@@ -73,6 +77,12 @@ public final class LiveCaptureState {
         if(active) contextEvidence.record(mask);
     }
 
+    static void offerHeldByGate() {
+        if(active) offerGateHeld.incrementAndGet();
+    }
+    static void candidateWithoutLogo() {
+        if(active) offerCandidatesWithoutLogo.incrementAndGet();
+    }
     static void classifiedOffer() {
         if(active) offerCandidates.incrementAndGet();
     }
@@ -163,8 +173,8 @@ public final class LiveCaptureState {
             n[0],n[3],n[1],n[4],n[2],active);
         try {
             JSONObject report=new JSONObject();
-            report.put("schema","vexo-live-capture-diagnostic-v2");
-            report.put("app","Vexo Captura 0.4 experimental");
+            report.put("schema","vexo-live-capture-diagnostic-v3");
+            report.put("app","Vexo Captura 0.4.2 Janela experimental");
             report.put("status",active?"CAPTURE_ACTIVE":"CAPTURE_STOPPED");
             report.put("diagnosticStage",stage);
             report.put("diagnosticExplanation",CaptureHealthAnalyzer.explanation(stage));
@@ -186,6 +196,8 @@ public final class LiveCaptureState {
             report.put("financiallyUnconfirmedFrames",financeRejected.get());
             report.put("awaitingTwoStableReadings",waitingConfirmation.get());
             report.put("discardedStaleOcrFrames",staleOcrFrames.get());
+            report.put("offerGateHeldFrames",offerGateHeld.get());
+            report.put("candidatesWithout99Logo",offerCandidatesWithoutLogo.get());
             // Sobreposições são normais: contagens de evidência não somam
             // 100% e não revelam qualquer valor/texto da corrida.
             long[] ev=contextEvidence.snapshot();
@@ -207,7 +219,7 @@ public final class LiveCaptureState {
             return report.toString(2);
         } catch(JSONException ex) {
             // Um erro de serialização nunca deve expor o texto reconhecido.
-            return "{\"schema\":\"vexo-live-capture-diagnostic-v2\",\"error\":\"REPORT_ENCODING\"}";
+            return "{\"schema\":\"vexo-live-capture-diagnostic-v3\",\"error\":\"REPORT_ENCODING\"}";
         }
     }
 

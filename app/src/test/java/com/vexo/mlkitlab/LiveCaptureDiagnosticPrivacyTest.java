@@ -16,13 +16,15 @@ public final class LiveCaptureDiagnosticPrivacyTest {
         LiveCaptureState.candidate("VALOR-SENSIVEL XYZ Rua Privada 123");
         String json=LiveCaptureState.safeDiagnosticReport();
         JSONObject o=new JSONObject(json);
-        assertEquals("vexo-live-capture-diagnostic-v2",o.getString("schema"));
+        assertEquals("vexo-live-capture-diagnostic-v3",o.getString("schema"));
         assertEquals(1,o.getLong("framesReceived"));
         assertEquals(1,o.getLong("ocrCompleted"));
         assertEquals(1,o.getLong("offersAlerted"));
         assertEquals("OFFER_ALERT_GENERATED",o.getString("diagnosticStage"));
         assertEquals(1,o.getJSONObject("contextEvidenceCounts").getLong("readsWithTwoDistances"));
         assertEquals(1,o.getJSONObject("contextEvidenceCounts").getLong("readsWithPriceMarker"));
+        assertEquals(0,o.getLong("offerGateHeldFrames"));
+        assertEquals(0,o.getLong("candidatesWithout99Logo"));
         assertFalse(json.contains("12,64"));
         assertFalse(json.contains("2,1"));
         assertFalse(json.contains("7,3"));
