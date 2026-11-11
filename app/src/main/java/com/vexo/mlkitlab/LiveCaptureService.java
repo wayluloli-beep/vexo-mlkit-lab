@@ -281,11 +281,16 @@ public final class LiveCaptureService extends Service {
         if(epoch.get()!=session || !active) {
             localGate.finish();frame.recycle();return;
         }
+        final long startedAt=SystemClock.elapsedRealtime();
         try {
             LiveCaptureState.ocrAttempted();
             Task<Text> task=recognizer.process(InputImage.fromBitmap(frame,0));
             task.addOnCompleteListener(done -> {
                 try {
+                    if(active && !stopping && epoch.get()==session) {
+                        LiveCaptureState.ocrLatency(
+                            Math.max(0, SystemClock.elapsedRealtime()-startedAt));
+                    }
                     if(done.isSuccessful() && active && !stopping &&
                         epoch.get()==session && capturedVisible) {
                         read++;
@@ -301,6 +306,9 @@ public final class LiveCaptureService extends Service {
                 }
             });
         } catch(Exception ex) {
+            if(active && !stopping && epoch.get()==session)
+                LiveCaptureState.ocrLatency(
+                    Math.max(0,SystemClock.elapsedRealtime()-startedAt));
             LiveCaptureState.ocrFailed();
             frame.recycle();
             localGate.finish();
