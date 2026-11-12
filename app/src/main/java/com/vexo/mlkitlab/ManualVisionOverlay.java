@@ -44,6 +44,7 @@ final class ManualVisionOverlay {
     private Rect drag;
     private Rect tracked;
     private Rect priceRoi,originRoi,destinationRoi;
+    private boolean showDebugBoxes;
 
     ManualVisionOverlay(Context context, Actions actions) {
         this.context = context;
@@ -62,7 +63,7 @@ final class ManualVisionOverlay {
             outlineParams.layoutInDisplayCutoutMode =
                 WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_SHORT_EDGES;
         }
-        outlineParams.alpha = 0.55f; // read-only screen layer; still see controls underneath
+        outlineParams.alpha = 0.25f; // preserves Android 12+ pass-through under compact panel
         if (Build.VERSION.SDK_INT >= 31) {
             InputManager input = context.getSystemService(InputManager.class);
             if (input != null) {
@@ -79,15 +80,16 @@ final class ManualVisionOverlay {
         background.setCornerRadius(dp(12));
         panel.setBackground(background);
         reading = new TextView(context);
-        reading.setTextSize(13);
-        reading.setTextColor(0xffa7ffc6);
-        reading.setMaxWidth(dp(232));
+        reading.setTextSize(16);
+        reading.setTextColor(0xffffffff);
+        reading.setMaxWidth(dp(290));
         reading.setMaxLines(3);
         reading.setVisibility(View.GONE);
         LinearLayout buttons = new LinearLayout(context);
         panel.addView(buttons);
-        button(buttons, "Auto", this::startAutomatic);
+        button(buttons, "Buscar", this::startAutomatic);
         mark = button(buttons, "Marcar alvo", this::toggleSelection);
+        mark.setVisibility(View.GONE); // manual calibration is NOT the driver interface
         read = button(buttons, "Ler", () -> {
             readingEnabled = !readingEnabled;
             readButtonLabel();
@@ -95,9 +97,11 @@ final class ManualVisionOverlay {
             reading.setVisibility(View.GONE);
             actions.read(readingEnabled);
         });
+        read.setVisibility(View.GONE);
         button(buttons, "Parar", actions::stop);
         status = new TextView(context);
-        status.setTextSize(12);
+        status.setTextSize(11);
+        status.setMaxLines(2);
         status.setTextColor(0xffe6f2fc);
         status.setText("Aguardando imagem");
         panel.addView(status);
@@ -107,8 +111,16 @@ final class ManualVisionOverlay {
         telemetry.setMaxLines(3);
         telemetry.setPadding(0,dp(4),0,dp(4));
         telemetry.setText("FRAMES — · FPS RECEBIDO —\nTRACK — · OCR —");
+        telemetry.setVisibility(View.GONE);
         panel.addView(telemetry);
         panel.addView(reading);
+        // Optional long-press diagnostics for engineering; hidden from drivers.
+        panel.setOnLongClickListener(v -> {
+            showDebugBoxes=!showDebugBoxes;
+            telemetry.setVisibility(showDebugBoxes?View.VISIBLE:View.GONE);
+            outline.invalidate();
+            return true;
+        });
     }
 
     void attach() {
@@ -117,6 +129,9 @@ final class ManualVisionOverlay {
         controls.gravity = Gravity.TOP | Gravity.RIGHT;
         controls.x = dp(6);
         controls.y = dp(8);
+        // Total window opacity at overlap: 1-(1-0.25)*(1-0.70)=0.775.
+        // Keep under Android 12 default obscuring threshold (0.8).
+        controls.alpha=0.70f;
         windows.addView(panel, controls);
     }
 
@@ -132,14 +147,14 @@ final class ManualVisionOverlay {
         status.setText(message);
         telemetry.setText(metrics);
         reading.setText(text);
-        reading.setVisibility(visible && readingEnabled && !text.isEmpty()
+        reading.setVisibility(visible && !text.isEmpty()
             ? View.VISIBLE : View.GONE);
         outline.invalidate();
     }
 
     void reset() {
         if (selecting) endSelection(null);
-        render(null,null,null,null,"Toque em Auto ou marque um alvo",
+        render(null,null,null,null,"Procurando oferta...",
             "FRAMES — · FPS RECEBIDO —\nTRACK — · OCR —","",true);
     }
 
@@ -183,7 +198,7 @@ final class ManualVisionOverlay {
         tracked=null;
         priceRoi=originRoi=destinationRoi=null;
         reading.setVisibility(View.GONE);
-        status.setText("AUTO: procurando no quadro capturado...");
+        status.setText("Procurando oferta...");
         outline.invalidate();
         actions.autoFind();
         // Auto-mode also enables OCR in the tracked region, without a second tap.
@@ -255,10 +270,10 @@ final class ManualVisionOverlay {
 
         @Override protected void onDraw(Canvas canvas) {
             Rect box = selecting ? drag : tracked;
-            if (box == null) return;
+            if (box == null || (!selecting && !showDebugBoxes)) return;
             getLocationOnScreen(screenLocation);
             int margin = dp(4);
-            paint.setColor(0xff27c4d8); // BLUE: parent, derived from actual frame
+            paint.setColor(0xff27c4d8); // optional DEBUG only; actual capture coordinates
             canvas.drawRect(box.left - screenLocation[0] - margin,
                 box.top - screenLocation[1] - margin, box.right - screenLocation[0] + margin,
                 box.bottom - screenLocation[1] + margin, paint);
