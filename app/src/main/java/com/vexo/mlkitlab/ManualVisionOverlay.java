@@ -186,6 +186,10 @@ final class ManualVisionOverlay {
         status.setText("AUTO: procurando no quadro capturado...");
         outline.invalidate();
         actions.autoFind();
+        // Auto-mode also enables OCR in the tracked region, without a second tap.
+        readingEnabled=true;
+        readButtonLabel();
+        actions.read(true);
     }
 
     private void toggleSelection() {
