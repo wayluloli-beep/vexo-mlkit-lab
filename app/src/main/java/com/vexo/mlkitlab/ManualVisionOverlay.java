@@ -19,6 +19,7 @@ import android.widget.TextView;
 /** The outline receives touch only during a user-initiated selection. */
 final class ManualVisionOverlay {
     interface Actions {
+        void autoFind();
         void beginSelection();
         void select(Rect box);
         void read(boolean enabled);
@@ -41,6 +42,7 @@ final class ManualVisionOverlay {
     private int startY;
     private Rect drag;
     private Rect tracked;
+    private Rect priceRoi,originRoi,destinationRoi;
 
     ManualVisionOverlay(Context context, Actions actions) {
         this.context = context;
@@ -59,7 +61,7 @@ final class ManualVisionOverlay {
             outlineParams.layoutInDisplayCutoutMode =
                 WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_SHORT_EDGES;
         }
-        outlineParams.alpha = 0.75f;
+        outlineParams.alpha = 0.55f; // read-only screen layer; still see controls underneath
         if (Build.VERSION.SDK_INT >= 31) {
             InputManager input = context.getSystemService(InputManager.class);
             if (input != null) {
@@ -83,6 +85,7 @@ final class ManualVisionOverlay {
         reading.setVisibility(View.GONE);
         LinearLayout buttons = new LinearLayout(context);
         panel.addView(buttons);
+        button(buttons, "Auto", actions::autoFind);
         mark = button(buttons, "Marcar alvo", this::toggleSelection);
         read = button(buttons, "Ler", () -> {
             readingEnabled = !readingEnabled;
@@ -109,11 +112,15 @@ final class ManualVisionOverlay {
         windows.addView(panel, controls);
     }
 
-    void render(Rect box, String message, String text, boolean visible) {
+    void render(Rect box, Rect price, Rect origin, Rect destination,
+                String message, String text, boolean visible) {
         if (!visible && selecting) endSelection(null);
         panel.setVisibility(visible ? View.VISIBLE : View.GONE);
         if (selecting) return;
         tracked = visible ? box : null;
+        priceRoi = visible ? price : null;
+        originRoi = visible ? origin : null;
+        destinationRoi = visible ? destination : null;
         status.setText(message);
         reading.setText(text);
         reading.setVisibility(visible && readingEnabled && !text.isEmpty()
@@ -123,7 +130,7 @@ final class ManualVisionOverlay {
 
     void reset() {
         if (selecting) endSelection(null);
-        render(null, "Marque um alvo", "", true);
+        render(null,null,null,null,"Toque em Auto ou marque um alvo", "", true);
     }
 
     void close() {
@@ -169,6 +176,7 @@ final class ManualVisionOverlay {
         actions.beginSelection();
         selecting = true;
         tracked = null;
+        priceRoi = originRoi = destinationRoi = null;
         drag = null;
         reading.setText("");
         reading.setVisibility(View.GONE);
@@ -226,10 +234,27 @@ final class ManualVisionOverlay {
             if (box == null) return;
             getLocationOnScreen(screenLocation);
             int margin = dp(4);
-            paint.setColor(selecting ? 0xff27c4d8 : 0xff31ed76);
+            paint.setColor(0xff27c4d8); // BLUE: parent, derived from actual frame
             canvas.drawRect(box.left - screenLocation[0] - margin,
                 box.top - screenLocation[1] - margin, box.right - screenLocation[0] + margin,
                 box.bottom - screenLocation[1] + margin, paint);
+            if (!selecting) {
+                paint.setColor(0xff31ed76); // GREEN: children located by real OCR
+                drawChild(canvas,priceRoi,"PREÇO");
+                drawChild(canvas,originRoi,"ORIGEM");
+                drawChild(canvas,destinationRoi,"DESTINO");
+            }
+        }
+
+        private void drawChild(Canvas canvas,Rect area,String label) {
+            if(area==null)return;
+            int x=area.left-screenLocation[0],y=area.top-screenLocation[1];
+            canvas.drawRect(x,y,area.right-screenLocation[0],
+                area.bottom-screenLocation[1],paint);
+            paint.setStyle(Paint.Style.FILL);
+            paint.setTextSize(dp(11));
+            canvas.drawText(label,x+dp(3),Math.max(dp(12),y-dp(4)),paint);
+            paint.setStyle(Paint.Style.STROKE);
         }
 
         @Override public boolean onTouchEvent(MotionEvent event) {
