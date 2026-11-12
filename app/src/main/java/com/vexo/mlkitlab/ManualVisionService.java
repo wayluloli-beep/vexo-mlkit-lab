@@ -39,6 +39,8 @@ import com.vexo.mlkitlab.FastCardVisualTracker.Box;
 
 import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicReference;
 
@@ -86,6 +88,12 @@ public final class ManualVisionService extends Service implements ManualVisionOv
     private final StaticCardOcrRetry ocrRetry = new StaticCardOcrRetry();
     private String text = "";
     private String readStatus = "";
+    // Auto mode: one initial full-screen ML Kit discovery in flight, then
+    // reuse the EXISTING pixel tracker. No invented card/ROI coordinates.
+    private boolean autoEnabled,autoBusy;
+    private long lastAutoScanAt=-1;
+    private AutoCardOcrLocator.Result autoLayout;
+    private byte[] pendingAutoSignature;
 
     private final MediaProjection.Callback projectionCallback = new MediaProjection.Callback() {
         @Override public void onStop() {
@@ -261,12 +269,26 @@ public final class ManualVisionService extends Service implements ManualVisionOv
         }
     }
 
+    @Override public void autoFind() {
+        if (!running) return;
+        long request=++requestedSelection;
+        capture.post(() -> {
+            if(!running || request!=requestedSelection)return;
+            selection=request;
+            clearTarget();
+            autoEnabled=true;
+            lastAutoScanAt=-1;
+            publish("AUTO: procurando card nos frames reais...");
+        });
+    }
+
     @Override public void beginSelection() {
         if (!running) return;
         long request = ++requestedSelection;
         capture.post(() -> {
             if (!running || request != requestedSelection) return;
             selection = request;
+            autoEnabled=false;
             clearTarget();
             publish(idleMessage());
         });
@@ -307,7 +329,21 @@ public final class ManualVisionService extends Service implements ManualVisionOv
             if (lastFrameAt < 0 && tracked == null && pending == null) publish(idleMessage());
             lastFrameAt = now;
             frameNumber++;
-            if (selection != requestedSelection || (tracked == null && pending == null)) return;
+            if(selection != requestedSelection)return;
+            if(tracked==null && pending==null) {
+                if(autoEnabled && !autoBusy &&
+                        (lastAutoScanAt<0 || now-lastAutoScanAt>=1700)) {
+                    Image.Plane scanPlane=image.getPlanes()[0];
+                    Box whole=new Box(0,0,image.getWidth(),image.getHeight());
+                    AutoInput candidate=new AutoInput(crop(scanPlane,whole,4_000_000),
+                        selection,frameNumber,now,geometry,image.getWidth(),image.getHeight());
+                    autoBusy=true;
+                    lastAutoScanAt=now;
+                    startAutoOcr(candidate);
+                    publish("AUTO: ML Kit procurando card (sem números fictícios)");
+                }
+                return;
+            }
             if (pending == null && now - lastTrackAt < TRACK_INTERVAL_MS) return;
 
             Image.Plane plane = image.getPlanes()[0];
@@ -316,9 +352,17 @@ public final class ManualVisionService extends Service implements ManualVisionOv
             if (pending != null) {
                 Box selected = pending.box;
                 pending = null;
+                byte[] signature=pendingAutoSignature;
+                pendingAutoSignature=null;
+                if(signature!=null && !AutoCardFrameSignature.matches(signature,pixels,selected)) {
+                    clearTarget();
+                    publish("AUTO: card mudou durante OCR; procurando novamente");
+                    return;
+                }
                 if (!tracker.select(pixels, selected)) {
                     clearTarget();
-                    publish("Marque uma área com mais detalhes");
+                    publish(autoEnabled?"AUTO: região ambígua; procurando novamente":
+                        "Marque uma área com mais detalhes");
                     return;
                 }
                 tracked = selected;
@@ -326,7 +370,8 @@ public final class ManualVisionService extends Service implements ManualVisionOv
                 tracked = tracker.track(pixels, geometry.dipInFrame(4), geometry.dipInFrame(3));
                 if (tracked == null) {
                     clearTarget();
-                    publish("Alvo perdido · marque de novo");
+                    publish(autoEnabled?"AUTO: alvo perdido; procurando novamente":
+                        "Alvo perdido · marque de novo");
                     return;
                 }
             }
@@ -355,7 +400,12 @@ public final class ManualVisionService extends Service implements ManualVisionOv
     }
 
     private static Bitmap crop(Image.Plane plane, Box box) {
-        int step = Math.max(1, (int) Math.ceil(Math.sqrt((long) box.width * box.height / 2_500_000.0)));
+        return crop(plane,box,2_500_000);
+    }
+
+    private static Bitmap crop(Image.Plane plane, Box box,int pixelBudget) {
+        int step = Math.max(1, (int) Math.ceil(Math.sqrt(
+            (long) box.width * box.height / (double)pixelBudget)));
         int width = (box.width + step - 1) / step;
         int height = (box.height + step - 1) / step;
         Bitmap bitmap = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888);
@@ -370,6 +420,73 @@ public final class ManualVisionService extends Service implements ManualVisionOv
             bitmap.setPixels(row, 0, width, 0, y, width, 1);
         }
         return bitmap;
+    }
+
+
+    private void startAutoOcr(AutoInput input) {
+        try {
+            if(recognizer==null)
+                recognizer=TextRecognition.getClient(TextRecognizerOptions.DEFAULT_OPTIONS);
+            recognizer.process(InputImage.fromBitmap(input.bitmap,0))
+                .addOnCompleteListener(main::post, task -> {
+                    AutoCardOcrLocator.Result found=null;
+                    byte[] signature=null;
+                    try {
+                        if(task.isSuccessful() && task.getResult()!=null) {
+                            List<AutoCardOcrLocator.Line> lines=new ArrayList<>();
+                            for(com.google.mlkit.vision.text.Text.TextBlock block:
+                                    task.getResult().getTextBlocks()) {
+                                for(com.google.mlkit.vision.text.Text.Line line:block.getLines()) {
+                                    Rect b=line.getBoundingBox();
+                                    if(b==null || b.isEmpty())continue;
+                                    int x=scaleCoord(b.left,input.bitmap.getWidth(),input.width);
+                                    int y=scaleCoord(b.top,input.bitmap.getHeight(),input.height);
+                                    int right=scaleCoord(b.right,input.bitmap.getWidth(),input.width);
+                                    int bottom=scaleCoord(b.bottom,input.bitmap.getHeight(),input.height);
+                                    if(right>x && bottom>y)
+                                        lines.add(new AutoCardOcrLocator.Line(line.getText(),
+                                            new Box(x,y,right-x,bottom-y)));
+                                }
+                            }
+                            found=AutoCardOcrLocator.locate(lines,input.width,input.height);
+                            if(found!=null)signature=AutoCardFrameSignature.fromBitmap(
+                                input.bitmap,input.width,input.height,found.card);
+                        }
+                    } catch(RuntimeException ignored) {
+                        found=null;signature=null;
+                    } finally {
+                        input.bitmap.recycle(); // Never keep screenshot bytes after OCR.
+                    }
+                    final AutoCardOcrLocator.Result result=found;
+                    final byte[] proof=signature;
+                    if(running && capture!=null)
+                        capture.post(() -> finishAutoOcr(input,result,proof));
+                });
+        } catch(RuntimeException ignored) {
+            input.bitmap.recycle();
+            autoBusy=false;
+            publish("AUTO: falha de leitura; nova tentativa limitada");
+        }
+    }
+
+    private static int scaleCoord(int x,int source,int target) {
+        return (int)Math.round(x*target/(double)Math.max(1,source));
+    }
+
+    private void finishAutoOcr(AutoInput input,AutoCardOcrLocator.Result found,byte[] signature) {
+        autoBusy=false;
+        if(!running || !autoEnabled || !visible || !aligned ||
+            input.selection!=selection || selection!=requestedSelection ||
+            input.geometry!=geometry || tracked!=null || pending!=null)return;
+        long age=SystemClock.elapsedRealtime()-input.capturedAt;
+        if(found==null || signature==null || age<0 || age>10_000) {
+            publish("AUTO: sem card confiável; tentando outro frame");
+            return;
+        }
+        autoLayout=found;
+        pendingAutoSignature=signature;
+        pending=new PendingSelection(found.card,SystemClock.elapsedRealtime());
+        publish("AUTO: candidato OCR real; conferindo imagem atual");
     }
 
     private void startOcr(OcrInput input) {
@@ -415,11 +532,15 @@ public final class ManualVisionService extends Service implements ManualVisionOv
     }
 
     private String idleMessage() {
-        return aligned ? "Marque um alvo" : "Reinicie e compartilhe a tela inteira";
+        return !aligned ? "Reinicie e compartilhe a tela inteira" :
+            autoEnabled ? "AUTO: procurando card visível" :
+            "Toque em Auto ou marque um alvo";
     }
 
     private void clearTarget() {
         pending = null;
+        pendingAutoSignature=null;
+        autoLayout=null;
         tracked = null;
         tracker.clear();
         lastTrackAt = -1;
@@ -436,7 +557,14 @@ public final class ManualVisionService extends Service implements ManualVisionOv
     private void publish(String message) {
         if (!running) return;
         Rect rectangle = tracked == null ? null : geometry.toScreen(tracked);
-        latest.set(new DisplayState(selection, rectangle, message, text, visible));
+        Rect price=null,origin=null,destination=null;
+        if(tracked!=null && autoLayout!=null) {
+            price=geometry.toScreen(autoLayout.place(tracked,autoLayout.price));
+            origin=geometry.toScreen(autoLayout.place(tracked,autoLayout.origin));
+            destination=geometry.toScreen(autoLayout.place(tracked,autoLayout.destination));
+        }
+        latest.set(new DisplayState(selection, rectangle,price,origin,destination,
+            message, text, visible));
         if (drawQueued.compareAndSet(false, true)) main.post(this::renderLatest);
     }
 
@@ -444,7 +572,8 @@ public final class ManualVisionService extends Service implements ManualVisionOv
         drawQueued.set(false);
         DisplayState state = latest.get();
         if (running && overlay != null && state != null && state.selection == requestedSelection) {
-            overlay.render(state.box, state.message, state.text, state.visible);
+            overlay.render(state.box,state.price,state.origin,state.destination,
+                state.message,state.text,state.visible);
         }
     }
 
@@ -570,17 +699,29 @@ public final class ManualVisionService extends Service implements ManualVisionOv
 
     private static final class DisplayState {
         final long selection;
-        final Rect box;
+        final Rect box,price,origin,destination;
         final String message;
         final String text;
         final boolean visible;
 
-        DisplayState(long selection, Rect box, String message, String text, boolean visible) {
-            this.selection = selection;
-            this.box = box;
-            this.message = message;
-            this.text = text;
-            this.visible = visible;
+        DisplayState(long selection, Rect box,Rect price,Rect origin,Rect destination,
+                     String message,String text,boolean visible) {
+            this.selection=selection;this.box=box;
+            this.price=price;this.origin=origin;this.destination=destination;
+            this.message=message;this.text=text;this.visible=visible;
+        }
+    }
+
+    private static final class AutoInput {
+        final Bitmap bitmap;
+        final long selection,frame,capturedAt;
+        final Geometry geometry;
+        final int width,height;
+        AutoInput(Bitmap bitmap,long selection,long frame,long capturedAt,
+                  Geometry geometry,int width,int height) {
+            this.bitmap=bitmap;this.selection=selection;
+            this.frame=frame;this.capturedAt=capturedAt;
+            this.geometry=geometry;this.width=width;this.height=height;
         }
     }
 }
