@@ -80,6 +80,8 @@ public final class LiveCaptureService extends Service {
     private LiveRadarDebugOverlay radarOverlay;
     private final LiveScreenMotionDetector motionDetector=new LiveScreenMotionDetector();
     private long lastMotionUiAt=-1;
+    private final NoFrameOverlayWatchdog noFrameWatchdog=new NoFrameOverlayWatchdog();
+    private Runnable noFrameCheck;
 
     @Override public void onCreate() {
         super.onCreate();
@@ -164,6 +166,7 @@ public final class LiveCaptureService extends Service {
         capturedVisible=true;
         seen=0;read=0;episodes.reset();
         motionDetector.reset();lastMotionUiAt=-1;
+        noFrameWatchdog.reset();
         gate=new CaptureThrottle(FRAME_INTERVAL_MS);
         captureThread=new HandlerThread("vexo-frame-processor");
         captureThread.start();
@@ -216,9 +219,16 @@ public final class LiveCaptureService extends Service {
                             episodes.uncertain();
                             LiveCaptureState.clearCandidate();
                             motionDetector.reset();
+                            noFrameWatchdog.reset();
+                            NotificationManager nm=(NotificationManager)getSystemService(
+                                NOTIFICATION_SERVICE);
+                            if(nm!=null)nm.notify(NOTIFICATION_ID,notification(false));
                         }
                     }
-                    if(visible) scheduleOverlaySearching(session);
+                    if(visible) {
+                        scheduleOverlaySearching(session);
+                        startNoFrameCheck(session);
+                    }
                     else scheduleOverlayHide();
                 }
             }
@@ -239,6 +249,7 @@ public final class LiveCaptureService extends Service {
             LiveCaptureState.begin();
         }
         scheduleOverlaySearching(session);
+        startNoFrameCheck(session);
     }
 
     private void invalidateStoppedSession(long session) {
@@ -302,6 +313,7 @@ public final class LiveCaptureService extends Service {
             image=reader.acquireLatestImage();
             if(image==null || !sessionAlive(session) || localGate==null) return;
             seen++;
+            noFrameWatchdog.onFrame(acquiredAt);
             LiveCaptureState.frameReceived();
             // Verifica mudança visual em TODO frame recebido (antes do
             // throttle de OCR), amostrando pixels sem copiar a tela inteira.
@@ -471,6 +483,30 @@ public final class LiveCaptureService extends Service {
         }
     }
 
+    private void startNoFrameCheck(long session) {
+        if(noFrameCheck!=null)main.removeCallbacks(noFrameCheck);
+        noFrameCheck=new Runnable() {
+            @Override public void run() {
+                synchronized(sessionLock) {
+                    if(!sessionAlive(session))return;
+                    // Se a captura congelou, os valores da última oferta são
+                    // obsoletos, ainda que não tenha havido OCR de "mapa".
+                    if(noFrameWatchdog.shouldClear(
+                            SystemClock.elapsedRealtime(),1200)) {
+                        LiveCaptureState.clearCandidate();
+                        episodes.uncertain(); // NÃO rearma notificação duplicada
+                        scheduleOverlaySearching(session);
+                        NotificationManager nm=(NotificationManager)
+                            getSystemService(NOTIFICATION_SERVICE);
+                        if(nm!=null)nm.notify(NOTIFICATION_ID,notification(false));
+                    }
+                }
+                if(sessionAlive(session))main.postDelayed(this,300);
+            }
+        };
+        main.postDelayed(noFrameCheck,300);
+    }
+
     private void scheduleOverlaySearching(long session) {
         final long version=overlayGeneration.incrementAndGet();
         main.post(() -> {
@@ -620,6 +656,9 @@ public final class LiveCaptureService extends Service {
     private void shutdown() {
         if(cleanupDone) return;
         scheduleOverlayHide(); // cleanup na thread principal, uma vez por Service
+        if(noFrameCheck!=null) main.removeCallbacks(noFrameCheck);
+        noFrameCheck=null;
+        noFrameWatchdog.reset();
         cleanupDone=true;
         synchronized(sessionLock) {
             stopping=true;
