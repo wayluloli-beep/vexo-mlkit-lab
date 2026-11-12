@@ -339,7 +339,7 @@ public final class ManualVisionService extends Service implements ManualVisionOv
                 }
                 if (reading.ready() && !ocrBusy && ocrRetry.mayStart(reading.revision(), now)) {
                     ocrRetry.started(reading.revision(), now);
-                    request = new OcrInput(crop(plane, tracked), selection, attemptedRevision, frameNumber, now);
+                    request = new OcrInput(crop(plane, tracked), selection, reading.revision(), frameNumber, now);
                     readStatus = "Rastreando · lendo…";
                 }
             }
