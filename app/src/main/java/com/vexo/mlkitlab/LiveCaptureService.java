@@ -34,6 +34,8 @@ import com.google.mlkit.vision.text.TextRecognizer;
 import com.google.mlkit.vision.text.latin.TextRecognizerOptions;
 
 import java.nio.ByteBuffer;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Locale;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.atomic.AtomicReference;
@@ -74,6 +76,12 @@ public final class LiveCaptureService extends Service {
     private final AtomicLong overlayGeneration=new AtomicLong(0);
     // O controle da janela vive somente na thread principal.
     private VexoOfferOverlay offerOverlay;
+    // Debug visual em tempo real, separado da classificação financeira/OCR.
+    private LiveRadarDebugOverlay radarOverlay;
+    private final LiveScreenMotionDetector motionDetector=new LiveScreenMotionDetector();
+    private long lastMotionUiAt=-1;
+    private final NoFrameOverlayWatchdog noFrameWatchdog=new NoFrameOverlayWatchdog();
+    private Runnable noFrameCheck;
 
     @Override public void onCreate() {
         super.onCreate();
@@ -157,6 +165,8 @@ public final class LiveCaptureService extends Service {
         stopping=false;
         capturedVisible=true;
         seen=0;read=0;episodes.reset();
+        motionDetector.reset();lastMotionUiAt=-1;
+        noFrameWatchdog.reset();
         gate=new CaptureThrottle(FRAME_INTERVAL_MS);
         captureThread=new HandlerThread("vexo-frame-processor");
         captureThread.start();
@@ -208,9 +218,17 @@ public final class LiveCaptureService extends Service {
                             pendingRecheck.set(null);
                             episodes.uncertain();
                             LiveCaptureState.clearCandidate();
+                            motionDetector.reset();
+                            noFrameWatchdog.reset();
+                            NotificationManager nm=(NotificationManager)getSystemService(
+                                NOTIFICATION_SERVICE);
+                            if(nm!=null)nm.notify(NOTIFICATION_ID,notification(false));
                         }
                     }
-                    if(visible) scheduleOverlaySearching(session);
+                    if(visible) {
+                        scheduleOverlaySearching(session);
+                        startNoFrameCheck(session);
+                    }
                     else scheduleOverlayHide();
                 }
             }
@@ -231,6 +249,7 @@ public final class LiveCaptureService extends Service {
             LiveCaptureState.begin();
         }
         scheduleOverlaySearching(session);
+        startNoFrameCheck(session);
     }
 
     private void invalidateStoppedSession(long session) {
@@ -269,6 +288,7 @@ public final class LiveCaptureService extends Service {
             imageReader=newReader;
             replacement=null; // ownership do novo reader foi transferido
             width=w;height=h;
+            motionDetector.reset();lastMotionUiAt=-1;
             if(old!=null) old.close();
             episodes.reset();
         } catch(Exception ex) {
@@ -287,12 +307,48 @@ public final class LiveCaptureService extends Service {
         boolean started=false;
         CaptureFrameRecheck recheck=null;
         final CaptureThrottle localGate=gate;
+        // Deve existir também na callback assíncrona do ML Kit.
+        final long acquiredAt=SystemClock.elapsedRealtime();
         try {
             image=reader.acquireLatestImage();
             if(image==null || !sessionAlive(session) || localGate==null) return;
-            final long acquiredAt=SystemClock.elapsedRealtime();
             seen++;
+            noFrameWatchdog.onFrame(acquiredAt);
             LiveCaptureState.frameReceived();
+            // Verifica mudança visual em TODO frame recebido (antes do
+            // throttle de OCR), amostrando pixels sem copiar a tela inteira.
+            // Isto NÃO identifica semanticamente cards 99 nem passageiros.
+            try {
+                if(image.getPlanes().length>0) {
+                    Image.Plane plane=image.getPlanes()[0];
+                    RgbaLumaPixels points=new RgbaLumaPixels(plane.getBuffer(),
+                        image.getWidth(),image.getHeight(),
+                        plane.getRowStride(),plane.getPixelStride());
+                    LiveScreenMotionDetector.Observation visual=
+                        motionDetector.inspect(points,acquiredAt);
+                    if(visual.current &&
+                        (lastMotionUiAt<0 || acquiredAt-lastMotionUiAt>=85)) {
+                        lastMotionUiAt=acquiredAt;
+                        final int frameW=image.getWidth(),frameH=image.getHeight();
+                        final int framesSeen=(int)Math.min(Integer.MAX_VALUE,seen);
+                        final int readings=(int)Math.min(Integer.MAX_VALUE,read);
+                        final boolean busy=pendingRecheck.get()!=null;
+                        main.post(() -> {
+                            synchronized(sessionLock) {
+                                if(!sessionAlive(session))return;
+                                if(radarOverlay==null)
+                                    radarOverlay=new LiveRadarDebugOverlay(this);
+                                radarOverlay.updateMotion(frameW,frameH,visual,
+                                    framesSeen,readings,busy,
+                                    SystemClock.elapsedRealtime());
+                            }
+                        });
+                    }
+                }
+            } catch(RuntimeException samplingError) {
+                // Falha de uma amostra visual nunca derruba a captura/OCR.
+                motionDetector.reset();
+            }
             CaptureFrameRecheck pending=pendingRecheck.get();
             if(pending!=null && pending.shouldSample(acquiredAt)) {
                 pending.observe(acquiredAt,image.getTimestamp(),fingerprint(image));
@@ -339,6 +395,24 @@ public final class LiveCaptureService extends Service {
                         read++;
                         LiveCaptureState.ocrCompleted();
                         if(attempt.canPublish(now)) {
+                            // Retângulos de blocos OCR (nenhum texto ou preço).
+                            // Desenhar só se a sessão/fonte continuarem válidas.
+                            final List<Rect> boxes=new ArrayList<>();
+                            for(Text.TextBlock block:done.getResult().getTextBlocks()) {
+                                Rect box=block.getBoundingBox();
+                                if(box!=null && !box.isEmpty() && boxes.size()<12)
+                                    boxes.add(new Rect(box));
+                            }
+                            final int ow=frame.getWidth(),oh=frame.getHeight();
+                            main.post(() -> {
+                                synchronized(sessionLock) {
+                                    if(!sessionAlive(session))return;
+                                    if(radarOverlay==null)
+                                        radarOverlay=new LiveRadarDebugOverlay(this);
+                                    radarOverlay.textBlocks(boxes,ow,oh,
+                                        SystemClock.elapsedRealtime());
+                                }
+                            });
                             evaluate(done.getResult().getText(),session,acquiredAt);
                         } else {
                             LiveCaptureState.staleOcrFrame();
@@ -409,6 +483,30 @@ public final class LiveCaptureService extends Service {
         }
     }
 
+    private void startNoFrameCheck(long session) {
+        if(noFrameCheck!=null)main.removeCallbacks(noFrameCheck);
+        noFrameCheck=new Runnable() {
+            @Override public void run() {
+                synchronized(sessionLock) {
+                    if(!sessionAlive(session))return;
+                    // Se a captura congelou, os valores da última oferta são
+                    // obsoletos, ainda que não tenha havido OCR de "mapa".
+                    if(noFrameWatchdog.shouldClear(
+                            SystemClock.elapsedRealtime(),1200)) {
+                        LiveCaptureState.clearCandidate();
+                        episodes.uncertain(); // NÃO rearma notificação duplicada
+                        scheduleOverlaySearching(session);
+                        NotificationManager nm=(NotificationManager)
+                            getSystemService(NOTIFICATION_SERVICE);
+                        if(nm!=null)nm.notify(NOTIFICATION_ID,notification(false));
+                    }
+                }
+                if(sessionAlive(session))main.postDelayed(this,300);
+            }
+        };
+        main.postDelayed(noFrameCheck,300);
+    }
+
     private void scheduleOverlaySearching(long session) {
         final long version=overlayGeneration.incrementAndGet();
         main.post(() -> {
@@ -438,6 +536,7 @@ public final class LiveCaptureService extends Service {
                 // STOP de sessão A não pode ocultar janela da sessão B.
                 if(version!=overlayGeneration.get()) return;
                 if(offerOverlay!=null) offerOverlay.hide();
+                if(radarOverlay!=null) radarOverlay.hide();
             }
         });
     }
@@ -557,6 +656,9 @@ public final class LiveCaptureService extends Service {
     private void shutdown() {
         if(cleanupDone) return;
         scheduleOverlayHide(); // cleanup na thread principal, uma vez por Service
+        if(noFrameCheck!=null) main.removeCallbacks(noFrameCheck);
+        noFrameCheck=null;
+        noFrameWatchdog.reset();
         cleanupDone=true;
         synchronized(sessionLock) {
             stopping=true;
@@ -567,6 +669,7 @@ public final class LiveCaptureService extends Service {
             episodes.reset();
             LiveCaptureState.end("Captura parada. Uma nova sessão exige autorização.");
         }
+        motionDetector.reset();lastMotionUiAt=-1;
         final CaptureThrottle prev=gate;
         gate=null;
         if(prev!=null) prev.reset();
