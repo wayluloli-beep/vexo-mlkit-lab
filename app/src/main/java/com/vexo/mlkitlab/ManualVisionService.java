@@ -94,6 +94,7 @@ public final class ManualVisionService extends Service implements ManualVisionOv
     private long lastAutoScanAt=-1;
     private AutoCardOcrLocator.Result autoLayout;
     private byte[] pendingAutoSignature;
+    private OfferMetricFields offerMetrics; // only user-facing OCR content
     private long fpsWindowStart=-1,framesInWindow;
     private int receivedFps;
     private long lastTrackingNanos=-1,lastOcrElapsedMs=-1;
@@ -159,7 +160,13 @@ public final class ManualVisionService extends Service implements ManualVisionOv
             captureThread.start();
             capture = new Handler(captureThread.getLooper());
             running = true;
-            capture.post(() -> openProjection(consent));
+            capture.post(() -> {
+                if(!running)return;
+                autoEnabled=true; // native consent is enough; no second manual target selection
+                selection=requestedSelection;
+                openProjection(consent);
+                if(running)publish("Procurando dados da oferta...");
+            });
         } catch (RuntimeException exception) {
             failCapture();
         }
@@ -443,6 +450,7 @@ public final class ManualVisionService extends Service implements ManualVisionOv
             recognizer.process(InputImage.fromBitmap(input.bitmap,0))
                 .addOnCompleteListener(main::post, task -> {
                     AutoCardOcrLocator.Result found=null;
+                    OfferMetricFields foundMetrics=null;
                     byte[] signature=null;
                     try {
                         if(task.isSuccessful() && task.getResult()!=null) {
@@ -462,18 +470,23 @@ public final class ManualVisionService extends Service implements ManualVisionOv
                                 }
                             }
                             found=AutoCardOcrLocator.locate(lines,input.width,input.height);
-                            if(found!=null)signature=AutoCardFrameSignature.fromBitmap(
-                                input.bitmap,input.width,input.height,found.card);
+                            if(found!=null) {
+                                foundMetrics=OfferMetricFields.fromLines(lines,found);
+                                if(foundMetrics!=null)
+                                    signature=AutoCardFrameSignature.fromBitmap(
+                                        input.bitmap,input.width,input.height,found.card);
+                            }
                         }
                     } catch(RuntimeException ignored) {
-                        found=null;signature=null;
+                        found=null;foundMetrics=null;signature=null;
                     } finally {
                         input.bitmap.recycle(); // Never keep screenshot bytes after OCR.
                     }
                     final AutoCardOcrLocator.Result result=found;
                     final byte[] proof=signature;
+                    final OfferMetricFields values=foundMetrics;
                     if(running && capture!=null)
-                        capture.post(() -> finishAutoOcr(input,result,proof));
+                        capture.post(() -> finishAutoOcr(input,result,proof,values));
                 });
         } catch(RuntimeException ignored) {
             input.bitmap.recycle();
@@ -486,21 +499,23 @@ public final class ManualVisionService extends Service implements ManualVisionOv
         return (int)Math.round(x*target/(double)Math.max(1,source));
     }
 
-    private void finishAutoOcr(AutoInput input,AutoCardOcrLocator.Result found,byte[] signature) {
+    private void finishAutoOcr(AutoInput input,AutoCardOcrLocator.Result found,
+                               byte[] signature,OfferMetricFields values) {
         autoBusy=false;
         lastOcrElapsedMs=Math.max(0,SystemClock.elapsedRealtime()-input.capturedAt);
         if(!running || !autoEnabled || !visible || !aligned ||
             input.selection!=selection || selection!=requestedSelection ||
             input.geometry!=geometry || tracked!=null || pending!=null)return;
         long age=SystemClock.elapsedRealtime()-input.capturedAt;
-        if(found==null || signature==null || age<0 || age>10_000) {
-            publish("AUTO: sem card confiável; tentando outro frame");
+        if(found==null || signature==null || values==null || age<0 || age>10_000) {
+            publish("Procurando dados da oferta...");
             return;
         }
         autoLayout=found;
+        offerMetrics=values;
         pendingAutoSignature=signature;
         pending=new PendingSelection(found.card,SystemClock.elapsedRealtime());
-        publish("AUTO: candidato OCR real; conferindo imagem atual");
+        publish("Conferindo oferta na imagem atual...");
     }
 
     private void startOcr(OcrInput input) {
@@ -556,6 +571,7 @@ public final class ManualVisionService extends Service implements ManualVisionOv
         pending = null;
         pendingAutoSignature=null;
         autoLayout=null;
+        offerMetrics=null;
         tracked = null;
         tracker.clear();
         lastTrackAt = -1;
@@ -578,12 +594,15 @@ public final class ManualVisionService extends Service implements ManualVisionOv
             origin=geometry.toScreen(autoLayout.place(tracked,autoLayout.origin));
             destination=geometry.toScreen(autoLayout.place(tracked,autoLayout.destination));
         }
-        String metrics="FRAMES "+frameNumber+" · FPS RECEBIDO "+(visible?receivedFps:0)
+        // Keep technical telemetry measurable internally but OFF the customer UI.
+        // Never display raw OCR text: it can contain passenger addresses.
+        String diagnostics="FRAMES "+frameNumber+" · FPS RECEBIDO "+(visible?receivedFps:0)
             +"\nTRACK "+(lastTrackingNanos<0?"—":
                 String.format(java.util.Locale.ROOT,"%.1f ms",lastTrackingNanos/1_000_000.0))
             +" · OCR "+(lastOcrElapsedMs<0?"—":lastOcrElapsedMs+" ms");
+        String customer=tracked!=null && offerMetrics!=null ? offerMetrics.display() : "";
         latest.set(new DisplayState(selection, rectangle,price,origin,destination,
-            message, metrics,text, visible));
+            message, diagnostics,customer, visible));
         if (drawQueued.compareAndSet(false, true)) main.post(this::renderLatest);
     }
 
