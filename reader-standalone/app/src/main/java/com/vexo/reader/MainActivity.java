@@ -289,10 +289,12 @@ public final class MainActivity extends Activity {
     }
     @Override protected void onResume() {
         super.onResume();
+        ScreenState.ownUiVisible = true;
         uiHandler.removeCallbacks(refreshLoop);
         uiHandler.post(refreshLoop);
     }
     @Override protected void onPause() {
+        ScreenState.ownUiVisible = false;
         uiHandler.removeCallbacks(refreshLoop);
         super.onPause();
     }

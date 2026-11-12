@@ -59,6 +59,7 @@ public final class ScreenReadService extends Service {
     private volatile boolean closing;
     private volatile int epoch;
     private int[] lastSamples;
+    private boolean wasOwnUiVisible;
     private long lastOcrAt;
     private long generation;
     private String candidateFingerprint = "";
@@ -203,6 +204,20 @@ public final class ScreenReadService extends Service {
             long now = SystemClock.elapsedRealtime();
             ScreenState.lastFrameAt = now;
             ScreenState.receivedFrames++;
+            // Prevent a full-screen capture from OCR-ing Vexo's own history
+            // and mistakenly saving the same displayed offer again.
+            if (ScreenState.ownUiVisible) {
+                if (!wasOwnUiVisible) {
+                    epoch++;
+                    ScreenState.invalidate("Vexo aberto · leitura da própria tela bloqueada");
+                    wasOwnUiVisible = true;
+                }
+                lastSamples = null;
+                candidateCount = 0;
+                candidateFingerprint = "";
+                return;
+            }
+            wasOwnUiVisible = false;
             int[] samples = sampleLuma(image);
             if (lastSamples != null && significantChange(lastSamples, samples)) {
                 epoch++;
@@ -223,7 +238,8 @@ public final class ScreenReadService extends Service {
             }
             recognizer.process(InputImage.fromBitmap(crop, 0))
                 .addOnSuccessListener(result -> {
-                    if (closing || !ScreenState.active || captureGeneration != generation ||
+                    if (closing || !ScreenState.active || ScreenState.ownUiVisible ||
+                        captureGeneration != generation ||
                         frameEpoch != epoch ||
                         SystemClock.elapsedRealtime() - capturedAt > OCR_TTL_MS) return;
                     ScreenState.ocrCompleted++;

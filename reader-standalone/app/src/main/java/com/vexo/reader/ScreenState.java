@@ -5,6 +5,7 @@ import android.os.SystemClock;
 /** UI telemetry exists only in RAM; no screenshot or OCR text is written to logs. */
 public final class ScreenState {
     public static volatile boolean active;
+    public static volatile boolean ownUiVisible;
     public static volatile String status = "Leitura desligada";
     public static volatile int receivedFrames;
     public static volatile int ocrCompleted;
