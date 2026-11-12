@@ -6,7 +6,7 @@
     <!-- Somente com autorização explícita no botão de janelinha. -->
     <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW" />
     <application
-        android:label="Vexo 0.4.3 Janela"
+        android:label="Vexo Radar LIVE (teste)"
         android:theme="@android:style/Theme.Material.NoActionBar"
         android:usesCleartextTraffic="false"
         android:allowBackup="false">
