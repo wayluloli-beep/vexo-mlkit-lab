@@ -85,7 +85,7 @@ final class ManualVisionOverlay {
         reading.setVisibility(View.GONE);
         LinearLayout buttons = new LinearLayout(context);
         panel.addView(buttons);
-        button(buttons, "Auto", actions::autoFind);
+        button(buttons, "Auto", this::startAutomatic);
         mark = button(buttons, "Marcar alvo", this::toggleSelection);
         read = button(buttons, "Ler", () -> {
             readingEnabled = !readingEnabled;
@@ -166,6 +166,16 @@ final class ManualVisionOverlay {
 
     private void readButtonLabel() {
         read.setText(readingEnabled ? "Leitura ligada" : "Ler");
+    }
+
+    private void startAutomatic() {
+        if(selecting)endSelection(null);
+        tracked=null;
+        priceRoi=originRoi=destinationRoi=null;
+        reading.setVisibility(View.GONE);
+        status.setText("AUTO: procurando no quadro capturado...");
+        outline.invalidate();
+        actions.autoFind();
     }
 
     private void toggleSelection() {
