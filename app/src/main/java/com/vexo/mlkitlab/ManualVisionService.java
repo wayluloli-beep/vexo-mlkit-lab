@@ -94,6 +94,9 @@ public final class ManualVisionService extends Service implements ManualVisionOv
     private long lastAutoScanAt=-1;
     private AutoCardOcrLocator.Result autoLayout;
     private byte[] pendingAutoSignature;
+    private long fpsWindowStart=-1,framesInWindow;
+    private int receivedFps;
+    private long lastTrackingNanos=-1,lastOcrElapsedMs=-1;
 
     private final MediaProjection.Callback projectionCallback = new MediaProjection.Callback() {
         @Override public void onStop() {
@@ -329,6 +332,14 @@ public final class ManualVisionService extends Service implements ManualVisionOv
             if (lastFrameAt < 0 && tracked == null && pending == null) publish(idleMessage());
             lastFrameAt = now;
             frameNumber++;
+            if(fpsWindowStart<0)fpsWindowStart=now;
+            framesInWindow++;
+            if(now-fpsWindowStart>=1000) {
+                receivedFps=(int)Math.round(framesInWindow*1000.0/
+                    Math.max(1,now-fpsWindowStart));
+                framesInWindow=0;
+                fpsWindowStart=now;
+            }
             if(selection != requestedSelection)return;
             if(tracked==null && pending==null) {
                 if(autoEnabled && !autoBusy &&
@@ -349,6 +360,7 @@ public final class ManualVisionService extends Service implements ManualVisionOv
             Image.Plane plane = image.getPlanes()[0];
             RgbaLumaPixels pixels = new RgbaLumaPixels(plane.getBuffer(),
                 image.getWidth(), image.getHeight(), plane.getRowStride(), plane.getPixelStride());
+            long visualStarted=SystemClock.elapsedRealtimeNanos();
             if (pending != null) {
                 Box selected = pending.box;
                 pending = null;
@@ -376,6 +388,7 @@ public final class ManualVisionService extends Service implements ManualVisionOv
                 }
             }
             lastTrackAt = now;
+            lastTrackingNanos=Math.max(0,SystemClock.elapsedRealtimeNanos()-visualStarted);
             verifiedFrame = frameNumber;
             if (readEnabled) {
                 if (reading.observe(TargetReadingState.signature(pixels, tracked))) {
@@ -475,6 +488,7 @@ public final class ManualVisionService extends Service implements ManualVisionOv
 
     private void finishAutoOcr(AutoInput input,AutoCardOcrLocator.Result found,byte[] signature) {
         autoBusy=false;
+        lastOcrElapsedMs=Math.max(0,SystemClock.elapsedRealtime()-input.capturedAt);
         if(!running || !autoEnabled || !visible || !aligned ||
             input.selection!=selection || selection!=requestedSelection ||
             input.geometry!=geometry || tracked!=null || pending!=null)return;
@@ -509,6 +523,7 @@ public final class ManualVisionService extends Service implements ManualVisionOv
 
     private void finishOcr(OcrInput input, String result) {
         ocrBusy = false;
+        lastOcrElapsedMs=Math.max(0,SystemClock.elapsedRealtime()-input.capturedAt);
         if (!running || !visible || !aligned || !readEnabled || tracked == null
                 || selection != requestedSelection || selection != input.selection
                 || !reading.accepts(input.revision) || verifiedFrame < input.frame
@@ -563,8 +578,12 @@ public final class ManualVisionService extends Service implements ManualVisionOv
             origin=geometry.toScreen(autoLayout.place(tracked,autoLayout.origin));
             destination=geometry.toScreen(autoLayout.place(tracked,autoLayout.destination));
         }
+        String metrics="FRAMES "+frameNumber+" · FPS RECEBIDO "+(visible?receivedFps:0)
+            +"\nTRACK "+(lastTrackingNanos<0?"—":
+                String.format(java.util.Locale.ROOT,"%.1f ms",lastTrackingNanos/1_000_000.0))
+            +" · OCR "+(lastOcrElapsedMs<0?"—":lastOcrElapsedMs+" ms");
         latest.set(new DisplayState(selection, rectangle,price,origin,destination,
-            message, text, visible));
+            message, metrics,text, visible));
         if (drawQueued.compareAndSet(false, true)) main.post(this::renderLatest);
     }
 
@@ -573,7 +592,7 @@ public final class ManualVisionService extends Service implements ManualVisionOv
         DisplayState state = latest.get();
         if (running && overlay != null && state != null && state.selection == requestedSelection) {
             overlay.render(state.box,state.price,state.origin,state.destination,
-                state.message,state.text,state.visible);
+                state.message,state.metrics,state.text,state.visible);
         }
     }
 
@@ -701,14 +720,16 @@ public final class ManualVisionService extends Service implements ManualVisionOv
         final long selection;
         final Rect box,price,origin,destination;
         final String message;
+        final String metrics;
         final String text;
         final boolean visible;
 
         DisplayState(long selection, Rect box,Rect price,Rect origin,Rect destination,
-                     String message,String text,boolean visible) {
+                     String message,String metrics,String text,boolean visible) {
             this.selection=selection;this.box=box;
             this.price=price;this.origin=origin;this.destination=destination;
-            this.message=message;this.text=text;this.visible=visible;
+            this.message=message;this.metrics=metrics;
+            this.text=text;this.visible=visible;
         }
     }
 
