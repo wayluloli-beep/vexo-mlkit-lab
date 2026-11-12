@@ -160,7 +160,13 @@ public final class ManualVisionService extends Service implements ManualVisionOv
             captureThread.start();
             capture = new Handler(captureThread.getLooper());
             running = true;
-            capture.post(() -> openProjection(consent));
+            capture.post(() -> {
+                if(!running)return;
+                autoEnabled=true; // native consent is enough; no second manual target selection
+                selection=requestedSelection;
+                openProjection(consent);
+                if(running)publish("Procurando dados da oferta...");
+            });
         } catch (RuntimeException exception) {
             failCapture();
         }
