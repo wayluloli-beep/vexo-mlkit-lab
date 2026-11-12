@@ -4,12 +4,12 @@ android {
     compileSdk 35
     defaultConfig {
         // Instala ao lado das versões de laboratório do Vexo.
-        applicationId 'com.vexo.mlkitlab.vision'
+        applicationId 'com.vexo.mlkitlab.vision.ocrretry'
         minSdk 26
         targetSdk 35
         testInstrumentationRunner 'androidx.test.runner.AndroidJUnitRunner'
-        versionCode 15
-        versionName '0.4.5-rastreio'
+        versionCode 16
+        versionName '0.4.6-ocr-retry-experimental'
     }
     compileOptions {
         sourceCompatibility JavaVersion.VERSION_17

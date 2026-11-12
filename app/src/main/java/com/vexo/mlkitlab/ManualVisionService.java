@@ -83,7 +83,7 @@ public final class ManualVisionService extends Service implements ManualVisionOv
     private Box tracked;
     private boolean readEnabled;
     private boolean ocrBusy;
-    private long attemptedRevision = -1;
+    private final StaticCardOcrRetry ocrRetry = new StaticCardOcrRetry();
     private String text = "";
     private String readStatus = "";
 
@@ -337,9 +337,9 @@ public final class ManualVisionService extends Service implements ManualVisionOv
                     text = "";
                     readStatus = "Rastreando · conferindo alvo";
                 }
-                if (reading.ready() && !ocrBusy && reading.revision() != attemptedRevision) {
-                    attemptedRevision = reading.revision();
-                    request = new OcrInput(crop(plane, tracked), selection, attemptedRevision, frameNumber, now);
+                if (reading.ready() && !ocrBusy && ocrRetry.mayStart(reading.revision(), now)) {
+                    ocrRetry.started(reading.revision(), now);
+                    request = new OcrInput(crop(plane, tracked), selection, reading.revision(), frameNumber, now);
                     readStatus = "Rastreando · lendo…";
                 }
             }
@@ -397,12 +397,19 @@ public final class ManualVisionService extends Service implements ManualVisionOv
                 || !reading.accepts(input.revision) || verifiedFrame < input.frame
                 || lastTrackAt < input.capturedAt
                 || SystemClock.elapsedRealtime() - lastTrackAt > NO_FRAME_MS) return;
-        if (result == null) {
-            readStatus = "Rastreando · falha de leitura";
+        String cleaned = result == null ? "" : result.trim();
+        long now = SystemClock.elapsedRealtime();
+        if (cleaned.isEmpty()) {
+            ocrRetry.finished(input.revision,now,false);
+            text = ""; // never manufacture OCR text on failure
+            readStatus = ocrRetry.exhausted(input.revision)
+                ? "OCR não confirmou · toque em Ler para tentar de novo"
+                : "OCR instável · nova tentativa limitada";
         } else {
-            text = result.trim();
+            ocrRetry.finished(input.revision,now,true);
+            text = cleaned;
             if (text.length() > 160) text = text.substring(0, 160) + "…";
-            readStatus = text.isEmpty() ? "Rastreando · sem texto" : "Rastreando · texto lido";
+            readStatus = "Rastreando · texto lido";
         }
         publish(readStatus);
     }
@@ -421,6 +428,7 @@ public final class ManualVisionService extends Service implements ManualVisionOv
 
     private void clearReading() {
         reading.clear();
+        ocrRetry.reset();
         text = "";
         readStatus = "";
     }
