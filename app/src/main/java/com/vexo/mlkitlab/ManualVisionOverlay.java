@@ -32,6 +32,7 @@ final class ManualVisionOverlay {
     private final Outline outline;
     private final LinearLayout panel;
     private final TextView status;
+    private final TextView telemetry;
     private final TextView reading;
     private final Button mark;
     private final Button read;
@@ -100,6 +101,13 @@ final class ManualVisionOverlay {
         status.setTextColor(0xffe6f2fc);
         status.setText("Aguardando imagem");
         panel.addView(status);
+        telemetry=new TextView(context);
+        telemetry.setTextSize(11);
+        telemetry.setTextColor(0xff46d4f1);
+        telemetry.setMaxLines(3);
+        telemetry.setPadding(0,dp(4),0,dp(4));
+        telemetry.setText("FRAMES — · FPS RECEBIDO —\nTRACK — · OCR —");
+        panel.addView(telemetry);
         panel.addView(reading);
     }
 
@@ -113,7 +121,7 @@ final class ManualVisionOverlay {
     }
 
     void render(Rect box, Rect price, Rect origin, Rect destination,
-                String message, String text, boolean visible) {
+                String message, String metrics, String text, boolean visible) {
         if (!visible && selecting) endSelection(null);
         panel.setVisibility(visible ? View.VISIBLE : View.GONE);
         if (selecting) return;
@@ -122,6 +130,7 @@ final class ManualVisionOverlay {
         originRoi = visible ? origin : null;
         destinationRoi = visible ? destination : null;
         status.setText(message);
+        telemetry.setText(metrics);
         reading.setText(text);
         reading.setVisibility(visible && readingEnabled && !text.isEmpty()
             ? View.VISIBLE : View.GONE);
@@ -130,7 +139,8 @@ final class ManualVisionOverlay {
 
     void reset() {
         if (selecting) endSelection(null);
-        render(null,null,null,null,"Toque em Auto ou marque um alvo", "", true);
+        render(null,null,null,null,"Toque em Auto ou marque um alvo",
+            "FRAMES — · FPS RECEBIDO —\nTRACK — · OCR —","",true);
     }
 
     void close() {
