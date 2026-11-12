@@ -2,31 +2,18 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PROJECTION" />
-    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
-    <!-- Somente com autorização explícita no botão de janelinha. -->
     <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW" />
     <application
-        android:label="Vexo Radar LIVE (teste)"
+        android:label="Vexo Rastreio"
         android:theme="@android:style/Theme.Material.NoActionBar"
         android:usesCleartextTraffic="false"
         android:allowBackup="false">
-        <provider android:name="androidx.core.content.FileProvider"
-            android:authorities="${applicationId}.fileprovider"
-            android:exported="false"
-            android:grantUriPermissions="true">
-            <meta-data android:name="android.support.FILE_PROVIDER_PATHS"
-                android:resource="@xml/file_paths" />
-        </provider>
         <service
-            android:name="com.vexo.mlkitlab.LiveCaptureService"
+            android:name=".ManualVisionService"
             android:exported="false"
             android:foregroundServiceType="mediaProjection"
-            android:stopWithTask="false" />
-        <activity android:name="com.vexo.mlkitlab.LiveCaptureActivity" android:exported="false" />
-        <activity android:name="com.vexo.mlkitlab.VisualRadarLabActivity" android:exported="false" />
-        <activity android:name="com.vexo.mlkitlab.DemoOfferActivity" android:exported="false" />
-        <activity android:name="com.vexo.mlkitlab.BatchOcrActivity" android:exported="false" />
-        <activity android:name="com.vexo.mlkitlab.MainActivity" android:exported="true">
+            android:stopWithTask="true" />
+        <activity android:name=".ManualVisionActivity" android:exported="true">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
