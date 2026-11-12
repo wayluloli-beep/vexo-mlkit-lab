@@ -40,22 +40,27 @@ final class OfferMetricFields {
             String s=normalize(line.text);
             Matcher money=PRICE.matcher(s);
             if(money.find()) {
+                double amount=number(money.group(1));
                 int d=centerDistance(line.rect,card.price);
-                if(d<priceDistance && d<=Math.max(85,card.price.width+card.price.height)) {
+                if(validPrice(amount) && d<priceDistance &&
+                        d<=Math.max(85,card.price.width+card.price.height)) {
                     price="R$ "+pt(money.group(1));priceDistance=d;
                 }
             }
             Matcher route=ROUTE.matcher(s);
             if(route.find()) {
+                int minutes=(int)number(route.group(1));
+                double km=number(route.group(2));
+                if(!validTime(minutes) || !validDistance(km)) continue;
                 int ds=centerDistance(line.rect,card.origin);
                 int dt=centerDistance(line.rect,card.destination);
-                String m=route.group(1),km=pt(route.group(2));
+                String m=route.group(1),kmText=pt(route.group(2));
                 if(ds<=dt && ds<pickupDistance &&
                         ds<=Math.max(85,card.origin.width+card.origin.height)) {
-                    pickupMinutes=m;pickupKm=km;pickupDistance=ds;
+                    pickupMinutes=m;pickupKm=kmText;pickupDistance=ds;
                 } else if(dt<ds && dt<tripDistance &&
                         dt<=Math.max(85,card.destination.width+card.destination.height)) {
-                    tripMinutes=m;tripKm=km;tripDistance=dt;
+                    tripMinutes=m;tripKm=kmText;tripDistance=dt;
                 }
             }
             if((s.contains("corridas")||s.contains("perfil premium")||
@@ -63,22 +68,30 @@ final class OfferMetricFields {
                 line.rect.y>=card.card.y && line.rect.y<
                     card.origin.y+card.origin.height) {
                 Matcher found=RATING.matcher(s);
-                if(found.find())rating=pt(found.group(1));
+                if(found.find()) {
+                    double value=number(found.group(1));
+                    if(value>=1.0 && value<=5.0) rating=pt(found.group(1));
+                }
             }
         }
-        // Never show a "confirmed" fare if route fields are missing.
         if(price==null || pickupMinutes==null || pickupKm==null ||
            tripMinutes==null || tripKm==null) return null;
-        // Rating may be unreadable and is shown explicitly as unknown.
         return new OfferMetricFields(price,pickupMinutes,pickupKm,tripMinutes,tripKm,rating);
     }
 
     String display() {
-        return price+"    ★ "+(passengerRating==null?"—":passengerRating)+"\n"+
-            "Até passageiro: "+pickupMinutes+" min · "+pickupKm+" km\n"+
+        return price+"    ★ "+(passengerRating==null?"—":passengerRating)+"\\n"+
+            "Até passageiro: "+pickupMinutes+" min · "+pickupKm+" km\\n"+
             "Viagem: "+tripMinutes+" min · "+tripKm+" km";
     }
 
+    private static boolean validPrice(double value) { return value>=3.0 && value<=300.0; }
+    private static boolean validTime(int value) { return value>=1 && value<=90; }
+    private static boolean validDistance(double value) { return value>=0.1 && value<=80.0; }
+    private static double number(String value) {
+        try { return Double.parseDouble(value.replace(',','.')); }
+        catch (RuntimeException ignored) { return Double.NaN; }
+    }
     private static String pt(String number) {return number.replace('.',',');}
 
     private static int centerDistance(Box a,Box b) {
