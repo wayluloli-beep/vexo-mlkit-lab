@@ -3,12 +3,14 @@ android {
     namespace 'com.vexo.mlkitlab'
     compileSdk 35
     defaultConfig {
-        applicationId 'com.vexo.mlkitlab.mediapreview.recheck'
+        // APK de diagnóstico separado: não substitui Vexo existente, cujos
+        // builds GitHub debug podem ter certificados de assinatura distintos.
+        applicationId 'com.vexo.mlkitlab.radar.livetest'
         minSdk 23
         targetSdk 35
         testInstrumentationRunner 'androidx.test.runner.AndroidJUnitRunner'
-        versionCode 13
-        versionName '0.4.3-card-recheck-experimental'
+        versionCode 14
+        versionName '0.4.4-live-radar-diagnostic'
     }
     compileOptions {
         sourceCompatibility JavaVersion.VERSION_17
