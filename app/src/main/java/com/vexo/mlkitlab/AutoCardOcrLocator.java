@@ -121,7 +121,7 @@ final class AutoCardOcrLocator {
 
             // Many ride cards span most of a phone's width even though the
             // recognizer sees only short price/route lines on the left.
-            if(left<width/5 && right<width*3/4) {
+            if(left<width/5 && right<width*4/5) {
                 x0=Math.min(x0,Math.max(0,width/30));
                 x1=Math.max(x1,Math.min(width,width*29/30));
             }
