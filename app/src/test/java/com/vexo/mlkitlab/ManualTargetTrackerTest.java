@@ -16,33 +16,45 @@ public class ManualTargetTrackerTest {
     @Test public void followsTheMarkedItemWhileTheBackgroundMoves() {
         ManualTargetTracker tracker = new ManualTargetTracker();
         assertTrue(tracker.select(frame(SELECTED, 0, 1), SELECTED));
-        assertNear(SELECTED, tracker.track(frame(SELECTED, 35, 1)), 1);
+        assertNear(SELECTED, tracker.track(frame(SELECTED, 35, 1), 0, 0), 1);
         Box first = new Box(74, 182, 182, 124);
-        assertNear(first, tracker.track(frame(first, 84, 1)), 2);
+        assertNear(first, tracker.track(frame(first, 84, 1), 0, 0), 2);
         Box second = new Box(69, 119, 182, 124);
-        assertNear(second, tracker.track(frame(second, 39, 1)), 2);
-        assertNear(first, tracker.track(frame(first, 6, 1)), 2);
+        assertNear(second, tracker.track(frame(second, 39, 1), 0, 0), 2);
+        assertNear(first, tracker.track(frame(first, 6, 1), 0, 0), 2);
     }
 
     @Test public void followsAChangeInSizeAndPosition() {
         ManualTargetTracker tracker = new ManualTargetTracker();
         assertTrue(tracker.select(frame(SELECTED, 0, 1), SELECTED));
         Box larger = new Box(45, 218, 200, 136);
-        assertNear(larger, tracker.track(frame(larger, 31, 1)), 3);
+        assertNear(larger, tracker.track(frame(larger, 31, 1), 0, 0), 3);
     }
 
     @Test public void clearsWhenTheTargetLeavesAndRequiresAManualSelection() {
         ManualTargetTracker tracker = new ManualTargetTracker();
         assertTrue(tracker.select(frame(SELECTED, 0, 1), SELECTED));
-        assertNull(tracker.track(frame(null, 15, 1)));
-        assertNull(tracker.track(frame(SELECTED, 18, 1)));
+        assertNull(tracker.track(frame(null, 15, 1), 0, 0));
+        assertNull(tracker.track(frame(SELECTED, 18, 1), 0, 0));
+    }
+
+    @Test public void aSimilarItemInTheSamePlaceDoesNotInheritTheOutline() {
+        ManualTargetTracker tracker = new ManualTargetTracker();
+        assertTrue(tracker.select(frame(SELECTED, 0, 1), SELECTED));
+        assertNull(tracker.track(frame(SELECTED, 0, 2), 0, 0));
+    }
+
+    @Test public void smallChangesInSeveralFieldsAreNotJustMotion() {
+        ManualTargetTracker tracker = new ManualTargetTracker();
+        assertTrue(tracker.select(frame(SELECTED, 0, 1), SELECTED));
+        assertNull(tracker.track(frame(SELECTED, 0, 3), 0, 0));
     }
 
     @Test public void flatSelectionAndChangedFrameGeometryCannotKeepTheBox() {
         ManualTargetTracker tracker = new ManualTargetTracker();
         assertFalse(tracker.select(new Fixture(340, 490, null, -1, 1), SELECTED));
         assertTrue(tracker.select(frame(SELECTED, 0, 1), SELECTED));
-        assertNull(tracker.track(new Fixture(490, 340, null, 0, 1)));
+        assertNull(tracker.track(new Fixture(490, 340, null, 0, 1), 0, 0));
     }
 
     @Test public void delayedOcrIsRejectedAfterSamePositionContentChangesOrDisappears() {
@@ -107,8 +119,11 @@ public class ManualTargetTrackerTest {
             int sx = (x - box.x) * 182 / box.width;
             int sy = (y - box.y) * 124 / box.height;
             if (sx < 6 || sy < 6 || sx >= 176 || sy >= 118) return 52;
+            if (content == 3 && sy >= 41 && sy < 47 && sx >= 24 && sx <= 145 && sx % 37 < 6) return 42;
             if (sy >= 89 && sy <= 109 && sx >= 16 && sx <= 165) return 92;
-            if (sy >= 15 && sy <= 37 && sx >= 17 && sx <= 77) return (sx / 6 + content) % 3 == 0 ? 32 : 225;
+            if (sy >= 15 && sy <= 37 && sx >= 17 && sx <= 77) {
+                return (sx / 6 + (content == 2 ? 2 : 1)) % 3 == 0 ? 32 : 225;
+            }
             if (sy >= 52 && sy <= 75 && (sx + sy / 5) % 18 <= 5) return 78;
             return 231;
         }

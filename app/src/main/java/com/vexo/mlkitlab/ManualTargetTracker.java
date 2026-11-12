@@ -10,12 +10,18 @@ final class ManualTargetTracker {
     private static final int COARSE_COLUMNS = 8;
     private static final int COARSE_ROWS = 6;
     private static final int SEEDS_PER_SCALE = 3;
+    private static final int IDENTITY_COLUMNS = 96;
+    private static final int IDENTITY_ROWS = 64;
+    private static final int IDENTITY_TILE = 8;
+    private static final int TRANSLATION_DIFFERENCES = 14;
     private static final int MIN_SIDE = 24;
     private static final int MAX_ERROR = 18;
     private static final int[] SCALES = {100, 90, 110};
 
     private Sample[] template;
     private int[] coarseTemplate;
+    private short[] identity;
+    private short[] sameSizeIdentity;
     private Box box;
     private int originalWidth;
     private int originalHeight;
@@ -41,6 +47,8 @@ final class ManualTargetTracker {
         if (texture < 4) return false;
 
         template = samples;
+        identity = sampleIdentity(pixels, region, 0, 0);
+        sameSizeIdentity = identity;
         coarseTemplate = new int[COARSE_COLUMNS * COARSE_ROWS];
         IntegralLuma anchor = new IntegralLuma(pixels, region.x, region.y,
             region.x + region.width, region.y + region.height);
@@ -56,14 +64,15 @@ final class ManualTargetTracker {
         return true;
     }
 
-    Box track(Pixels pixels) {
+    Box track(Pixels pixels, int outlineMargin, int outlineHalfStroke) {
         if (box == null || pixels.width() != frameWidth || pixels.height() != frameHeight) {
             clear();
             return null;
         }
 
         Shape current = new Shape(box.width, box.height);
-        if (score(pixels, current, box.x, box.y) == 0) return box;
+        if (score(pixels, current, box.x, box.y) == 0
+                && matchesTranslation(pixels, box, outlineMargin, outlineHalfStroke)) return box;
 
         int radius = Math.min(160, Math.max(36, (box.width + box.height) / 4));
         int step = 6;
@@ -92,13 +101,21 @@ final class ManualTargetTracker {
             clear();
             return null;
         }
-        box = new Box(best.x, best.y, best.shape.width, best.shape.height);
+        Box candidate = new Box(best.x, best.y, best.shape.width, best.shape.height);
+        Box verified = verifyIdentity(pixels, candidate, outlineMargin, outlineHalfStroke);
+        if (verified == null) {
+            clear();
+            return null;
+        }
+        box = verified;
         return box;
     }
 
     void clear() {
         template = null;
         coarseTemplate = null;
+        identity = null;
+        sameSizeIdentity = null;
         box = null;
     }
 
@@ -208,6 +225,95 @@ final class ManualTargetTracker {
     private static int centerDistance(Match match, Box region) {
         return Math.abs(2 * (match.x - region.x) + match.shape.width - region.width)
             + Math.abs(2 * (match.y - region.y) + match.shape.height - region.height);
+    }
+
+    private Box verifyIdentity(Pixels pixels, Box candidate, int margin, int halfStroke) {
+        if (candidate.width != box.width || candidate.height != box.height) {
+            if (!matchesResize(pixels, candidate, margin, halfStroke)) return null;
+            sameSizeIdentity = sampleIdentity(pixels, candidate, margin, halfStroke);
+            return candidate;
+        }
+
+        if (matchesTranslation(pixels, candidate, margin, halfStroke)) return candidate;
+        // Refine a one-pixel alignment error before declaring a different object.
+        for (int dy = -1; dy <= 1; dy++) {
+            for (int dx = -1; dx <= 1; dx++) {
+                if (dx == 0 && dy == 0) continue;
+                Box shifted = new Box(candidate.x + dx, candidate.y + dy, candidate.width, candidate.height);
+                if (fits(pixels, shifted) && matchesTranslation(pixels, shifted, margin, halfStroke)) {
+                    return shifted;
+                }
+            }
+        }
+        return null;
+    }
+
+    private boolean matchesTranslation(Pixels pixels, Box candidate, int margin, int halfStroke) {
+        int changed = 0;
+        for (int row = 0; row < IDENTITY_ROWS; row++) {
+            for (int column = 0; column < IDENTITY_COLUMNS; column++) {
+                int original = sameSizeIdentity[row * IDENTITY_COLUMNS + column];
+                if (original < 0) continue;
+                int px = identityCoordinate(candidate.x, candidate.width, column, IDENTITY_COLUMNS);
+                int py = identityCoordinate(candidate.y, candidate.height, row, IDENTITY_ROWS);
+                if (halfStroke > 0 && onOldOutline(px, py, margin, halfStroke)) continue;
+                if (Math.abs(original - pixels.luminance(px, py)) >= 48
+                        && ++changed > TRANSLATION_DIFFERENCES) return false;
+            }
+        }
+        return true;
+    }
+
+    private boolean matchesResize(Pixels pixels, Box candidate, int margin, int halfStroke) {
+        // A similar-looking row may occupy the same location. Check small interior
+        // patches, where its lettering differs, before transferring the outline.
+        for (int row = 0; row < IDENTITY_ROWS; row += IDENTITY_TILE) {
+            for (int column = 0; column < IDENTITY_COLUMNS; column += IDENTITY_TILE) {
+                int changed = 0;
+                int samples = 0;
+                for (int y = row; y < row + IDENTITY_TILE; y++) {
+                    for (int x = column; x < column + IDENTITY_TILE; x++) {
+                        int px = identityCoordinate(candidate.x, candidate.width, x, IDENTITY_COLUMNS);
+                        int py = identityCoordinate(candidate.y, candidate.height, y, IDENTITY_ROWS);
+                        if (halfStroke > 0 && onOldOutline(px, py, margin, halfStroke)) continue;
+                        int original = identity[y * IDENTITY_COLUMNS + x];
+                        if (Math.abs(original - pixels.luminance(px, py)) >= 48) changed++;
+                        samples++;
+                    }
+                }
+                if (samples >= 24 && changed * 4 > samples) return false;
+            }
+        }
+        return true;
+    }
+
+    private boolean onOldOutline(int x, int y, int margin, int stroke) {
+        int left = box.x - margin;
+        int top = box.y - margin;
+        int right = box.x + box.width + margin;
+        int bottom = box.y + box.height + margin;
+        boolean inX = x >= left - stroke && x <= right + stroke;
+        boolean inY = y >= top - stroke && y <= bottom + stroke;
+        return (inY && (Math.abs(x - left) <= stroke || Math.abs(x - right) <= stroke))
+            || (inX && (Math.abs(y - top) <= stroke || Math.abs(y - bottom) <= stroke));
+    }
+
+    private short[] sampleIdentity(Pixels pixels, Box region, int margin, int halfStroke) {
+        short[] samples = new short[IDENTITY_COLUMNS * IDENTITY_ROWS];
+        for (int row = 0; row < IDENTITY_ROWS; row++) {
+            for (int column = 0; column < IDENTITY_COLUMNS; column++) {
+                int x = identityCoordinate(region.x, region.width, column, IDENTITY_COLUMNS);
+                int y = identityCoordinate(region.y, region.height, row, IDENTITY_ROWS);
+                samples[row * IDENTITY_COLUMNS + column] = (short)
+                    (halfStroke > 0 && onOldOutline(x, y, margin, halfStroke) ? -1 : pixels.luminance(x, y));
+            }
+        }
+        return samples;
+    }
+
+    private static int identityCoordinate(int start, int size, int sample, int count) {
+        int inset = size / 32;
+        return start + inset + (2 * sample + 1) * (size - 2 * inset) / (2 * count);
     }
 
     private int score(Pixels pixels, Shape shape, int left, int top) {

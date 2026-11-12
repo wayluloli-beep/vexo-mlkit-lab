@@ -323,7 +323,7 @@ public final class ManualVisionService extends Service implements ManualVisionOv
                 }
                 tracked = selected;
             } else {
-                tracked = tracker.track(pixels);
+                tracked = tracker.track(pixels, geometry.dipInFrame(4), geometry.dipInFrame(3));
                 if (tracked == null) {
                     clearTarget();
                     publish("Alvo perdido · marque de novo");
@@ -523,6 +523,10 @@ public final class ManualVisionService extends Service implements ManualVisionOv
             return new Rect(coordinate(frame.x, width, screenWidth), coordinate(frame.y, height, screenHeight),
                 coordinate(frame.x + frame.width, width, screenWidth),
                 coordinate(frame.y + frame.height, height, screenHeight));
+        }
+
+        int dipInFrame(int dp) {
+            return Math.max(1, Math.round(dp * (density / 160f) * width / screenWidth));
         }
 
         private static int coordinate(int value, int from, int to) {
