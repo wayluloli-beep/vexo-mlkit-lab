@@ -11,7 +11,16 @@ public final class OfferParser {
         "(?i)(\\d{1,3})\\s*min\\s*\\(?\\s*(\\d{1,4}(?:[.,]\\d{1,2})?)\\s*km\\s*\\)?");
     private static final Pattern RATING = Pattern.compile(
         "(?i)(?:nota|avalia(?:ç|c)[aã]o|⭐|★)\\s*[:\\s]*([0-5][.,]\\d{1,2})");
+    private static final Pattern SEARCHING = Pattern.compile(
+        "(?iu)\\b(?:buscando|procurando)\\s+(?:corridas|viagens)\\b");
+    private static final Pattern OFFER_HINT = Pattern.compile(
+        "(?iu)r\\s*\\$|\\b(?:aceitar|escolher|moto|negocia|priorit[aá]rio|entrega)\\b" +
+        "|\\b\\d+(?:[.,]\\d+)?\\s*(?:min|km)\\b");
     private OfferParser() { }
+
+    static boolean clearlyNoOffer(String text) {
+        return text != null && SEARCHING.matcher(text).find() && !OFFER_HINT.matcher(text).find();
+    }
 
     public static OfferRecord parse(String input, long now) {
         String text = input == null ? "" : input.replace('\r', '\n');

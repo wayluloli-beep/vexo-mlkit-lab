@@ -7,6 +7,7 @@ import android.app.PendingIntent;
 import android.app.Service;
 import android.content.Intent;
 import android.content.pm.ServiceInfo;
+import android.database.SQLException;
 import android.graphics.Bitmap;
 import android.graphics.PixelFormat;
 import android.hardware.display.DisplayManager;
@@ -47,6 +48,8 @@ public final class ScreenReadService extends Service {
     private static final long OCR_TTL_MS = 2300L;
 
     private final AtomicBoolean busy = new AtomicBoolean(false);
+    private final Object publicationLock = new Object();
+    private final OfferPublicationGate offers = new OfferPublicationGate();
     private MediaProjection projection;
     private MediaProjection.Callback projectionCallback;
     private VirtualDisplay virtualDisplay;
@@ -57,15 +60,12 @@ public final class ScreenReadService extends Service {
     private RideDb db;
 
     private volatile boolean closing;
+    private volatile boolean visible = true;
     private volatile int epoch;
     private int[] lastSamples;
-    private boolean wasOwnUiVisible;
     private long lastOcrAt;
-    private long generation;
-    private String candidateFingerprint = "";
-    private int candidateCount;
-    private String publishedFingerprint = "";
-    private int publishedEpoch = -1;
+    private volatile long generation;
+    private boolean wasOwnUiVisible;
     private int displayWidth, displayHeight, densityDpi;
 
     @Override public void onCreate() {
@@ -78,6 +78,7 @@ public final class ScreenReadService extends Service {
 
     @Override public int onStartCommand(Intent intent, int flags, int startId) {
         if (intent == null || ACTION_STOP.equals(intent.getAction())) {
+            endCapture("Captura desligada");
             stopSelf();
             return START_NOT_STICKY;
         }
@@ -99,13 +100,11 @@ public final class ScreenReadService extends Service {
         }
         try {
             closing = false;
+            visible = true;
             generation = SystemClock.elapsedRealtimeNanos();
             epoch = 0;
-            candidateCount = 0;
-            publishedEpoch = -1;
             lastSamples = null;
-            candidateFingerprint = "";
-            publishedFingerprint = "";
+            offers.reset();
             lastOcrAt = 0;
             ScreenState.receivedFrames = 0;
             ScreenState.ocrCompleted = 0;
@@ -127,7 +126,7 @@ public final class ScreenReadService extends Service {
             projection = pm.getMediaProjection(grantResult, grant);
             projectionCallback = new MediaProjection.Callback() {
                 @Override public void onStop() {
-                    ScreenState.invalidate("Android encerrou a captura");
+                    endCapture("Android encerrou a captura");
                     stopSelf();
                 }
                 @Override public void onCapturedContentResize(int width, int height) {
@@ -136,7 +135,14 @@ public final class ScreenReadService extends Service {
                     }
                 }
                 @Override public void onCapturedContentVisibilityChanged(boolean isVisible) {
-                    if (!isVisible) ScreenState.invalidate("Tela-alvo oculta: oferta invalidada");
+                    synchronized (publicationLock) {
+                        if (closing || visible == isVisible) return;
+                        visible = isVisible;
+                        epoch++;
+                        lastSamples = null;
+                        ScreenState.invalidate(isVisible ? "Tela visível · revalidando oferta" :
+                            "Tela-alvo oculta · aguardando visibilidade");
+                    }
                 }
             };
             projection.registerCallback(projectionCallback, captureHandler);
@@ -179,6 +185,7 @@ public final class ScreenReadService extends Service {
 
     private void resizeCapture(int width, int height) {
         if (closing || virtualDisplay == null || (width == displayWidth && height == displayHeight)) return;
+        invalidateFrame("Geometria alterada · revalidando oferta");
         // Reconfigure the SAME VirtualDisplay: Android 14+ forbids a second
         // createVirtualDisplay() with a previously used consent token.
         ImageReader old = reader;
@@ -190,40 +197,30 @@ public final class ScreenReadService extends Service {
         if (old != null) old.close();
         displayWidth = width;
         displayHeight = height;
-        epoch++;
         lastSamples = null;
-        candidateCount = 0;
-        ScreenState.invalidate("Geometria alterada. Revalidando o card");
     }
 
     private void onFrame(ImageReader source) {
         Image image = null;
         try {
             image = source.acquireLatestImage();
-            if (image == null || closing || !ScreenState.active) return;
-            long now = SystemClock.elapsedRealtime();
-            ScreenState.lastFrameAt = now;
-            ScreenState.receivedFrames++;
-            // Prevent a full-screen capture from OCR-ing Vexo's own history
-            // and mistakenly saving the same displayed offer again.
+            if (image == null || source != reader || closing || !visible || !ScreenState.active) return;
+            // Do not turn Vexo's own history into a new observation on full-screen capture.
             if (ScreenState.ownUiVisible) {
                 if (!wasOwnUiVisible) {
-                    epoch++;
-                    ScreenState.invalidate("Vexo aberto · leitura da própria tela bloqueada");
+                    invalidateFrame("Vexo aberto · leitura da própria tela bloqueada");
                     wasOwnUiVisible = true;
                 }
                 lastSamples = null;
-                candidateCount = 0;
-                candidateFingerprint = "";
                 return;
             }
             wasOwnUiVisible = false;
+            long now = SystemClock.elapsedRealtime();
+            ScreenState.lastFrameAt = now;
+            ScreenState.receivedFrames++;
             int[] samples = sampleLuma(image);
             if (lastSamples != null && significantChange(lastSamples, samples)) {
-                epoch++;
-                candidateCount = 0;
-                candidateFingerprint = "";
-                ScreenState.invalidate("Mudança visual detectada: aguardando nova leitura");
+                invalidateFrame("Mudança visual detectada · revalidando oferta");
             }
             lastSamples = samples;
             if (now - lastOcrAt < OCR_INTERVAL_MS || !busy.compareAndSet(false, true)) return;
@@ -237,43 +234,14 @@ public final class ScreenReadService extends Service {
                 return;
             }
             recognizer.process(InputImage.fromBitmap(crop, 0))
-                .addOnSuccessListener(result -> {
-                    if (closing || !ScreenState.active || ScreenState.ownUiVisible ||
-                        captureGeneration != generation ||
-                        frameEpoch != epoch ||
-                        SystemClock.elapsedRealtime() - capturedAt > OCR_TTL_MS) return;
-                    ScreenState.ocrCompleted++;
-                    OfferRecord r = OfferParser.parse(result.getText(), System.currentTimeMillis());
-                    ScreenState.lastReadingAt = SystemClock.elapsedRealtime();
-                    if (!r.hasMinimumFields()) {
-                        candidateCount = 0;
-                        candidateFingerprint = "";
-                        ScreenState.preview = null;
-                        ScreenState.status = "OCR ativo · dados incompletos ou não é uma oferta";
-                        return;
-                    }
-                    String signature = r.fingerprint();
-                    if (signature.equals(candidateFingerprint)) candidateCount++;
-                    else {
-                        candidateFingerprint = signature;
-                        candidateCount = 1;
-                    }
-                    // A single OCR pass is never persisted as a valid observed offer.
-                    ScreenState.preview = r;
-                    if (candidateCount < 2) {
-                        ScreenState.status = "Oferta candidata · aguardando segunda leitura";
-                        return;
-                    }
-                    if (!signature.equals(publishedFingerprint) || publishedEpoch != epoch) {
-                        db.insert(r);
-                        publishedFingerprint = signature;
-                        publishedEpoch = epoch;
-                    }
-                    ScreenState.status = "Oferta observada (não significa corrida aceita)";
-                })
+                .addOnSuccessListener(result -> acceptReading(
+                    result.getText(), capturedAt, captureGeneration, frameEpoch))
                 .addOnFailureListener(e -> {
-                    if (!closing && frameEpoch == epoch) {
-                        ScreenState.invalidate("Erro de OCR · nova tentativa no próximo ciclo");
+                    synchronized (publicationLock) {
+                        if (currentResult(capturedAt, captureGeneration, frameEpoch)) {
+                            offers.observe(null, frameEpoch, false);
+                            ScreenState.invalidate("Erro de OCR · nova tentativa no próximo ciclo");
+                        }
                     }
                 })
                 .addOnCompleteListener(task -> {
@@ -285,6 +253,63 @@ public final class ScreenReadService extends Service {
             if (!closing) ScreenState.invalidate("Falha de frame: " + e.getClass().getSimpleName());
         } finally {
             if (image != null) image.close();
+        }
+    }
+
+    private void acceptReading(String text, long capturedAt, long session, int frameEpoch) {
+        if (!currentResult(capturedAt, session, frameEpoch)) return;
+        OfferRecord offer = OfferParser.parse(text, System.currentTimeMillis());
+        String fingerprint = offer.hasMinimumFields() ? offer.fingerprint() : null;
+        boolean clearlyNoOffer = fingerprint == null && OfferParser.clearlyNoOffer(text);
+        synchronized (publicationLock) {
+            if (!currentResult(capturedAt, session, frameEpoch)) return;
+            ScreenState.ocrCompleted++;
+            ScreenState.lastReadingAt = SystemClock.elapsedRealtime();
+            OfferPublicationGate.Decision decision = offers.observe(fingerprint, frameEpoch, clearlyNoOffer);
+            ScreenState.preview = fingerprint == null ? null : offer;
+            switch (decision) {
+                case INCOMPLETE:
+                    ScreenState.status = "OCR ativo · aguardando oferta legível";
+                    break;
+                case CONFIRMING:
+                    ScreenState.status = "Oferta candidata · aguardando segunda leitura";
+                    break;
+                case ALREADY_RECORDED:
+                    ScreenState.status = "Oferta já registrada";
+                    break;
+                case SAVE:
+                    try {
+                        db.insert(offer);
+                        offers.saved(fingerprint);
+                        ScreenState.status = "Oferta observada · salva no aparelho";
+                    } catch (SQLException failure) {
+                        ScreenState.status = "Oferta lida · falha ao salvar";
+                    }
+                    break;
+            }
+        }
+    }
+
+    private boolean currentResult(long capturedAt, long session, int frameEpoch) {
+        return !closing && visible && ScreenState.active && !ScreenState.ownUiVisible
+            && session == generation && frameEpoch == epoch
+            && SystemClock.elapsedRealtime() - capturedAt <= OCR_TTL_MS;
+    }
+
+    private void invalidateFrame(String status) {
+        synchronized (publicationLock) {
+            if (closing) return;
+            epoch++;
+            ScreenState.invalidate(status);
+        }
+    }
+
+    private void endCapture(String status) {
+        synchronized (publicationLock) {
+            closing = true;
+            epoch++;
+            ScreenState.active = false;
+            ScreenState.invalidate(status);
         }
     }
 
@@ -337,11 +362,7 @@ public final class ScreenReadService extends Service {
     }
 
     @Override public void onDestroy() {
-        closing = true;
-        generation++;
-        epoch++;
-        ScreenState.active = false;
-        ScreenState.invalidate("Captura desligada · leituras antigas descartadas");
+        endCapture("Captura desligada");
         if (reader != null) {
             reader.setOnImageAvailableListener(null, null);
             reader.close();

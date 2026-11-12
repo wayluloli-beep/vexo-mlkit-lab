@@ -7,8 +7,8 @@ public final class OfferParserTest {
     private static final String CARD =
         "Moto Negocia\nR$ 72,32\n⚡ 3,2x\nR$ 118,61/hora\n" +
         "⭐ 4,73 • 114 corridas\n" +
-        "5 min (1,5 km)\nRua Bento Hinoto, 48, Nossa Sra. de Fátima\n" +
-        "32 min (20,2 km)\nRua Augusto Pereira dos Reis, 417, Torreões\n" +
+        "5 min (1,5 km)\nPonto fictício A\n" +
+        "32 min (20,2 km)\nPonto fictício B\n" +
         "Aceitar por R$ 72,32";
 
     @Test public void readsScreenshotWithoutBorrowingHourlyRate() {
@@ -19,8 +19,8 @@ public final class OfferParserTest {
         assertEquals(32, r.destinationMin);
         assertEquals(202, r.destinationTenthsKm);
         assertEquals("4,73", r.rating);
-        assertTrue(r.origin.startsWith("Rua Bento"));
-        assertTrue(r.destination.startsWith("Rua Augusto"));
+        assertTrue(r.origin.equals("Ponto fictício A"));
+        assertTrue(r.destination.equals("Ponto fictício B"));
         assertTrue(r.hasMinimumFields());
     }
 
@@ -42,7 +42,7 @@ public final class OfferParserTest {
 
     @Test public void fingerprintChangesIfDestinationChanges() {
         OfferRecord a = OfferParser.parse(CARD, 1L);
-        OfferRecord b = OfferParser.parse(CARD.replace("Torreões", "Centro"), 2L);
+        OfferRecord b = OfferParser.parse(CARD.replace("Ponto fictício B", "Ponto fictício C"), 2L);
         assertNotEquals(a.fingerprint(), b.fingerprint());
     }
 
