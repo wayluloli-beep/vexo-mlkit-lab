@@ -6,12 +6,13 @@ import android.graphics.Color;
 import android.graphics.Paint;
 import android.graphics.Rect;
 import android.graphics.PixelFormat;
-import android.os.Build;
+import android.os.Handler;
+import android.os.Looper;
+import android.os.SystemClock;
 import android.view.Gravity;
 import android.view.View;
 import android.view.WindowManager;
 import java.util.ArrayList;
-import java.util.Collections;
 import java.util.List;
 
 /**
@@ -34,6 +35,21 @@ final class LiveRadarDebugOverlay {
     private final List<Rect> ocrBoxes=new ArrayList<>();
     private int ocrWidth,ocrHeight;
     private long ocrSeenAt=-1;
+    private long lastFrameAt=-1;
+    private boolean stalled=false;
+    private final Handler main=new Handler(Looper.getMainLooper());
+    private final Runnable heartbeat=new Runnable() {
+        @Override public void run() {
+            if(view==null)return;
+            long now=SystemClock.elapsedRealtime();
+            if(lastFrameAt>=0 && now-lastFrameAt>=1000) {
+                stalled=true;fps=0;working=false;
+                motionBox=null;ocrBoxes.clear();ocrSeenAt=-1;
+                view.invalidate();
+            }
+            if(view!=null)main.postDelayed(this,300);
+        }
+    };
 
     LiveRadarDebugOverlay(Context context) {
         this.context=context.getApplicationContext();
@@ -44,6 +60,7 @@ final class LiveRadarDebugOverlay {
                       LiveScreenMotionDetector.Observation obs,
                       int frames,int ocrRead,boolean ocrBusy,long nowMs) {
         if(obs==null || !obs.current) return;
+        lastFrameAt=nowMs;stalled=false;
         this.width=sourceW;this.height=sourceH;
         this.frames=frames;this.ocrRead=ocrRead;
         fps=obs.fps;working=ocrBusy;
@@ -92,15 +109,16 @@ final class LiveRadarDebugOverlay {
                 WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN,
             PixelFormat.TRANSLUCENT);
         lp.gravity=Gravity.TOP|Gravity.START;
-        lp.alpha=.65f;
+        lp.alpha=.38f; // camada transparente NÃO captura toques nem encobre demais a 99
         lp.setTitle("Vexo radar - somente marcadores e contadores, sem dados");
-        try {wm.addView(view,lp);return true;}
+        try {wm.addView(view,lp);main.postDelayed(heartbeat,300);return true;}
         catch(RuntimeException err) {view=null;return false;}
     }
 
     void hide() {
         View old=view;view=null;
-        motionBox=null;ocrBoxes.clear();ocrSeenAt=-1;
+        motionBox=null;ocrBoxes.clear();ocrSeenAt=-1;lastFrameAt=-1;stalled=false;
+        main.removeCallbacks(heartbeat);
         if(old!=null && wm!=null)try {wm.removeView(old);}catch(RuntimeException ignored) {}
     }
 
@@ -118,13 +136,14 @@ final class LiveRadarDebugOverlay {
             paint.setColor(Color.WHITE);
             c.drawText("VEXO • RADAR VISUAL",side+8*density,base+17*density,paint);
             paint.setTextSize(11*density);
-            String mode=fullTransition?"TROCA DE TELA":
+            String mode=stalled?"SEM FRAMES — CAPTURA CONGELADA":
+                fullTransition?"TROCA DE TELA":
                 visualChanged?"REGIÃO EM MOVIMENTO":"SEM MOVIMENTO NOVO";
             c.drawText("FPS recebido: "+fps+"  •  quadros: "+frames,
                 side+8*density,base+34*density,paint);
             c.drawText(mode+"  •  OCR: "+(working?"OCUPADO":"AGUARDANDO"),
                 side+8*density,base+49*density,paint);
-            c.drawText("Blocos OCR: "+ocrRead+"  •  NÃO CONFIRMA 99 AO VIVO",
+            c.drawText("OCR concluídos: "+ocrRead+"  •  caixas texto: "+ocrBoxes.size(),
                 side+8*density,base+64*density,paint);
             if(motionBox!=null && width>0 && height>0) {
                 float sx=getWidth()/(float)width,sy=getHeight()/(float)height;
