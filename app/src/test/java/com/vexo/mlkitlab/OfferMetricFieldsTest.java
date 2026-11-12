@@ -7,7 +7,6 @@ import java.util.List;
 import java.util.ArrayList;
 import static org.junit.Assert.*;
 
-/** Invented examples exercise the six customer-facing numbers only. */
 public final class OfferMetricFieldsTest {
     private static AutoCardOcrLocator.Line l(String t,int x,int y,int w,int h){
         return new AutoCardOcrLocator.Line(t,new Box(x,y,w,h));
@@ -86,5 +85,17 @@ public final class OfferMetricFieldsTest {
         OfferMetricFields f=OfferMetricFields.fromLines(lines,r);
         assertNotNull(f);
         assertEquals("R$ 8,30",f.price);
+    }
+
+    @Test public void rejectsImplausibleFinancialOrRouteValues() {
+        List<AutoCardOcrLocator.Line> lines=sample();
+        lines.set(1,l("R$ 999,99",50,585,245,64));
+        assertNull(OfferMetricFields.fromLines(lines,
+            AutoCardOcrLocator.locate(lines,720,1500)));
+
+        lines=sample();
+        lines.set(4,l("0 min (0,0 km)",61,930,223,36));
+        assertNull(OfferMetricFields.fromLines(lines,
+            AutoCardOcrLocator.locate(lines,720,1500)));
     }
 }
