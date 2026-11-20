@@ -1,25 +1,32 @@
-name: Aura neural voice model metadata
+name: Vexo R21 Aura neural voice Kotlin integration
 'on':
   push:
     branches: [vexo-r21-aura-sync-voice]
 permissions:
   contents: read
 jobs:
-  model:
+  compile:
     runs-on: ubuntu-26.04
-    timeout-minutes: 6
+    timeout-minutes: 19
     steps:
-      - name: Verify neural Brazilian Portuguese female model manifest
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          persist-credentials: false
+      - name: Verify native voice integration (no model download)
         shell: bash
         run: |
-          python3 - <<'PY'
-          import json, urllib.request
-          base='https://huggingface.co/api/models/litert-community/Kokoro-82M'
-          req=urllib.request.Request(base+'/revision/main',headers={'User-Agent':'Vexo-R21-Metadata/1.0'})
-          info=json.load(urllib.request.urlopen(req,timeout=30))
-          rev=info['sha']
-          files=json.load(urllib.request.urlopen(urllib.request.Request(base+'/tree/'+rev+'?recursive=true',headers={'User-Agent':'Vexo-R21-Metadata/1.0'}),timeout=40))
-          for f in files:
-            if f.get('path') in ('kokoro_int8_gpu_fp16.litertlm','kokoro_int8_fp16.litertlm'):
-              print('AURA_MODEL_PIN',rev,f.get('path'),f.get('size'),f.get('lfs',{}).get('oid'))
-          PY
+          set -euo pipefail
+          export JAVA_HOME="$JAVA_HOME_17_X64"
+          export PATH="$JAVA_HOME/bin:$PATH"
+          work=$(mktemp -d)
+          bash qa/r19/materialize.sh "$work"
+          src="$work/src/aurora"
+          python3 qa/r20/upgrade.py "$src"
+          python3 qa/r20/vx_icon.py "$src"
+          python3 qa/r21/apply.py "$src"
+          python3 qa/r21/check.py "$src"
+          for js in "$src/app/src/main/assets/aurora/"*.js; do node --check "$js"; done
+          curl --fail --location --silent --show-error --max-time 180 https://downloads.gradle.org/distributions/gradle-8.11.1-bin.zip -o "$work/gradle.zip"
+          printf 'f397b287023acdba1e9f6fc5ea72d22dd63669d59ed4a289a29b1a76eee151c6  %s\n' "$work/gradle.zip" | sha256sum --strict --check --status
+          unzip -q "$work/gradle.zip" -d "$work"
+          "$work/gradle-8.11.1/bin/gradle" --project-dir "$src" --no-daemon --console=plain --max-workers=2 :app:compileDebugKotlin

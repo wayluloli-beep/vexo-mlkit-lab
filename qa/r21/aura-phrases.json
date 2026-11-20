@@ -1,0 +1,22 @@
+{
+  "hello": "E aí, motora. Eu sou a Aura, sua copiloto. Me diz quanto você quer botar no bolso hoje que eu filtro as corridas pra você.",
+  "fuel": "Me passa o consumo e o combustível do carro. Assim eu já desconto o seu gasto real antes de te dar o sinal verde.",
+  "meta_salva": "Meta salva. A partir de agora, eu calculo cada chamada na hora e te aviso o que realmente vale a pena.",
+  "consentimento": "Só preciso da sua permissão pra ler os cards da 99 na tela. Fica tranquilo, eu só olho os valores da corrida.",
+  "aura_ativa": "Copiloto ativa. Pode abrir a 99, tô de olho nas chamadas.",
+  "retomada": "De volta na pista. Faltam sessenta e cinco reais pra bater sua meta de hoje.",
+  "boa_km": "Boa! Três e quarenta o quilômetro. Vai fundo.",
+  "livre": "Essa compensa: vinte e oito reais livre no bolso.",
+  "ritmo_hora": "Ritmo de quarenta e cinco reais a hora. Pode aceitar.",
+  "limite": "Um e noventa e cinco o quilômetro. No limite, só vai se o destino te ajudar.",
+  "tiro_curto": "Tiro curto: nove e cinquenta em seis minutos. Dá pra encaixar.",
+  "cilada": "Cilada: um e dez o quilômetro. Vai pagar pra trabalhar.",
+  "nao_compensa": "Não compensa: dezoito reais a hora. Pula essa.",
+  "busca_longe": "Muito longe pra buscar, um e vinte e cinco o quilômetro total. Deixa passar.",
+  "uma_hora": "Uma hora de pista: você tá fazendo trinta e seis reais livre por hora. Ritmo dentro da meta.",
+  "ritmo_caiu": "Ritmo caiu pra vinte e dois reais a hora. Quer ajustar a meta ou mudar de região?",
+  "meta_perto": "Faltam só vinte e quatro reais pra fechar sua meta do dia.",
+  "meta_batida": "Meta batida! Tudo que entrar agora é lucro extra no bolso.",
+  "oleo": "Aviso rápido: faltam trezentos quilômetros pra próxima troca de óleo.",
+  "turno_fim": "Turno encerrado. Você rodou cinco horas e vinte, faturou duzentos e dez bruto e botou cento e cinquenta e oito livre no bolso. Bom descanso."
+}
