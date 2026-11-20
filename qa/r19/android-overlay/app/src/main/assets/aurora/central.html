@@ -1,0 +1,180 @@
+<!doctype html>
+<html lang="pt-BR"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"><meta name="theme-color" content="#0b1117"><title>Vexo • Início</title><link rel="stylesheet" href="central.css"><link rel="stylesheet" href="turno-ui.css"><link rel="stylesheet" href="comfort.css"><link rel="stylesheet" href="privacy-values.css"><script src="privacy-values.js"></script><script defer src="comfort.js"></script><script defer src="product-flags.js"></script><script defer src="caixa.js"></script><script defer src="turno.js"></script><script defer src="turno-storage.js"></script><script defer src="turno-ui.js"></script><script defer src="quick-value.js"></script><script defer src="central.js"></script><script defer src="feedback.js"></script></head>
+<body><div class="shell">
+<header><div class="wordmark"><span class="logo" aria-hidden="true"><svg class="brand-mark" viewBox="0 0 300 260" aria-hidden="true" focusable="false">
+  <defs>
+    <path id="brand-back" d="M0 0h85l215 260h-85z"/>
+    <path id="brand-front" d="M215 0h85L85 260H0z"/>
+    <linearGradient id="brand-titanium-back" x1="0" y1="0" x2="1" y2="1">
+      <stop stop-color="#1a5362"/><stop offset=".38" stop-color="#12394a"/><stop offset=".72" stop-color="#165263"/><stop offset="1" stop-color="#0b2638"/>
+    </linearGradient>
+    <linearGradient id="brand-titanium-front" x1="0" y1="1" x2="1" y2="0">
+      <stop stop-color="#164553"/><stop offset=".35" stop-color="#215b69"/><stop offset=".54" stop-color="#143944"/><stop offset=".80" stop-color="#348b99"/><stop offset="1" stop-color="#265260"/>
+    </linearGradient>
+    <linearGradient id="brand-chamfer" x1="0" y1="0" x2="1" y2="1">
+      <stop stop-color="#8dd6df" stop-opacity=".61"/><stop offset=".50" stop-color="#44899a" stop-opacity=".36"/><stop offset="1" stop-color="#45b5c3" stop-opacity=".09"/>
+    </linearGradient>
+  </defs>
+  <g class="brand-face" stroke="url(#brand-chamfer)" stroke-linejoin="round">
+    <use href="#brand-back" fill="url(#brand-titanium-back)" stroke-width=".78"/>
+    <use href="#brand-front" fill="url(#brand-titanium-front)" stroke-width="1.05"/>
+    <path d="M11 253h74L294 1.5" stroke="#7dc7ce" stroke-opacity=".22" stroke-width=".72" fill="none"/>
+  </g>
+</svg></span>Vexo</div><span class="edition">Aurora</span></header>
+<main id="conteudo">
+<section id="inicio" aria-labelledby="h-inicio"><h1 id="h-inicio" tabindex="-1">Painel do motorista</h1>
+<div id="privacy-values" class="privacy-values" role="group" aria-label="Privacidade dos valores" hidden>
+  <button id="privacy-toggle" type="button" class="outline">Ocultar valores</button>
+  <label for="privacy-auto"><input id="privacy-auto" type="checkbox">Ocultar após 30 segundos sem interação</label>
+  <p id="privacy-status" class="privacy-status" role="status" aria-atomic="true"></p>
+</div>
+<section class="turno-card" aria-labelledby="turno-title">
+<div class="turno-heading"><div><p class="kicker">Hoje</p><h2 id="turno-title">Meu turno</h2></div><span id="turno-badge" class="turno-badge" hidden>Em andamento</span></div>
+<dl class="turno-totals">
+<div><dt>Recebido</dt><dd id="turno-received">—</dd></div>
+<div><dt>Gastos informados</dt><dd id="turno-spent">—</dd></div>
+<div><dt>Sobra após gastos</dt><dd id="turno-net">—</dd></div>
+</dl>
+<p id="turno-state" class="detail">Sem turno em andamento.</p>
+<button type="button" id="turno-action" class="solid">Iniciar turno</button>
+<form id="turno-form" aria-labelledby="turno-form-title" hidden novalidate>
+  <h3 id="turno-form-title">Fechar turno</h3>
+  <p id="turno-step-label" aria-live="polite" aria-atomic="true">Etapa 1 de 3</p>
+
+  <fieldset data-turn-step="1" aria-describedby="turno-recebimentos-help">
+    <legend tabindex="-1">Recebimentos em reais</legend>
+    <p id="turno-recebimentos-help" class="detail">Informe pelo menos um valor. Se não recebeu nada, digite 0.</p>
+    <div class="turno-fields">
+      <label for="t-uber">Uber<input type="text" id="t-uber" name="uber" inputmode="decimal" maxlength="14" autocomplete="off"></label>
+      <label for="t-nove">99<input type="text" id="t-nove" name="nove" inputmode="decimal" maxlength="14" autocomplete="off"></label>
+      <label for="t-indrive">inDrive<input type="text" id="t-indrive" name="indrive" inputmode="decimal" maxlength="14" autocomplete="off"></label>
+      <label for="t-outros">Outros recebimentos<input type="text" id="t-outros" name="outros" inputmode="decimal" maxlength="14" autocomplete="off"></label>
+    </div>
+    <details id="turno-payment" class="turno-breakdown-box">
+      <summary>Separar dinheiro e Pix (opcional)</summary>
+      <p class="detail">É a divisão do que você já informou acima. Não soma de novo.</p>
+      <div class="turno-fields">
+        <label for="t-cash">Em espécie (R$)<input type="text" id="t-cash" name="cash" inputmode="decimal" maxlength="14" autocomplete="off"></label>
+        <label for="t-pix">Na conta ou Pix (R$)<input type="text" id="t-pix" name="pix" inputmode="decimal" maxlength="14" autocomplete="off"></label>
+      </div>
+    </details>
+  </fieldset>
+
+  <fieldset data-turn-step="2" aria-describedby="turno-gastos-help" hidden>
+    <legend tabindex="-1">Gastos</legend>
+    <p id="turno-gastos-help" class="detail">Deixe em branco se não sabe. Digite 0 só se não houve gasto.</p>
+    <div class="turno-fields">
+      <label for="t-fuel">Combustível (R$)<input type="text" id="t-fuel" name="fuel" inputmode="decimal" maxlength="14" autocomplete="off"></label>
+      <label for="t-extra">Outros gastos (R$)<input type="text" id="t-extra" name="extra" inputmode="decimal" maxlength="14" autocomplete="off"></label>
+    </div>
+  </fieldset>
+
+  <fieldset data-turn-step="3" aria-describedby="turno-revisao-help" hidden>
+    <legend tabindex="-1">Quilômetros e resumo</legend>
+    <div class="turno-fields">
+      <label for="t-km">Quilômetros rodados<input type="text" id="t-km" name="km" inputmode="decimal" maxlength="14" autocomplete="off"></label>
+    </div>
+    <details id="turno-reserve" class="turno-breakdown-box">
+      <summary>Pote do carro (opcional)</summary>
+      <p class="detail">Sugere quanto guardar para manutenção pelos quilômetros informados. Não desconta nada da sobra.</p>
+      <div class="turno-fields">
+        <label for="t-reserve-rate">Quanto guardar por km (R$)<input type="text" id="t-reserve-rate" name="reservePerKm" inputmode="decimal" maxlength="9" autocomplete="off"></label>
+      </div>
+    </details>
+    <p id="turno-revisao-help" class="detail">Confira os valores antes de salvar. Você pode voltar para corrigir.</p>
+    <div id="turno-preview" tabindex="-1"></div>
+    <details class="turno-breakdown-box">
+      <summary>Ver a conta</summary>
+      <dl id="turno-breakdown"></dl>
+    </details>
+  </fieldset>
+
+  <div class="turno-buttons">
+    <button class="outline" id="turno-prev" type="button" hidden>Voltar</button>
+    <button class="solid" id="turno-next" type="button">Continuar</button>
+    <button class="solid" id="turno-confirm" type="submit" hidden>Salvar e fechar</button>
+  </div>
+  <button class="link" id="turno-cancel" type="button">Voltar ao turno</button>
+</form>
+
+<p id="turno-error" role="alert" hidden></p>
+<div id="turno-last" class="turno-last" hidden aria-labelledby="turno-last-title">
+<h3 id="turno-last-title">Último turno fechado</h3>
+<p id="turno-last-values"></p><p id="turno-last-rates" class="detail"></p><details class="turno-breakdown-box"><summary>Ver a conta</summary><dl id="turno-last-breakdown"></dl></details>
+</div>
+<details id="turno-history-panel" hidden><summary>Turnos anteriores</summary><ol id="turno-history"></ol></details>
+</section>
+<details id="quick-value" hidden>
+  <summary>Calcular quanto sobrou</summary>
+  <p id="quick-value-help" class="detail">Faça a conta de um turno com seus valores. Nada será salvo no histórico.</p>
+  <form id="quick-value-form" aria-describedby="quick-value-help" autocomplete="off" novalidate>
+    <div class="fields">
+      <label for="quick-value-received">Quanto recebeu (R$)<input id="quick-value-received" type="text" inputmode="decimal" maxlength="14" aria-describedby="quick-value-error"></label>
+      <label for="quick-value-spent">Gastos (R$) · opcional<input id="quick-value-spent" type="text" inputmode="decimal" maxlength="14" aria-describedby="quick-value-error"></label>
+    </div>
+    <button type="submit" class="outline">Calcular sobra</button>
+    <div id="quick-value-error" class="detail" role="alert"></div>
+    <div id="quick-value-answer" tabindex="-1" hidden>
+      <p>Sobra após gastos <strong id="quick-value-amount" data-vexo-money></strong></p>
+      <p id="quick-value-note" class="detail"></p>
+    </div>
+  </form>
+</details>
+<div class="goal"><span class="kicker">Meu plano de ganhos</span><div id="goal-value" class="goal-value">Meta a definir</div><button class="link" data-action="plano">Rever meu plano <span aria-hidden="true">↗</span></button></div>
+<button class="card central-secondary" type="button" data-page="veiculo"><span class="card-title">Meu veículo</span><span class="detail">Acompanhe combustível e manutenção.</span><span class="arrow" aria-hidden="true">→</span></button></section>
+<section id="veiculo" hidden aria-labelledby="h-veiculo"><h1 id="h-veiculo" tabindex="-1">Meu veículo</h1><iframe id="veiculo-frame" data-src="./veiculo.html" title="Meu veículo"></iframe></section>
+<section id="config" hidden aria-labelledby="h-config"><h1 id="h-config" tabindex="-1">Configurações</h1>
+<h2>Plano de ganhos</h2><p>Revise os custos que você informou e a meta de faturamento por hora.</p><button class="outline" data-action="plano">Rever meu plano</button>
+<h2>Combustível</h2><p>Salve o consumo e o preço do litro usados no plano. No fechamento, o gasto que entra na conta é o que você informou.</p>
+<form id="fuel"><div class="fields"><label>Consumo médio (km/L)<input id="km" inputmode="decimal" required maxlength="8"></label><label>Preço por litro (R$)<input id="preco" inputmode="decimal" required maxlength="8"></label></div><button type="submit" class="solid">Salvar valores</button></form>
+<section id="comfort-settings" aria-labelledby="comfort-title">
+  <h2 id="comfort-title">Aparência e conforto</h2>
+  <div class="comfort-control">
+    <label class="comfort-check" for="comfort-oled">
+      <input id="comfort-oled" type="checkbox" aria-describedby="comfort-oled-help">
+      Preto OLED
+    </label>
+    <p class="detail" id="comfort-oled-help">Deixa o fundo preto puro, sem mudar os dados do turno.</p>
+  </div>
+  <div class="comfort-control">
+    <label for="comfort-hand">Modo com uma mão</label>
+    <select id="comfort-hand" aria-describedby="comfort-hand-help">
+      <option value="off">Desligado</option>
+      <option value="right">Mão direita</option>
+      <option value="left">Mão esquerda</option>
+    </select>
+    <p class="detail" id="comfort-hand-help">No celular em pé, aproxima os botões principais do turno do lado que você escolher.</p>
+  </div>
+  <p id="comfort-status" role="status"></p>
+</section>
+</section>
+<section id="ajuda" hidden aria-labelledby="h-ajuda"><h1 id="h-ajuda" tabindex="-1">Ajuda</h1>
+<details open><summary>Como registro um turno?</summary><p>Em Início, toque em <b>Iniciar turno</b>. No fim, toque em <b>Fechar turno</b> e informe o que recebeu, o que gastou e, se tiver, os quilômetros rodados.</p></details>
+<details><summary>De onde vem a sobra?</summary><p>É o valor recebido menos os gastos informados. Se faltarem gastos, a sobra não é o lucro líquido do turno.</p></details>
+<details><summary>Posso fechar o aplicativo durante o turno?</summary><p>Sim. Ao reabrir, o turno salvo continua disponível.</p></details><details id="local-feedback">
+  <summary>Relatar um problema</summary>
+  <p>Gere um relato para revisar e copiar. Nada é enviado pelo app. Não inclua valores nem dados pessoais na descrição.</p>
+  <label for="feedback-category">Tipo de problema</label>
+  <select id="feedback-category" required style="display:block;width:100%;min-height:44px;margin:4px 0 14px;padding:8px 12px;font:inherit;color:inherit;background:#141f28;border:1px solid #445660;border-radius:8px">
+    <option value="" disabled selected>Selecione uma opção</option>
+    <option>Conta errada</option>
+    <option>Não salvou</option>
+    <option>Não achei</option>
+  </select>
+  <label for="feedback-description">Descrição (opcional)</label>
+  <textarea id="feedback-description" rows="3" maxlength="1000" autocomplete="off" style="display:block;width:100%;margin:4px 0 12px;padding:8px 12px;font:inherit;color:inherit;background:#141f28;border:1px solid #445660;border-radius:8px"></textarea>
+  <button id="feedback-generate" type="button" class="outline">Gerar relato</button>
+  <div id="feedback-preview" hidden>
+    <p>Confira o texto antes de copiar.</p>
+    <label for="feedback-report">Texto do relato</label>
+    <textarea id="feedback-report" rows="5" readonly spellcheck="false" style="display:block;width:100%;margin:4px 0 12px;padding:8px 12px;font:inherit;color:inherit;background:#141f28;border:1px solid #445660;border-radius:8px"></textarea>
+    <button id="feedback-copy" type="button" class="outline">Copiar relato</button>
+  </div>
+  <p id="feedback-status" role="status" aria-atomic="true"></p>
+</details>
+</section>
+<section id="sobre" hidden aria-labelledby="h-sobre"><h1 id="h-sobre" tabindex="-1">Informações</h1><p class="intro">Vexo Aurora · turno manual e plano de ganhos.</p>
+<dl><div><dt>Versão</dt><dd>0.1.3-r18-interno</dd></div><div><dt>Edição</dt><dd>Teste interno manual</dd></div></dl>
+<h2>Dados do turno</h2><p>Os valores que você informa ficam neste aparelho. Esta edição não usa localização nem conexão OBD2.</p><button class="outline" data-page="ajuda">Abrir ajuda</button></section>
+<p id="status" role="status" aria-live="polite"></p></main>
+<nav aria-label="Navegação principal"><div><button data-page="inicio" aria-current="page">Início</button><button data-page="config">Configurações</button><button data-page="ajuda">Ajuda</button><button data-page="sobre">Informações</button></div></nav></div></body></html>

@@ -74,7 +74,7 @@ const query=s => 'document.querySelector(' + JSON.stringify(s) + ')';
 const visible=s => '('+query(s)+')?.getClientRects().length > 0';
 const val=s => evaluate('('+query(s)+')?.value');
 const text=s => evaluate('('+query(s)+')?.innerText');
-const counts=()=>evaluate('JSON.parse(localStorage.getItem("vexo.turno-manual.v1"))');
+const counts=()=>evaluate('window.VexoTurno.read(window.VexoTurnoStorage || localStorage)');
 const expect=(a,b)=>assert.equal(a,b);
 async function click(s) {
   await poll(()=>evaluate(visible(s)+' && !('+query(s)+').disabled'));
@@ -119,6 +119,12 @@ async function run() {
     await click('#turno-action');
     await type('#t-uber','150,50');
     expect((await counts()).active.draft.uber,'150,50');
+    // A legacy build cannot retrofit an unflushed write. Prove the old copy
+    // survived an orderly reopen before testing migration of persisted data.
+    adb('shell','input','keyevent','KEYCODE_HOME');
+    await sleep(8000);
+    await relaunch('#turno-action');
+    expect((await counts()).active.draft.uber,'150,50');
     clean();
   });
   await mark('r19-upgrade-retains-entry-fuel-turn-draft',async()=>{
@@ -150,6 +156,12 @@ async function run() {
     expect(await val('#t-uber'),'150,50');
     await type('#t-nove','39,50');
     await type('#t-indrive','30');
+    // No sleep before the forced stop on the new native writer.
+    await relaunch('#turno-action');
+    await click('#turno-action');
+    expect(await val('#t-uber'),'150,50');
+    expect(await val('#t-nove'),'39,50');
+    expect(await val('#t-indrive'),'30');
     await click('#turno-payment summary');
     await type('#t-cash','65');
     await type('#t-pix','100');

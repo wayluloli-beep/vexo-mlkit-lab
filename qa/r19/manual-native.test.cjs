@@ -13,7 +13,7 @@ test('manual Android source set contains no capture, ride lab or spreadsheet upl
   assert.doesNotMatch(gradle, /mlkit|work-runtime|appcompat/);
   const manifest = read(main, 'AndroidManifest.xml');
   assert.doesNotMatch(manifest, /POST_NOTIFICATIONS|FOREGROUND_SERVICE|BLUETOOTH|_LOCATION|FileProvider|<service/);
-  assert.doesNotMatch(read(kotlin, 'AuroraActivity.kt'), /PixelCopy|TextRecognition|ScreenCapture|Sync|tile\.openstreetmap\.org/);
+  assert.doesNotMatch(read(kotlin, 'AuroraActivity.kt'), /PixelCopy|TextRecognition|ScreenCapture|Sincronizador|WorkManager|tile\.openstreetmap\.org/);
 });
 
 test('manual bridge preserves the local package, WebView origin and persisted money and fuel keys', () => {
@@ -25,7 +25,7 @@ test('manual bridge preserves the local package, WebView origin and persisted mo
     assert.ok(activity.includes('"' + key + '"'), key);
   }
   assert.deepEqual([...activity.matchAll(/@JavascriptInterface\s+fun\s+(\w+)/g)].map(m=>m[1]).sort(),
-    ['appVersion', 'fuelPrice', 'hourlyGoalCents', 'kmPerLiter', 'saveFuel', 'setHourlyGoalCents']);
+    ['appVersion', 'fuelPrice', 'hourlyGoalCents', 'kmPerLiter', 'readManualTurn', 'saveFuel', 'setHourlyGoalCents', 'writeManualTurn']);
   assert.doesNotMatch(activity, /MODE_WORLD|loadDataWithBaseURL/);
   assert.ok(existsSync(join(src,'app/src/test/java/com/trackingracing/VexoManualWebTest.kt')));
 });

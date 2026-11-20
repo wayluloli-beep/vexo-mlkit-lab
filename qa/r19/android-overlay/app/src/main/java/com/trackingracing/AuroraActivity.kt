@@ -5,6 +5,7 @@ import android.app.Activity
 import android.graphics.Color
 import android.os.Build
 import android.os.Bundle
+import android.util.AtomicFile
 import android.webkit.JavascriptInterface
 import android.webkit.WebResourceRequest
 import android.webkit.WebResourceResponse
@@ -14,10 +15,15 @@ import android.window.OnBackInvokedCallback
 import android.window.OnBackInvokedDispatcher
 import java.io.ByteArrayInputStream
 import java.io.InputStream
+import java.io.File
+import java.io.FileNotFoundException
+import java.io.IOException
 
 /** Offline Android shell for the manual product. The legacy bridge name preserves the WebView contract. */
 class AuroraActivity : Activity() {
     private lateinit var web: WebView
+    private val turnLock = Any()
+    private val turnFile by lazy { AtomicFile(File(noBackupFilesDir, "turno-manual.v1.json")) }
     private var predictiveBack: OnBackInvokedCallback? = null
 
     @SuppressLint("SetJavaScriptEnabled")
@@ -132,6 +138,32 @@ class AuroraActivity : Activity() {
     private inner class Bridge {
         private fun fuelPrefs() = getSharedPreferences("aurora_balloon", MODE_PRIVATE)
         private fun goalPrefs() = getSharedPreferences("vexo.gain-goal", MODE_PRIVATE)
+
+        @JavascriptInterface fun readManualTurn(): String? = synchronized(turnLock) {
+            try {
+                turnFile.readFully().toString(Charsets.UTF_8)
+            } catch (_: FileNotFoundException) {
+                if (turnFile.baseFile.exists()) null else ""
+            } catch (_: IOException) {
+                null
+            }
+        }
+
+        @JavascriptInterface fun writeManualTurn(raw: String): Boolean = synchronized(turnLock) {
+            if (raw.isEmpty()) return@synchronized false
+            val bytes = raw.toByteArray(Charsets.UTF_8)
+            val output = try { turnFile.startWrite() } catch (_: IOException) { return@synchronized false }
+            try {
+                output.write(bytes)
+                // Do not acknowledge a renderer-only copy. Sync and verify the promoted file.
+                output.fd.sync()
+                turnFile.finishWrite(output)
+                turnFile.readFully().contentEquals(bytes)
+            } catch (_: IOException) {
+                turnFile.failWrite(output)
+                false
+            }
+        }
 
         @JavascriptInterface fun appVersion(): String = BuildConfig.VERSION_NAME
         @JavascriptInterface fun kmPerLiter(): Double = fuelPrefs().getString("km", null)?.toDoubleOrNull() ?: 10.5

@@ -2,7 +2,7 @@
 set -euo pipefail
 umask 077
 export LC_ALL=C
-[[ ${GITHUB_REPOSITORY:-} == wayluloli-beep/vexo-mlkit-lab && ${GITHUB_REF:-} == refs/heads/vexo-product-r19-webview-qa ]]
+[[ ${GITHUB_REPOSITORY:-} == wayluloli-beep/vexo-mlkit-lab && ${GITHUB_REF:-} == refs/heads/vexo-product-r19-durable-qa ]]
 export JAVA_HOME="${JAVA_HOME_17_X64:?}"
 export PATH="$JAVA_HOME/bin:$PATH"
 sdk="${ANDROID_HOME:-${ANDROID_SDK_ROOT:-}}"
@@ -55,7 +55,13 @@ unzip -q "$work/gradle.zip" -d "$work"
 gradle="$work/gradle-8.11.1/bin/gradle"
 # Both debug artifacts use the same disposable runner debug key. Neither becomes a release.
 "$gradle" --project-dir "$work/r18-source" --no-daemon --console=plain --max-workers=2 :app:assembleDebug
-"$gradle" --project-dir "$work/src/aurora" --no-daemon --console=plain --max-workers=2 :app:assembleDebug
+"$gradle" --project-dir "$work/src/aurora" --no-daemon --console=plain --max-workers=2 :app:assembleDebug :app:assembleRelease :app:testDebugUnitTest
+mapfile -t release < <(find "$work/src/aurora/app/build/outputs/apk/release" -maxdepth 1 -name '*unsigned.apk')
+[[ ${#release[@]} == 1 ]]
+python3 qa/r19/check-manual-apk.py "${release[0]}" "$sdk/build-tools/35.0.0/aapt" "$work/src/aurora/app/build/test-results/testDebugUnitTest"
+gate=0
+node qa/r19/ci-manual.cjs android "$work/src/aurora" "$gradle" || gate=$?
+if (( gate != 0 )); then python3 qa/r19/report-lint.py "$work/src/aurora"; fi
 boot=0
 for n in {1..36}; do
   kill -0 "$emu_pid" || { tail -25 "$work/emulator.log"; exit 1; }
@@ -72,3 +78,4 @@ mapfile -t prior < <(find "$work/r18-source/app/build/outputs/apk/debug" -maxdep
 mapfile -t next < <(find "$work/src/aurora/app/build/outputs/apk/debug" -maxdepth 1 -name '*.apk')
 [[ ${#prior[@]} == 1 && ${#next[@]} == 1 ]]
 timeout 240s node qa/r19/android-webview-smoke.cjs "${prior[0]}" "${next[0]}"
+exit "$gate"
