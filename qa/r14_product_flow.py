@@ -17,12 +17,28 @@ CARD_TAG = re.compile(
 )
 
 
-WITNESS_TAG = re.compile(r"\bVexoLocalOcr\s*:\s*witness=[a-z_]{1,30} card=[0-9]{1,18}-[0-9]{1,6} t=[0-9]{1,18}\s*$")
+WITNESS_TAG = re.compile(r"\bVexoLocalOcr\s*:\s*witness=[a-z_]{1,30} card=[0-9]{1,18}-[0-9]{1,6} t=[0-9]{1,18}(?: cap=[0-9]{1,18})?\s*$")
+WARM_TAG = re.compile(r"\bVexoLocalOcr\s*:\s*warm=(start|ready|failed) t=([0-9]{1,18})(?: ms=([0-9]{1,18}))?\s*$")
+UI_TAG = re.compile(r"\bVexoLocalOcr\s*:\s*witness=ui_accepted card=([0-9]{1,18}-[0-9]{1,6}) t=([0-9]{1,18}) cap=([0-9]{1,18})\s*$")
+
+
+def matches_local_metrics(text, kind):
+    hourly = {'pop': '29[,.]29', 'negocia': '30[,.]34'}[kind]
+    value = baseline.norm(text)
+    return all(re.search(pattern, value) for pattern in (
+        r'(?<!\d)1[,.]34\s*(?:/\s*)?km\b',
+        rf'(?<!\d){hourly}\s*(?:/\s*)?(?:h|hr)\b'))
 
 def accepted_chains(log):
     """Only complete, ordered chains with a single card token per native capture."""
     records, conflicting, complete = {}, set(), {}
     for line in log.splitlines():
+        marker = UI_TAG.search(line)
+        if marker:
+            card, timestamp, cap = marker.groups()
+            if cap in complete and complete[cap]['card'] == card and int(timestamp) >= int(cap):
+                complete[cap]['capture_to_ui_ms'] = int(timestamp) - int(cap)
+            continue
         event = CARD_TAG.search(line)
         if not event:
             continue
@@ -70,7 +86,8 @@ def driver(r12):
         def __init__(self):
             super().__init__()
             self.product_stages.update(local_card_1_metrics='NOT_RUN', local_card_1_native='NOT_RUN',
-                                       local_next_card='NOT_RUN', local_cleanup='NOT_RUN',
+                                       local_next_card='NOT_RUN', local_card_2_native='NOT_RUN',
+                                       local_prewarm='NOT_RUN', local_cleanup='NOT_RUN',
                                        external_attempt='NOT_RUN')
 
         def tagged_local_log(self):
@@ -79,7 +96,11 @@ def driver(r12):
                 raise r12.Failure('Vexo app process not available to read local log')
             raw = self.cmd('logcat', '-d', '-v', 'monotonic', '--pid='+pid, '-t', '2500',
                            '-s', 'VexoLocalOcr:I', '*:S', timeout=17).decode('utf-8', 'replace')
-            clean = ''.join(row+'\n' for row in raw.splitlines() if CARD_TAG.search(row) or WITNESS_TAG.search(row))
+            clean = ''.join(row+'\n' for row in raw.splitlines() if CARD_TAG.search(row) or WITNESS_TAG.search(row) or WARM_TAG.search(row))
+            warm = [WARM_TAG.search(row).groups() for row in clean.splitlines() if WARM_TAG.search(row)]
+            captures = [int(m[1]) for m in re.finditer(r'witness=process_start card=[0-9]+-[0-9]+ t=([0-9]+)', clean)]
+            self.product_stages['local_prewarm'] = ('PASS' if captures and any(
+                state == 'ready' and int(t) <= min(captures) for state, t, _ in warm) else 'INCONCLUSIVE')
             self.write('local-ocr.log', clean)
             return accepted_chains(clean)
 
@@ -90,8 +111,14 @@ def driver(r12):
                     sha256=hashlib.sha256(screenshot.read_bytes()).hexdigest(), **fields)
 
         def first_pop_native(self):
-            first = [chain for chain in self.tagged_local_log()
-                     if chain['card'].endswith('-1') and chain['kind'] == 'pop']
+            chains = self.tagged_local_log()
+            second = [chain for chain in chains if chain['card'].endswith('-3')
+                      and chain['kind'] == 'negocia' and 'capture_to_ui_ms' in chain]
+            self.product_stages['local_card_2_native'] = 'PASS' if second else 'INCONCLUSIVE'
+            if second:
+                self.ev('local-card-2-native', 'PASS', **second[0])
+            first = [chain for chain in chains if chain['card'].endswith('-1')
+                     and chain['kind'] == 'pop' and 'capture_to_ui_ms' in chain]
             if first and len({chain['card'] for chain in first}) == 1:
                 self.product_stages['local_card_1_native'] = 'PASS'
                 self.ev('local-card-1-native', 'PASS', **first[0])
@@ -108,7 +135,6 @@ def driver(r12):
             self.checkpoint('local-before', key)
             if exact_group(root, self.pkg, 'Balão OCR local'):
                 raise r12.Failure('local balloon visible before starting fresh training')
-            self.cmd('logcat', '-c', timeout=14)
             self.tap('local-start', 'Iniciar treino')
             seen = set()
             next_stale = False
@@ -119,12 +145,14 @@ def driver(r12):
                 scope = exact_group(root, self.pkg, 'Balão OCR local')
                 first = ('oferta 1 de 6' in app and visible_offer(root, self.pkg, 'Pop', '8.30'))
                 second = ('oferta 2 de 6' in app and visible_offer(root, self.pkg, 'Negocia', '12.64'))
-                old_metrics = baseline.local_metrics(scope)
+                old_metrics = matches_local_metrics(scope, 'pop')
                 if first and old_metrics and 'local-result' not in seen:
                     return 'local-result'
                 if second and old_metrics and not next_stale:
                     next_stale = True
                     return 'local-next-stale'
+                if second and matches_local_metrics(scope, 'negocia') and 'local-next-result' not in seen:
+                    return 'local-next-result'
                 if second and scope and 'local-next-card' not in seen:
                     return 'local-next-card'
                 if first and 'local-first-card' not in seen:
@@ -148,13 +176,14 @@ def driver(r12):
             if self.product_stages['local_card_1_metrics'] == 'NOT_RUN':
                 self.product_stages['local_card_1_metrics'] = 'INCONCLUSIVE'
             self.product_stages['local_next_card'] = ('FAIL_OTHER_SCENE' if next_stale else 'PASS'
-                if 'local-result' in seen and 'local-next-card' in seen else 'INCONCLUSIVE')
+                if 'local-result' in seen and 'local-next-result' in seen else 'INCONCLUSIVE')
             if (self.product_stages['local_card_1_native'] == 'PASS'
+                    and self.product_stages['local_card_2_native'] == 'PASS'
                     and self.product_stages['local_card_1_metrics'] == 'PASS'
                     and self.product_stages['local_next_card'] == 'PASS'):
                 self.product_stages['local_ocr'] = 'PASS'
                 self.ev('local-real-ocr', 'PASS', xml='local-result.xml', png='local-result.png',
-                        next_xml='local-next-card.xml', native=chain, external_projection=False)
+                        next_xml='local-next-result.xml', native=chain, external_projection=False)
             else:
                 self.product_stages['local_ocr'] = 'FAIL_OTHER_SCENE' if next_stale else 'INCONCLUSIVE'
                 self.ev('local-real-ocr', self.product_stages['local_ocr'],
@@ -184,6 +213,12 @@ def driver(r12):
                     return
                 self.act(key, target, 'local-exit-'+state)
             raise r12.Failure('did not return from training via visible Android UI')
+
+        def app_button(self, label, seconds=31):
+            # The inherited R12 flow starts the Activity again before looking for its control.
+            # Re-establish Central *after* that launch, then pick the actual visible control.
+            self.central()
+            return super().app_button(label, seconds)
 
         def consent(self):
             with self.clip('product-flow'):
@@ -229,7 +264,6 @@ def driver(r12):
                 self.launcher()
                 self.state('external-reopened-main','Treino OCR',seconds=55)
                 self.ev('external-isolation', 'PASS')
-            self.central()
             # Retain the exact R12 permission, native consent, FGS, presenter and stop path.
             r12.Run.consent(self)
             self.product_stages['external_attempt'] = 'PASS'

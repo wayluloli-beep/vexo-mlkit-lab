@@ -24,7 +24,7 @@ cleanup() {
 }
 trap cleanup EXIT
 [[ $GITHUB_REPOSITORY == wayluloli-beep/vexo-mlkit-lab && $GITHUB_RUN_ATTEMPT == 1 ]]
-[[ $GITHUB_EVENT_NAME == create && $GITHUB_REF == refs/heads/vexo-product-r14-render-once ]]
+[[ $GITHUB_EVENT_NAME == create && $GITHUB_REF == refs/heads/vexo-product-r15-warm-once ]]
 [[ $(git rev-parse HEAD) == "$GITHUB_SHA" ]]
 [[ $(git ls-tree -r --name-only HEAD qa/payload | wc -l) == 24 ]]
 printf '%s  %s\n' '1f1e08574699aabab795687db1816a5962d033652879b21d924cfc590d50199d' "$work/payload.tar.gz" > "$work/payload-check"
@@ -63,6 +63,9 @@ report R13_PRODUCT_LAYER_CHECKED
 patch --quiet --batch --forward -d "$work/src/aurora" -p1 < qa/aurora-r14.patch
 (cd "$work/src/aurora" && sha256sum --strict --check --status "$GITHUB_WORKSPACE/qa/product-r14.sha256")
 report R14_CAPTURE_ID_LAYER_CHECKED
+patch --quiet --batch --forward -d "$work/src/aurora" -p1 < qa/aurora-r15.patch
+(cd "$work/src/aurora" && sha256sum --strict --check --status "$GITHUB_WORKSPACE/qa/product-r15.sha256")
+report R15_WARM_LAYER_CHECKED
 # Save unmodified screenshots independently of any host OCR/observer.
 if command -v tesseract >/dev/null; then
   python3 qa/pixel-preflight.py --driver qa/driver.py > "$work/pixel-observer.log" 2>&1 || true
@@ -239,7 +242,7 @@ import sys
 r=[E.parse(x).getroot() for x in Path(sys.argv[1]).glob("TEST-*.xml")]
 counts={k:sum(int(a.get(k, 0)) for a in r) for k in ("tests","failures","errors","skipped")}
 assert counts['tests'] >= 61 and not any(counts[k] for k in ("failures","errors"))
-print("R14_JUNIT: "+" ".join(str(k)+"="+str(v) for k,v in counts.items()))
+print("R15_JUNIT: "+" ".join(str(k)+"="+str(v) for k,v in counts.items()))
 PYJUNIT
 mapfile -t apks < <(find "$work/src/aurora/app/build/outputs/apk/release" -maxdepth 1 -name '*unsigned.apk')
 [[ ${#apks[@]} == 1 ]]
@@ -266,7 +269,7 @@ printf 'QA public certificate SHA-256 %s\n' "$cert_a" > "$OUT/qa-public-cert.txt
 report "SIGNER_QA_SHA256:$cert_a"
 rm -f -- "$work/private/qa.p12"
 grep -Fq "package: name='com.trackingracing'" "$work/candidate.badging"
-grep -Fq "versionName='0.1.3-r14b-interno'" "$work/candidate.badging"
+grep -Fq "versionName='0.1.3-r15-interno'" "$work/candidate.badging"
 grep -Fq "package: name='com.vexo.qa.pixels'" "$work/presenter.badging"
 grep -E '^(package:|sdkVersion:|targetSdkVersion:)' "$work/candidate.badging" | sed 's/^/AURORA_APK: /'
 "$bt/aapt" dump permissions "$work/candidate.apk" > "$OUT/candidate-permissions.txt"
@@ -287,13 +290,14 @@ export VEXO_R12_DRIVER="$GITHUB_WORKSPACE/qa/driver.py"
 driver_rc=0
 bash qa/run-local.sh "$work/candidate.apk" "$work/presenter.apk" > "$work/driver.log" 2>&1 || driver_rc=$?
 report "DRIVER_EXIT:$driver_rc"
-sed -nE 's/^LIVE:([a-zA-Z0-9_-]{1,64}):([A-Z_]{1,32})([ ].*)?$/R14_STEP: \1 \2/p' "$work/driver.log" | tail -85
+sed -nE 's/^LIVE:([a-zA-Z0-9_-]{1,64}):([A-Z_]{1,32})([ ].*)?$/R15_STEP: \1 \2/p' "$work/driver.log" | tail -85
 if [[ -s $OUT/local-ocr.log ]]; then
-  sed -nE 's/^.*VexoLocalOcr[[:space:]]*:[[:space:]]+(witness=[a-z_]{1,30} card=[0-9]{1,18}-[0-9]{1,6} t=[0-9]{1,18})$/R14_WITNESS: \1/p' "$OUT/local-ocr.log" | tail -80
-  sed -nE 's/^.*VexoLocalOcr[[:space:]]*:[[:space:]]+((pixels src=(pixelcopy|web_draw)|parsed kind=(pop|negocia)|dispatched kind=offer|accepted kind=offer) cap=[0-9]{1,18} card=[0-9]{1,18}-[0-9]{1,6})$/R14_LOCAL: \1/p' "$OUT/local-ocr.log" | tail -24
+  sed -nE 's/^.*VexoLocalOcr[[:space:]]*:[[:space:]]+(witness=[a-z_]{1,30} card=[0-9]{1,18}-[0-9]{1,6} t=[0-9]{1,18}( cap=[0-9]{1,18})?)$/R15_WITNESS: \1/p' "$OUT/local-ocr.log" | tail -80
+  sed -nE 's/^.*VexoLocalOcr[[:space:]]*:[[:space:]]+(warm=(start|ready|failed) t=[0-9]{1,18}( ms=[0-9]{1,18})?)$/R15_WARM: \1/p' "$OUT/local-ocr.log" | tail -8
+  sed -nE 's/^.*VexoLocalOcr[[:space:]]*:[[:space:]]+((pixels src=(pixelcopy|web_draw)|parsed kind=(pop|negocia)|dispatched kind=offer|accepted kind=offer) cap=[0-9]{1,18} card=[0-9]{1,18}-[0-9]{1,6})$/R15_LOCAL: \1/p' "$OUT/local-ocr.log" | tail -24
 fi
 if [[ -s $OUT/vexo-r10-native-timing.txt ]]; then
-  sed -nE 's/^.*VexoR10[[:space:]]*:[[:space:]]+((ocr_inicio |ocr_fim |descartado_cena |ui_envio |limpeza_cena )[0-9a-z =_-]{1,155})$/R14_EXTERNAL: \1/p' "$OUT/vexo-r10-native-timing.txt" | tail -48
+  sed -nE 's/^.*VexoR10[[:space:]]*:[[:space:]]+((ocr_inicio |ocr_fim |descartado_cena |ui_envio |limpeza_cena )[0-9a-z =_-]{1,155})$/R15_EXTERNAL: \1/p' "$OUT/vexo-r10-native-timing.txt" | tail -48
 fi
 
 # No exception reasons, UI dumps or raw data make it into remote step logs.
@@ -304,7 +308,7 @@ for path in (out/'device-apks.sha256',):
     if path.is_file() and path.stat().st_size < 512:
         for line in path.read_text().splitlines():
             if re.fullmatch(r'[a-f0-9]{64}  (com\.trackingracing|com\.vexo\.qa\.pixels)', line):
-                print('R14_INSTALLED: '+line)
+                print('R15_INSTALLED: '+line)
 result=out/'driver-result.json'
 if result.is_file() and result.stat().st_size <= 1024*1024:
     try:
@@ -315,23 +319,23 @@ if result.is_file() and result.stat().st_size <= 1024*1024:
     for name in ('product_real_ocr_chain', 'collection_complete', 'stop'):
         value=obj.get(name)
         if type(value) is bool:
-            print('R14_RESULT: '+name+'='+str(value).lower())
+            print('R15_RESULT: '+name+'='+str(value).lower())
     allowed={'PASS','NOT_RUN','NOT_PROVEN','INCONCLUSIVE','VISUAL_REVIEW_REQUIRED','FAIL_OTHER_SCENE'}
     if isinstance(obj.get('primary_chain'), str) and obj['primary_chain'] in allowed:
-        print('R14_RESULT: external_chain='+obj['primary_chain'])
+        print('R15_RESULT: external_chain='+obj['primary_chain'])
     states=obj.get('product_stages')
     allowed|={'OBSERVED_AND_ACCEPTED','NOT_OBSERVED','PENDING','INCONCLUSIVE','ATTEMPTED'}
     if isinstance(states,dict):
-        for name in ('launcher','first_terms','welcome_and_example','central_navigation','local_ocr','local_card_1_metrics','local_card_1_native','local_next_card','local_cleanup','external_attempt'):
+        for name in ('launcher','first_terms','welcome_and_example','central_navigation','local_ocr','local_card_1_metrics','local_card_1_native','local_next_card','local_card_2_native','local_prewarm','local_cleanup','external_attempt'):
             state=states.get(name)
             if isinstance(state,str) and state in allowed:
-                print('R14_RESULT: '+name+'='+state)
+                print('R15_RESULT: '+name+'='+state)
     states=obj.get('variants')
     if isinstance(states,dict):
         for name in ('A','B','N'):
             state=states.get(name)
             if isinstance(state,str) and state in allowed:
-                print('R14_RESULT: '+name+'='+state)
+                print('R15_RESULT: '+name+'='+state)
 PYRESULT
 (( driver_rc == 0 )) || exit "$driver_rc"
 test -s "$OUT/driver-result.json"
