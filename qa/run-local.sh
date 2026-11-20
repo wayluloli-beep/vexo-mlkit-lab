@@ -79,7 +79,7 @@ stage=APK_INSTALL_AND_HASH
   install_and_hash com.vexo.qa.pixels "$presenter"
 } | tee "$OUT/device-apks.sha256"
 rm -f -- "$OUT/record-external.ready" "$OUT/record-external.done"
-record_path=/sdcard/VexoR13-External-Test.mp4
+record_path=/sdcard/VexoR14-External-Test.mp4
 record() {
   while [[ ! -s $OUT/record-external.ready ]]; do
     [[ ! -e $OUT/record-external.done ]] || return 0
@@ -104,7 +104,7 @@ record &
 rec=$!
 stage=ADB_DRIVER
 set +e
-PYTHONDONTWRITEBYTECODE=1 timeout 900s python3 -u "$front/r13_product_flow.py" 2>&1 | tee "$OUT/driver-console.txt"
+PYTHONDONTWRITEBYTECODE=1 timeout 900s python3 -u "$front/r14_product_flow.py" 2>&1 | tee "$OUT/driver-console.txt"
 status=${PIPESTATUS[0]}
 set -e
 stage=APK_FINAL_HASH

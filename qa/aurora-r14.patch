@@ -1,0 +1,508 @@
+--- a/app/build.gradle.kts
++++ b/app/build.gradle.kts
+@@ -13,7 +13,7 @@
+         targetSdk = 35
+         // O GitHub Actions fornece GITHUB_RUN_NUMBER; builds locais mantêm 2.
+         versionCode = System.getenv("GITHUB_RUN_NUMBER")?.toIntOrNull() ?: 4
+-        versionName = "0.1.3-r13-interno"
++        versionName = "0.1.3-r14-interno"
+     }
+ 
+     // A chave nunca fica no repositório. O GitHub Actions a recria
+--- a/app/src/main/assets/aurora/central.html
++++ b/app/src/main/assets/aurora/central.html
+@@ -64,7 +64,7 @@
+ <button class="outline" data-action="relatorio">Exportar leituras internas</button>
+ <button class="outline" data-action="diagnostico">Copiar diagnóstico do balão externo</button></section>
+ <section id="sobre" hidden aria-labelledby="h-sobre"><h1 id="h-sobre" tabindex="-1">Informações</h1><p class="intro">Um copiloto que lê a oferta e compara o ganho previsto com o seu plano. A decisão da corrida é sua.</p>
+-<dl><div><dt>Versão</dt><dd>0.1.3-r13-interno</dd></div><div><dt>Edição</dt><dd>Teste interno R13</dd></div><div><dt>Leitor</dt><dd>Google ML Kit no aparelho</dd></div></dl>
++<dl><div><dt>Versão</dt><dd>0.1.3-r14-interno</dd></div><div><dt>Edição</dt><dd>Teste interno R14</dd></div><div><dt>Leitor</dt><dd>Google ML Kit no aparelho</dd></div></dl>
+ <h2>Dados e permissões</h2><p>O leitor interno analisa a área de ofertas do simulador. O externo usa a captura autorizada pelo Android. O app guarda preferências e pode registrar dados de corridas no aparelho. Os mapas podem acessar a internet.</p>
+ <button class="outline" data-page="ajuda">Abrir ajuda e diagnóstico</button></section>
+ <p id="status" role="status" aria-live="polite"></p></main>
+--- a/app/src/main/assets/aurora/index.html
++++ b/app/src/main/assets/aurora/index.html
+@@ -626,9 +626,15 @@
+ <script id="vexo-local-ocr">(() => {
+   const listen = "aurora-native-ocr";
+   const isLeg = leg => !!leg && Number.isFinite(leg.minutes) && leg.minutes >= 0 && typeof leg.distanceLabel === "string";
+-  function subscribe(update) {
++  const cardToken = (runId,index) => {
++    const epoch=Date.parse(runId);
++    return Number.isSafeInteger(epoch)&&epoch>0&&Number.isSafeInteger(index)&&index>=0 ? `${epoch}-${index}` : "";
++  };
++  function subscribe(update, activeToken) {
+     const receive = event => {
+-      const detail = event.detail, raw = detail?.offer;
++      const detail = event.detail, token = detail?.cardToken;
++      if(typeof token!=="string"||!token||token!==activeToken()) {event.preventDefault();return;}
++      const raw = detail.offer;
+       const rating = raw?.rating == null ? NaN : Number(raw.rating);
+       const offer = raw && Number.isFinite(raw.price) && raw.price > 0 && isLeg(raw.pickup) && isLeg(raw.dropoff)
+         ? {...raw, rating:Number.isFinite(rating) && rating > 0 ? rating : "—", category:raw.isNegocia ? "negocia" : "pop"}
+@@ -638,14 +644,15 @@
+         ? {id:c.id, amountCents:c.amountCents} : null;
+       const at = new Date();
+       const row = offer ? {id:`local/${offer.id}`, time:at.getTime(), ride:offer, source:"ocr-simulador",
+-        capturedAtMs:detail.capturedAtMs, ocrMs:detail.ocrMs,
++        cardToken:token, receivedAtMs:performance.now(), capturedAtMs:detail.capturedAtMs, ocrMs:detail.ocrMs,
+         capturedDateIso:at.toLocaleDateString("sv-SE"),capturedDateBr:at.toLocaleDateString("pt-BR"),capturedAt:at.toLocaleTimeString("pt-BR")} : null;
+-      update({offer, completion, row});
++      if(update({offer, completion, row, cardToken:token})===false) {event.preventDefault();return;}
++      if(offer||completion)detail.accepted=true;
+     };
+     window.addEventListener(listen, receive);
+     return () => window.removeEventListener(listen, receive);
+   }
+-  window.VexoLocalOcr = Object.freeze({subscribe});
++  window.VexoLocalOcr = Object.freeze({subscribe, cardToken});
+ })();</script>
+ <script id="vexo-onboarding-bootstrap">(()=>{
+ if(window.LivePanel)return;
+@@ -726,16 +733,18 @@
+     }
+     return checks;
+   }
+-  function report(run,rows,ended) {
++  function report(run,rows) {
+     const results=[];
+     for(const [i,frame] of run.log.entries()){
+       const step=run.run.steps[frame.step-1];
+       if(step.phase!=="offer")continue;
+-      const until=run.log[i+1]?.wallMs??ended;
+-      const reads=rows.filter(r=>r.source==="ocr-simulador"&&r.time>=frame.wallMs&&r.time<until).sort((a,b)=>a.time-b.time);
++      const key=window.VexoLocalOcr.cardToken(run.id,frame.step-1);
++      const reads=key ? rows.filter(r=>r.source==="ocr-simulador"&&r.session===run.id&&r.cardToken===key)
++        .sort((a,b)=>a.capturedAtMs-b.capturedAtMs||a.receivedAtMs-b.receivedAtMs) : [];
+       const actual=reads[0];
++      const delay=actual?.receivedAtMs-run.start-frame.frameCallbackAtMs;
+       results.push({ride:step.ride.id,category:step.ride.isNegocia?"Negocia":"Pop",interrupted:!run.log[i+1],reads:reads.length,
+-        latency:actual?actual.time-frame.wallMs:null,checks:actual?score(step.ride,actual.ride):null});
++        latency:Number.isFinite(delay)?Math.max(0,Math.round(delay)):null,checks:actual?score(step.ride,actual.ride):null});
+     }
+     return results;
+   }
+@@ -748,7 +757,7 @@
+     const close=document.createElement("button");close.textContent="Voltar";close.onclick=()=>box.close();close.style.cssText="font-weight:bold;background:#ffdc00;border-radius:12px;padding:8px 22px";box.append(close);box.onclose=()=>box.remove();document.body.append(box);box.showModal();
+   }
+   function finish(run){
+-    const result=report(run,run.localReads||[],Date.now());
++    const result=report(run,run.localReads||[]);
+     const texts=result.map(r=>{
+       const errors=Object.entries(r.checks||{}).filter(([,v])=>!v).map(([k])=>k);
+       return r.category+" #"+r.ride+" — "+(r.latency===null?(r.interrupted?"interrompida":"perdida"):(errors.length?errors.join(", "):"8 campos certos")+" · "+r.latency+" ms até o evento")+(r.reads>1?" · "+r.reads+" registros":"");
+@@ -3447,24 +3456,30 @@
+ 
+ function XC({frame:e,previous:a,run:t,actions:A,animation:l,frameKey:o,auto:u}){let{phase:i,ride:r,amount:c,leaving:B,counterAmount:p,emptyKm:d,passengerKm:f}=e,[I,h]=(0,n.useState)(0),[M,g]=(0,n.useState)(null);(0,n.useEffect)(()=>{h(0),g(null)},[o]);let [expanded,setExpanded]=n.useState(true);n.useEffect(()=>{if(i!=="online")return;setExpanded(true);const timer=setTimeout(()=>setExpanded(false),2500);return()=>clearTimeout(timer)},[i]);let s=i==="online"||i==="vanished",m=a&&Or(a.phase)&&!Or(i)&&!["vanished","online"].includes(i)?a.ride:null,C=["pickup","waiting","in_trip","destination","finish_request"].includes(i),[v,z]=(0,n.useState)(180);return(0,n.useEffect)(()=>{if(i!=="waiting"||(z(180),t))return;let Q=setInterval(()=>z(b=>Math.max(0,b-1)),1e3);return()=>clearInterval(Q)},[i,o,t]),n.default.createElement("section",{className:"phone99-view",style:{"--entry-ms":l.entry+"ms","--exit-ms":l.exit+"ms"},"aria-label":"Tela simulada do motorista"},n.default.createElement("div",{className:"phone99-status"},n.default.createElement("span",null,"14:32"),n.default.createElement("span",{"aria-hidden":"true"},"\u25B4 \u25C9 \u25B0")),s&&n.default.createElement("div",{className:"vx-home"},n.default.createElement("div",{className:"vx-map"}),n.default.createElement("section",{className:"vx-drawer"+(expanded?" open":"")},expanded&&n.default.createElement("div",{className:"vx-safety"},"🛡  Gravar as corridas para sua segurança?",n.default.createElement("b",null,"Ativar")),n.default.createElement("button",{className:"vx-grip",onClick:()=>setExpanded(!expanded),"aria-label":"Expandir ou recolher solicitações"},""),expanded&&n.default.createElement("div",{className:"vx-info"},n.default.createElement("b",null,"Solicitações (1) ",n.default.createElement("small",null,"Nova")),n.default.createElement("strong",null,"99 Abastece"),n.default.createElement("p",null,"Auto Posto Lombardia Di Italia"),n.default.createElement("b",null,"R$3,55 ",n.default.createElement("del",null,"R$3,67"))),n.default.createElement("button",{className:"vx-search",onClick:A.search},"Buscando"))),Or(i)&&n.default.createElement(op,{key:o,ride:r,actions:A}),(i==="overlap"||i==="vanished"||m)&&l.exit>0&&n.default.createElement(op,{key:"exit-"+o,ride:B||m,departing:!0,appearance:i==="overlap"?"overlap":i==="vanished"?"vanish":"normal"}),["counter_edit","counter_wait","counter_confirmed"].includes(i)&&n.default.createElement("div",{className:"phone99-sheet",key:o},n.default.createElement("div",{className:"phone99-handle"}),n.default.createElement("small",null,"99Negocia"),n.default.createElement("h2",null,rp[i]),i==="counter_edit"?n.default.createElement(n.default.Fragment,null,n.default.createElement("label",null,"Seu valor ",n.default.createElement("input",{type:"text",inputMode:"decimal",placeholder:"0,00",value:M??(p==null?"":Ae(p)),onChange:Q=>g(Q.target.value)})),Le("Enviar contraproposta",()=>{let Q=M==null?p:Number(M.trim().replace(",","."));Number.isFinite(Q)&&Q>0&&A.send(Math.round(Q*100)/100)}),Le("Voltar",A.back,!0)):n.default.createElement(n.default.Fragment,null,n.default.createElement("strong",{className:"phone99-total"},qt(p??r.price)),n.default.createElement("p",null,i==="counter_wait"?"Proposta enviada ao passageiro.":"O passageiro aceitou a proposta."),i==="counter_wait"&&n.default.createElement("span",{className:"phone99-progress","aria-hidden":"true"}),Le(i==="counter_wait"?"Simular resposta":"Ir ao embarque",A.next))),C&&n.default.createElement(n.default.Fragment,null,n.default.createElement("div",{className:"phone99-nav",key:"nav-"+i},n.default.createElement("span",{"aria-hidden":"true"},i==="destination"?"\u25CF":"\u21B1"),n.default.createElement("div",null,n.default.createElement("b",null,i==="destination"?"Destino alcan\xE7ado":i==="waiting"?"Ponto de embarque":i==="pickup"?"At\xE9 o embarque":"Navega\xE7\xE3o"),n.default.createElement("p",null,i==="pickup"||i==="waiting"?r.pickup.address:r.dropoff.address))),n.default.createElement("div",{className:"phone99-sheet phone99-ride phase-"+i+(u&&i==="destination"&&l.entry>0?" phone99-auto-finish":""),key:"ride-"+i},n.default.createElement("div",{className:"phone99-handle"}),i==="pickup"&&n.default.createElement(n.default.Fragment,null,n.default.createElement("small",null,"Embarque"),n.default.createElement("h2",null,r.passengerName),n.default.createElement("p",null,r.pickup.minutes," min \xB7 ",r.pickup.distanceLabel),Le("Cheguei no embarque",A.next),Le("Cancelar corrida",A.cancel,!0)),i==="waiting"&&n.default.createElement(n.default.Fragment,null,n.default.createElement("div",{className:"phone99-wait"},n.default.createElement("strong",null,String(Math.floor(v/200)).padStart(2,"0"),":",String(v%60).padStart(2,"0")),n.default.createElement("div",null,n.default.createElement("small",null,"Aguardando embarque"),n.default.createElement("h2",null,r.passengerName))),Le("Iniciar corrida",A.next),Le("Cancelar corrida",A.cancel,!0)),["in_trip","destination"].includes(i)&&n.default.createElement(n.default.Fragment,null,n.default.createElement("small",null,"Corrida em andamento"),n.default.createElement("h2",null,i==="destination"?"Chegada ao destino":r.dropoff.minutes+" min \xB7 "+r.dropoff.distanceLabel),i==="destination"?n.default.createElement("p",null,"0 km/h"):d!=null&&n.default.createElement("p",null,"At\xE9 o embarque \xB7 ",Ia(d)," km"),n.default.createElement(qC,{label:"Finalizar corrida",onComplete:A.finish}),i==="in_trip"&&Le("Cancelar corrida",A.cancel,!0)),i==="finish_request"&&n.default.createElement(n.default.Fragment,null,n.default.createElement("small",null,"Corrida em andamento"),n.default.createElement("h2",null,"Finalizando corrida\u2026"),n.default.createElement("span",{className:"phone99-progress","aria-hidden":"true"})))),["end_confirmed","rating","payment","receipt","receipt_repeat","earnings","cancelled"].includes(i)&&n.default.createElement("div",{className:"phone99-sheet phone99-post phase-"+i,key:o},n.default.createElement("div",{className:"phone99-handle"}),i==="end_confirmed"&&n.default.createElement(n.default.Fragment,null,n.default.createElement("small",null,"Viagem"),n.default.createElement("h2",null,"Corrida conclu\xEDda"),f!=null&&n.default.createElement("p",null,"Com passageiro \xB7 ",Ia(f)," km"),Le("Continuar",A.next)),i==="rating"&&n.default.createElement(n.default.Fragment,null,n.default.createElement("small",null,"Corrida conclu\xEDda"),n.default.createElement("h2",null,"Avalie o passageiro"),n.default.createElement("div",{className:"phone99-stars"},[1,2,3,4,5].map(Q=>n.default.createElement("button",{type:"button",key:Q,"aria-label":Q+" estrelas","aria-pressed":Q<=I,onClick:()=>h(Q)},"\u2605"))),Le("Concluir avalia\xE7\xE3o",A.next),Le("Pular",A.next,!0)),i==="payment"&&n.default.createElement(n.default.Fragment,null,n.default.createElement("small",null,"Corrida conclu\xEDda"),n.default.createElement("h2",null,"Pagamento"),n.default.createElement("p",null,"Pagamento no app"),n.default.createElement("strong",{className:"phone99-total"},qt(c)),Le("Ver comprovante",A.next)),["receipt","receipt_repeat"].includes(i)&&n.default.createElement(n.default.Fragment,null,n.default.createElement("small",null,"Corrida conclu\xEDda \xB7 ",eu(r)),n.default.createElement("h2",null,"Comprovante da viagem"),n.default.createElement("strong",{className:"phone99-total"},qt(c)),n.default.createElement("p",null,"Pagamento no app"),n.default.createElement("div",{className:"phone99-receipt-leg"},n.default.createElement("b",null,"Embarque"),n.default.createElement("span",null,r.pickup.address)),n.default.createElement("div",{className:"phone99-receipt-leg"},n.default.createElement("b",null,"Destino"),n.default.createElement("span",null,r.dropoff.address)),Le("Continuar",A.next)),i==="earnings"&&n.default.createElement(n.default.Fragment,null,n.default.createElement("small",null,"Ganhos"),n.default.createElement("h2",null,"Hist\xF3rico de ganhos"),n.default.createElement("div",{className:"phone99-receipt-leg"},n.default.createElement("b",null,"Hoje \xB7 ",eu(r)),n.default.createElement("strong",null,qt(c)),n.default.createElement("span",null,r.pickup.address),n.default.createElement("span",null,r.dropoff.address)),Le("Voltar ao mapa",A.next)),i==="cancelled"&&n.default.createElement(n.default.Fragment,null,n.default.createElement("small",null,"Viagem interrompida"),n.default.createElement("h2",null,"Corrida cancelada"),Le("Voltar ao mapa",A.next))))}function PC({runs:e,config:a,onConfig:t,onStart:A,onClose:l,onDownload:o,finished:u,initialId:i}){let[r,c]=(0,n.useState)(i||"pop"),B={normal:"Normal",slow:"Lento",off:"Sem anima\xE7\xE3o",custom:"Personalizado"};return n.default.createElement("div",{className:"ocr-lab-modal",role:"dialog","aria-modal":"true","aria-labelledby":"ocr-lab-title"},n.default.createElement("div",{className:"ocr-lab-box"},n.default.createElement("header",null,n.default.createElement("div",null,n.default.createElement("small",null,"VEXO \xB7 LABORAT\xD3RIO"),n.default.createElement("h2",{id:"ocr-lab-title"},"Teste de pixels")),n.default.createElement("button",{type:"button",onClick:l,"data-vexo-android-back":"modal","aria-label":"Fechar laborat\xF3rio"},"\xD7")),n.default.createElement("p",null,"O OCR lê os pixels da tela. No laboratório, o balão fica oculto para não interferir na leitura."),n.default.createElement("label",null,"Cen\xE1rio",n.default.createElement("select",{value:r,onChange:p=>c(p.target.value)},Object.values(e).map(p=>n.default.createElement("option",{key:p.id,value:p.id},p.label)))),n.default.createElement("label",null,"Movimento do card",n.default.createElement("select",{value:a.mode,onChange:p=>t({...a,mode:p.target.value})},Object.entries(B).map(([p,d])=>n.default.createElement("option",{key:p,value:p},d)))),a.mode==="custom"&&n.default.createElement("div",{className:"ocr-lab-ms"},[["entry","Entrada"],["exit","Sa\xEDda"],["map","Mapa"]].map(([p,d])=>n.default.createElement("label",{key:p},d," (ms)",n.default.createElement("input",{type:"number",min:"0",max:"2500",step:"10",value:a.custom[p],onChange:f=>t({...a,custom:{...a.custom,[p]:Math.min(2500,Math.max(0,+f.target.value))}})})))),n.default.createElement("label",null,"Avan\xE7o",n.default.createElement("select",{value:a.auto?"auto":"manual",onChange:p=>t({...a,auto:p.target.value==="auto"})},n.default.createElement("option",{value:"auto"},"Autom\xE1tico \xB7 mesma ordem e tempos"),n.default.createElement("option",{value:"manual"},"Passo a passo \xB7 setas no laborat\xF3rio"))),n.default.createElement("button",{type:"button",className:"ocr-lab-start",onClick:()=>A(r)},"Iniciar captura"),u&&n.default.createElement(n.default.Fragment,null,n.default.createElement("button",{type:"button",className:"ocr-lab-download",onClick:o},"Baixar gabarito e eventos (.json)"),n.default.createElement("small",null,u.expectedAtLastObservedStep?.record?.amountStatus==="valor pendente"?"Resultado esperado at\xE9 aqui: 1 corrida conclu\xEDda \xB7 valor pendente.":"O arquivo separa o roteiro esperado das etapas que chegaram ao navegador.")),window.VexoAndroidOcr&&n.default.createElement("button",{type:"button",className:"ocr-lab-download",onClick:()=>window.VexoAndroidOcr.exportOcr()},"Exportar OCR real (.json)"),n.default.createElement("a",{href:"./referencias-99.html",target:"_blank",rel:"noreferrer"},"Refer\xEAncias e limites de fidelidade")))}function fp(){
+ const auroraNative=!!window.VexoAndroidOcr;
+-const localTrainingEnabled=auroraNative&&typeof window.VexoAndroidOcr.setSimulatorVisible==="function";
++const localTrainingEnabled=auroraNative&&typeof window.VexoAndroidOcr.setSimulatorVisible==="function"&&typeof window.VexoAndroidOcr.setLocalOfferToken==="function";
++const localVisual=(0,n.useRef)(null);
++function activeLocalToken(){
++ const current=x.current, watch=localVisual.current;
++ return current&&watch?.node.isConnected&&!document.hidden&&!watch.node.closest('[hidden],[inert]')&&
++   watch.token===window.VexoLocalOcr.cardToken(current.id,current.index) ? watch.token : "";
++}
+ const [ocrLocalRide,setOcrLocalRide]=(0,n.useState)(null),[ocrLocalResult,setOcrLocalResult]=(0,n.useState)(null);
+ const [ocrLocalRows,setOcrLocalRows]=(0,n.useState)([]);
+ (0,n.useEffect)(()=>{
+  if(!localTrainingEnabled)return;
+- return window.VexoLocalOcr.subscribe(({offer,completion,row})=>{
++ return window.VexoLocalOcr.subscribe(({offer,completion,row,cardToken})=>{
+   const current=x.current;
+-  if(!current||!current.localReads||document.hidden)return;
++  if(!current?.localReads||cardToken!==activeLocalToken())return false;
+   setOcrLocalRide(offer);
+   if(completion)setOcrLocalResult(completion);
+   else if(offer)setOcrLocalResult(null);
+   if(row){
+-   const entry={...row,id:`${current.id}/${row.id}`,session:current.id,sequenceNumber:offer.id};
++   const entry={...row,id:`${current.id}/${cardToken}/${row.id}`,session:current.id,sequenceNumber:offer.id};
+    current.localReads.push(entry);
+    if(current.localReads.length>180)current.localReads.shift();
+    setOcrLocalRows(rows=>[entry,...rows.filter(item=>item.id!==entry.id)].slice(0,120));
+   }
+- });
++ },activeLocalToken);
+ },[localTrainingEnabled]);
+ const [ocrTrips,setOcrTrips]=(0,n.useState)(window.VexoOcrHistory.all);
+  const [externalRunning,setExternalRunning]=(0,n.useState)(false);
+@@ -3504,6 +3519,44 @@
+  return ()=>{stop();cancelAnimationFrame(frame);document.removeEventListener("visibilitychange",changed);window.removeEventListener("pagehide",stop);};
+ },[localTrainingEnabled,simVisible]);
+ (0,n.useLayoutEffect)(()=>{
++ if(!simVisible)return;
++ const bridge=window.VexoAndroidOcr, api=window.VexoLocalOcr;
++ const token=api.cardToken(f.id,f.index), offerPhase=kt==="offer"||kt==="overlap";
++ if(!token||(!offerPhase&&pe.id==="treino6"))return;
++ let frame=0;
++ const clear=()=>{
++  cancelAnimationFrame(frame);frame=0;
++  if(localVisual.current?.token===token)localVisual.current=null;
++  bridge.setLocalOfferToken("");
++ };
++ const observe=()=>{
++  frame=0;
++  const current=x.current;
++  if(document.hidden||!current||api.cardToken(current.id,current.index)!==token)return;
++  const surface=document.querySelector('.phone99-view');
++  const node=offerPhase?surface?.querySelector('.phone99-offer.phone99-enter:not([aria-hidden="true"])'):surface;
++  if(!node?.isConnected||node.closest('[hidden],[inert]'))return;
++  const motions=node.getAnimations?.()||[];
++  const departing=offerPhase?surface.querySelector('.phone99-offer.phone99-depart'):null;
++  if([...motions,...(departing?.getAnimations?.()||[])].some(a=>a.pending||a.playState==="running")){
++   frame=requestAnimationFrame(observe);return;
++  }
++  const rect=node.getBoundingClientRect(), style=getComputedStyle(node);
++  if(rect.width<=0||rect.height<=0||rect.bottom<=0||rect.top>=window.innerHeight||
++     rect.right<=0||rect.left>=window.innerWidth||style.visibility!=="visible"||+style.opacity<=0)return;
++  localVisual.current={token,node};
++  bridge.setLocalOfferToken(token);
++ };
++ const visible=()=>{
++  clear();
++  if(!document.hidden)frame=requestAnimationFrame(observe);
++ };
++ document.addEventListener("visibilitychange",visible);
++ window.addEventListener("pagehide",clear);
++ frame=requestAnimationFrame(observe);
++ return ()=>{clear();document.removeEventListener("visibilitychange",visible);window.removeEventListener("pagehide",clear);};
++},[simVisible,Cp]);
++(0,n.useLayoutEffect)(()=>{
+  setOcrLocalRide(null);
+  if(!simVisible)setOcrLocalResult(null);
+ },[simVisible,Cp]);
+--- a/app/src/main/java/com/trackingracing/AuroraActivity.kt
++++ b/app/src/main/java/com/trackingracing/AuroraActivity.kt
+@@ -47,6 +47,8 @@
+     private val recognizer by lazy { TextRecognition.getClient(TextRecognizerOptions.DEFAULT_OPTIONS) }
+     private val finalizacao = AuroraFinalizacao()
+     private val navigation = AuroraWebCapture()
++    private val localOffers = AuroraLocalOfferPixels()
++    private var visualRequest: Pair<AuroraLocalOfferPixels.Selection, Int>? = null
+     private var predictiveBack: OnBackInvokedCallback? = null
+     @Volatile private var visible = false
+     private var busy = false
+@@ -116,11 +118,13 @@
+                 }
+                 override fun onPageStarted(view: WebView, url: String?, favicon: Bitmap?) {
+                     navigation.pageStarted(url)
++                    localOffers.select("")
+                     invalidateLocalCapture()
+                     panelRect = null
+                 }
+                 override fun onPageFinished(view: WebView, url: String?) {
+                     navigation.pageFinished(url)
++                    armLocalPixels()
+                 }
+             }
+             addJavascriptInterface(Bridge(), "VexoAndroidOcr")
+@@ -148,6 +152,7 @@
+ 
+     private fun invalidateLocalCapture() {
+         generation++
++        localOffers.pause()
+         lastPayload = ""
+         lastProofOfferKey = null
+     }
+@@ -209,7 +214,7 @@
+ 
+     override fun onWindowFocusChanged(hasFocus: Boolean) {
+         super.onWindowFocusChanged(hasFocus)
+-        if (!hasFocus) generation++
++        if (!hasFocus) invalidateLocalCapture() else armLocalPixels()
+     }
+ 
+     override fun onDestroy() {
+@@ -262,7 +267,20 @@
+         }
+ 
+         @JavascriptInterface fun setSimulatorVisible(active: Boolean) {
+-            ui.post { if (navigation.simulatorVisible(active)) invalidateLocalCapture() }
++            ui.post {
++                if (navigation.simulatorVisible(active)) invalidateLocalCapture()
++                if (active) armLocalPixels()
++            }
++        }
++
++        @JavascriptInterface fun setLocalOfferToken(token: String) {
++            // Revoke the old frame immediately, before a pending main-thread result can be delivered.
++            val selected = localOffers.select(token) ?: return
++            ui.post {
++                if (!localOffers.isSelected(selected)) return@post
++                invalidateLocalCapture()
++                armLocalPixels()
++            }
+         }
+ 
+         @JavascriptInterface fun maskPanel(x: Double, y: Double, w: Double, h: Double, viewport: Double) {
+@@ -404,9 +422,36 @@
+         }
+     }
+ 
++    private fun armLocalPixels() {
++        val selected = localOffers.selected() ?: return
++        if (!visible || !navigation.canCapture || !hasWindowFocus()) return
++        val session = generation
++        val request = selected to session
++        if (visualRequest == request) return
++        visualRequest = request
++        fun current() = visible && navigation.canCapture && generation == session &&
++            hasWindowFocus() && localOffers.isSelected(selected)
++        web.postVisualStateCallback(session.toLong(), object : WebView.VisualStateCallback() {
++            override fun onComplete(requestId: Long) {
++                if (!current()) return
++                if (Build.VERSION.SDK_INT >= 29 && web.isHardwareAccelerated) {
++                    // VisualState says what the next draw will contain, not what is queued in Window yet.
++                    web.viewTreeObserver.registerFrameCommitCallback {
++                        ui.post { if (current()) localOffers.markFrame(selected, true) }
++                    }
++                    web.postInvalidateOnAnimation()
++                } else {
++                    // On older/non-hardware paths only the synchronous WebView draw is used.
++                    localOffers.markFrame(selected, false)
++                }
++            }
++        })
++    }
++
+     private fun capturePixels() {
+         if (!navigation.canCapture || busy || web.width<100 || web.height<160) return
+         if (!hasWindowFocus()) return
++        val frame = localOffers.frame() ?: run { armLocalPixels(); return }
+         // Copy rendered pixels, not the DOM, fixture, or replay state.
+         val width=web.width
+         val height=web.height
+@@ -419,46 +464,50 @@
+         busy=true
+         val session=generation
+         val capturedAt=SystemClock.elapsedRealtime()
++        fun release() { busy=false; b.recycle() }
++        fun readDrawnPixels(copySucceeded: Boolean) {
++            if (!currentLocalCapture(session,frame)) { release(); return }
++            val pixelSource = if (copySucceeded) AuroraWebCapture.PixelSource.PIXEL_COPY
++                else AuroraWebCapture.PixelSource.WEB_DRAW
++            if (!copySucceeded) {
++                val canvas=Canvas(b)
++                canvas.scale(scale,scale)
++                canvas.translate(0f,-top.toFloat())
++                web.draw(canvas)
++            }
++            if (!currentLocalCapture(session,frame)) { release(); return }
++            panelRect?.let { r -> Canvas(b).drawRect(r.left*scale,(r.top-top)*scale,
++                r.right*scale,(r.bottom-top)*scale,Paint().apply { color=Color.BLACK }) }
++            analyze(b,session,frame,capturedAt,pixelSource)
++        }
+         try {
+-            PixelCopy.request(window,source,b,{ status ->
+-                if (!currentLocalCapture(session)) {
+-                    busy=false; b.recycle()
+-                } else {
+-                    val pixelSource = if (status == PixelCopy.SUCCESS) AuroraWebCapture.PixelSource.PIXEL_COPY
+-                        else AuroraWebCapture.PixelSource.WEB_DRAW
+-                    if(status!=PixelCopy.SUCCESS) {
+-                        val canvas=Canvas(b)
+-                        canvas.scale(scale,scale)
+-                        canvas.translate(0f,-top.toFloat())
+-                        web.draw(canvas)
+-                    }
+-                    panelRect?.let { r -> Canvas(b).drawRect(r.left*scale,(r.top-top)*scale,
+-                        r.right*scale,(r.bottom-top)*scale,Paint().apply { color=Color.BLACK }) }
+-                    analyze(b,session,capturedAt,pixelSource)
+-                }
++            if (frame.pixelCopy) PixelCopy.request(window,source,b,{ status ->
++                readDrawnPixels(status==PixelCopy.SUCCESS)
+             },ui)
+-        } catch (_:IllegalArgumentException) {
+-            busy=false
+-            b.recycle()
++            else readDrawnPixels(false)
++        } catch (_:RuntimeException) {
++            release()
+         }
+     }
+ 
+-    private fun currentLocalCapture(session: Int): Boolean =
+-        visible && navigation.canCapture && session == generation && hasWindowFocus()
++    private fun currentLocalCapture(session: Int, frame: AuroraLocalOfferPixels.Frame): Boolean =
++        visible && navigation.canCapture && session == generation &&
++            hasWindowFocus() && localOffers.isCurrent(frame)
+ 
+-    private fun analyze(b:Bitmap,session:Int,capturedAt:Long,pixelSource:AuroraWebCapture.PixelSource) {
++    private fun analyze(b:Bitmap,session:Int,frame:AuroraLocalOfferPixels.Frame,
++                        capturedAt:Long,pixelSource:AuroraWebCapture.PixelSource) {
+         val started=SystemClock.elapsedRealtime()
+         recognizer.process(InputImage.fromBitmap(b,0))
+             .addOnSuccessListener { read ->
+-                if (!currentLocalCapture(session)) return@addOnSuccessListener
++                if (!currentLocalCapture(session,frame)) return@addOnSuccessListener
+                 val completion=finalizacao.observar(read.text)
+                 val offer=AuroraOferta.from(read)
+                 var proofKey: String? = null
+                 var isNegocia = false
+                 val json=JSONObject().put("ocrMs",SystemClock.elapsedRealtime()-started)
+-                    .put("capturedAtMs",capturedAt)
++                    .put("capturedAtMs",capturedAt).put("cardToken",frame.token)
+                 if(offer!=null) {
+-                    val key=AuroraOferta.key(offer)
++                    val key=frame.token + ":" + AuroraOferta.key(offer)
+                     if (key!=lastOfferKey) { lastOfferKey=key; offerSequence++ }
+                     isNegocia = read.text.contains("Negocia",true)
+                     json.put("offer",AuroraOferta.json(offer,offerSequence,isNegocia))
+@@ -467,31 +516,45 @@
+                 if(completion!=null) {
+                     json.put("completion",JSONObject().put("id",completion.id)
+                         .put("amountCents",completion.valorCentavos?:JSONObject.NULL))
+-                    val stored=getSharedPreferences("aurora_ocr",MODE_PRIVATE)
+-                    stored.edit().putString(completion.id,json.getJSONObject("completion").toString()).apply()
+                 }
+                 val stable=JSONObject(json.toString()).apply { remove("ocrMs"); remove("capturedAtMs") }.toString()
+-                if(stable!=lastPayload || completion!=null) {
++                if (stable!=lastPayload || completion!=null) {
+                     lastPayload=stable
+-                    if(offer!=null || completion!=null) {
+-                        if(readings.size>=180)readings.removeFirst()
+-                        readings.addLast(json)
++                    val script = "(function(){const e=new CustomEvent('aurora-native-ocr',{cancelable:true,detail:" +
++                        json + "});return window.dispatchEvent(e)&&e.detail.accepted===true})()"
++                    val proof = proofKey
++                    val metadata = " cap=$capturedAt card=${frame.token}"
++                    if (proof != null) {
++                        val kind=if (isNegocia) "negocia" else "pop"
++                        Log.i("VexoLocalOcr", "pixels src="+pixelSource.token+metadata)
++                        Log.i("VexoLocalOcr", "parsed kind="+kind+metadata)
++                        Log.i("VexoLocalOcr", "dispatched kind=offer"+metadata)
+                     }
+-                    val source = "window.dispatchEvent(new CustomEvent('aurora-native-ocr',{detail:"+json+"}));"
+-                    if (proofKey == null) web.evaluateJavascript(source, null)
+-                    else web.evaluateJavascript(source) { result ->
+-                        if (result == "true" && currentLocalCapture(session) && proofKey != lastProofOfferKey) {
+-                            lastProofOfferKey = proofKey
+-                            AuroraWebCapture.proof(pixelSource, isNegocia, capturedAt).forEach { Log.i("VexoLocalOcr", it) }
++                    web.evaluateJavascript(script) { result ->
++                        if (result != "true" || !visible || isDestroyed) {
++                            // Consider a rejected fresh result eligible for a new real capture.
++                            if (currentLocalCapture(session,frame) && lastPayload==stable) lastPayload=""
++                            return@evaluateJavascript
++                        }
++                        // JS already acknowledged the exact card while it was active.
++                        if (offer!=null || completion!=null) {
++                            json.remove("accepted")
++                            if (readings.size>=180) readings.removeFirst()
++                            readings.addLast(json)
++                        }
++                        if (completion!=null) {
++                            val stored=getSharedPreferences("aurora_ocr",MODE_PRIVATE)
++                            stored.edit().putString(completion.id,json.getJSONObject("completion").toString()).apply()
++                        }
++                        if (proof != null && proof != lastProofOfferKey) {
++                            lastProofOfferKey=proof
++                            Log.i("VexoLocalOcr", "accepted kind=offer"+metadata)
+                         }
+                     }
+                 }
+             }
+             .addOnFailureListener {
+-                if (currentLocalCapture(session) && lastPayload!="error") {
+-                    lastPayload="error"
+-                    web.evaluateJavascript("window.dispatchEvent(new CustomEvent('aurora-native-ocr',{detail:null}));",null)
+-                }
++                // Don't let a failed frame clear the next card or overwrite a previously valid value.
+             }
+             .addOnCompleteListener { busy=false; b.recycle() }
+     }
+--- /dev/null
++++ b/app/src/main/java/com/trackingracing/AuroraLocalOfferPixels.kt
+@@ -0,0 +1,31 @@
++package com.trackingracing
++
++/** Synchronized because selection comes from the WebView bridge, not the UI thread. */
++internal class AuroraLocalOfferPixels {
++    class Selection internal constructor(val token: String?)
++    class Frame internal constructor(val token: String, val pixelCopy: Boolean)
++    private val tokenPattern = Regex("[0-9]{1,18}-[0-9]{1,6}")
++    private var selection: Selection? = null
++    private var committedFrame: Frame? = null
++
++    @Synchronized fun select(raw: String): Selection? {
++        val token = raw.takeIf { tokenPattern.matches(it) }
++        if (selection?.token == token) return null
++        val update = Selection(token)
++        selection = update
++        committedFrame = null
++        return update
++    }
++
++    @Synchronized fun selected(): Selection? = selection?.takeIf { it.token != null }
++    @Synchronized fun isSelected(stamp: Selection): Boolean = stamp === selection
++    @Synchronized fun pause() { committedFrame = null }
++
++    @Synchronized fun markFrame(stamp: Selection, pixelCopy: Boolean) {
++        val token = stamp.token ?: return
++        if (stamp === selection) committedFrame = Frame(token, pixelCopy)
++    }
++
++    @Synchronized fun frame(): Frame? = committedFrame
++    @Synchronized fun isCurrent(frame: Frame): Boolean = frame === committedFrame
++}
+--- /dev/null
++++ b/app/src/test/java/com/trackingracing/AuroraLocalOfferPixelsTest.kt
+@@ -0,0 +1,58 @@
++package com.trackingracing
++
++import org.junit.Assert.*
++import org.junit.Test
++
++class AuroraLocalOfferPixelsTest {
++    private val gate = AuroraLocalOfferPixels()
++    @Test fun selectedCardIsNotCapturableUntilAFrameIsReady() {
++        val a = gate.select("1760000000000-1")!!
++        assertNull(gate.frame())
++        gate.markFrame(a, true)
++        assertTrue(gate.frame()!!.pixelCopy)
++        assertEquals("1760000000000-1", gate.frame()!!.token)
++    }
++    @Test fun lateCommitAndLateOcrCannotRetargetNextCard() {
++        val a = gate.select("1760000000000-1")!!
++        gate.markFrame(a, true)
++        val frameA = gate.frame()!!
++        val b = gate.select("1760000000000-3")!!
++        assertFalse(gate.isCurrent(frameA))
++        gate.markFrame(a, true)
++        assertNull(gate.frame())
++        gate.markFrame(b, true)
++        assertTrue(gate.isCurrent(gate.frame()!!))
++        assertFalse(gate.isCurrent(frameA))
++    }
++    @Test fun revisitingSameCardLabelDoesNotRevivePreviousFrame() {
++        val a = gate.select("1760000000000-1")!!
++        gate.markFrame(a, true)
++        val old = gate.frame()!!
++        gate.select("")
++        val repeated = gate.select("1760000000000-1")!!
++        assertFalse(gate.isCurrent(old))
++        gate.markFrame(a, true)
++        assertNull(gate.frame())
++        gate.markFrame(repeated, false)
++        assertFalse(gate.frame()!!.pixelCopy)
++        assertFalse(gate.isCurrent(old))
++    }
++    @Test fun visibilityPauseInvalidatesInFlightFrame() {
++        val a = gate.select("1760000000000-1")!!
++        gate.markFrame(a, true)
++        val old = gate.frame()!!
++        gate.pause()
++        assertFalse(gate.isCurrent(old))
++        assertNull(gate.frame())
++        assertSame(a, gate.selected())
++    }
++    @Test fun malformedOrUntaggedCardNeverProducesFrame() {
++        assertNull(gate.select("address-not-an-id"))
++        val a = gate.select("1760000000000-1")!!
++        gate.markFrame(a, true)
++        val old = gate.frame()!!
++        gate.select("malformed")
++        assertFalse(gate.isCurrent(old))
++        assertNull(gate.selected())
++    }
++}
