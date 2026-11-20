@@ -6,7 +6,7 @@ import {sentenceFor,createHandler,synthesizeWithGoogle} from './server.mjs';
 
 test('only structured and bounded data can be voiced',()=>{
   assert.match(sentenceFor({kind:'intro'}),/E aí, motora/);
-  assert.match(sentenceFor({kind:'offer_metrics',perKmCents:340,perHourCents:4500}),/R\$ 3,40/);
+  assert.match(sentenceFor({kind:'offer_metrics',perKmCents:340,perHourCents:4500}),/R\$[\s\u00a0]3,40/);
   assert.equal(sentenceFor({kind:'offer_metrics',perKmCents:-1}),null);
   assert.equal(sentenceFor({kind:'offer_metrics',perHourCents:1.5}),null);
   assert.equal(sentenceFor({kind:'offer_metrics',perKmCents:1,passengerName:'ABC'}),null);
