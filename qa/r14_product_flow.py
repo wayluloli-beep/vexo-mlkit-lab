@@ -192,6 +192,7 @@ def driver(r12):
                         next_card=self.product_stages['local_next_card'])
 
         def return_from_local(self):
+            stopped_by_button = False
             def inspect(root):
                 app = self.content(root)
                 if (stop := baseline.click_of(root, self.pkg, 'Encerrar treino')):
@@ -210,8 +211,10 @@ def driver(r12):
                 if state == 'main':
                     self.no_projection('local-stopped')
                     self.checkpoint('local-training-stopped', key)
-                    return
+                    return stopped_by_button
                 self.act(key, target, 'local-exit-'+state)
+                if state == 'stop':
+                    stopped_by_button = True
             raise r12.Failure('did not return from training via visible Android UI')
 
         def app_button(self, label, seconds=31):
@@ -282,14 +285,35 @@ def driver(r12):
             self.product_stages['external_attempt'] = 'PASS'
 
         def run(self):
-            rc = r12.Run.run(self)
-            path = self.out/'driver-result.json'
-            status = json.loads(path.read_text())
-            status.update(product_real_ocr_chain=self.product_ok, product_stages=self.product_stages,
-                          motion_review='MANUAL_FRAME_REVIEW_REQUIRED',
-                          same_apk_witness='device-apks.sha256')
-            self.write(path.name, json.dumps(status, ensure_ascii=False, indent=2)+'\n')
-            return rc or int(not self.product_ok)
+            try:
+                self.launcher()
+                self.first_entry()
+            except r12.Failure as exc:
+                self.ev('local-entry', 'INCONCLUSIVE', reason=str(exc)[:300])
+            else:
+                try:
+                    self.local()
+                except r12.Failure as exc:
+                    self.product_stages['local_ocr'] = 'INCONCLUSIVE'
+                    self.ev('local-real-ocr', 'INCONCLUSIVE', reason=str(exc)[:300])
+                    try:
+                        self.shot('local-inconclusive')
+                    except r12.Failure:
+                        pass
+                finally:
+                    try:
+                        self.product_stages['local_cleanup'] = ('PASS' if self.return_from_local() else 'INCONCLUSIVE')
+                    except r12.Failure as exc:
+                        self.product_stages['local_cleanup'] = 'INCONCLUSIVE'
+                        self.ev('local-cleanup', 'INCONCLUSIVE', reason=str(exc)[:300])
+                    try:
+                        self.first_pop_native()
+                    except r12.Failure:
+                        pass
+            ok = (self.product_stages['local_ocr'] == 'PASS' and self.product_stages['local_cleanup'] == 'PASS')
+            self.write('driver-result.json', json.dumps(dict(product_real_ocr_chain=ok,
+                       product_stages=self.product_stages), ensure_ascii=False, indent=2)+'\n')
+            return 0 if ok else 1
 
     return R14
 

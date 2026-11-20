@@ -13,8 +13,8 @@ import zlib
 from pathlib import Path
 
 REPO = 'wayluloli-beep/vexo-mlkit-lab'
-BRANCH = 'vexo-product-r16-card-once'
-ROUND = 'r16'
+BRANCH = 'vexo-product-r16-train-retry'
+ROUND = 'r16-internal-retry'
 TAG = 'R16_RETENTION'
 API = '/repos/' + REPO
 LIMIT = 1536 * 1024

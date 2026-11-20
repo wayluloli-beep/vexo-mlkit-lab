@@ -24,7 +24,7 @@ cleanup() {
 }
 trap cleanup EXIT
 [[ $GITHUB_REPOSITORY == wayluloli-beep/vexo-mlkit-lab && $GITHUB_RUN_ATTEMPT == 1 ]]
-[[ $GITHUB_EVENT_NAME == create && $GITHUB_REF == refs/heads/vexo-product-r16-card-once ]]
+[[ $GITHUB_EVENT_NAME == create && $GITHUB_REF == refs/heads/vexo-product-r16-train-retry ]]
 [[ $(git rev-parse HEAD) == "$GITHUB_SHA" ]]
 [[ $(git ls-tree -r --name-only HEAD qa/payload | wc -l) == 24 ]]
 printf '%s  %s\n' '1f1e08574699aabab795687db1816a5962d033652879b21d924cfc590d50199d' "$work/payload.tar.gz" > "$work/payload-check"
