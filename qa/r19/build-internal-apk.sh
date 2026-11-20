@@ -2,7 +2,7 @@
 set -euo pipefail
 umask 077
 export LC_ALL=C
-[[ ${GITHUB_REPOSITORY:-} == wayluloli-beep/vexo-mlkit-lab && ${GITHUB_REF:-} == refs/heads/vexo-r19-apk-teste ]]
+[[ ${GITHUB_REPOSITORY:-} == wayluloli-beep/vexo-mlkit-lab && ${GITHUB_REF:-} == refs/heads/vexo-r19-apk-download ]]
 [[ $(git rev-parse HEAD) == "$GITHUB_SHA" ]]
 unset APK_KEYSTORE_FILE APK_STORE_PASSWORD APK_KEY_ALIAS APK_KEY_PASSWORD GITHUB_RUN_NUMBER
 export JAVA_HOME="${JAVA_HOME_17_X64:?}"
