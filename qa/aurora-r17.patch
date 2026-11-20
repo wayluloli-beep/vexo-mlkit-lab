@@ -1,0 +1,67 @@
+--- a/app/src/main/assets/aurora/onboarding.html
++++ b/app/src/main/assets/aurora/onboarding.html
+@@ -266,2 +266,16 @@
+ .entry-copy .error{font-size:15px}
++
++/* First access: one decision screen. Detailed plan and its theme stay independent. */
++.shell[data-entry-compact="true"] .topbar-inner{padding-top:max(22px,calc(env(safe-area-inset-top,0px) + 8px))}
++.shell[data-entry-compact="true"] .topbar .back{visibility:hidden}
++.shell[data-entry-compact="true"] main{align-items:center;padding-block:12px max(24px,env(safe-area-inset-bottom,0px))}
++.content.hero.welcome-compact{width:min(100%,440px);align-self:center;margin:0 auto;padding-top:0;text-align:left}
++.welcome-compact h1{font-size:clamp(40px,10vw,62px);line-height:1.04;letter-spacing:-.06em;text-wrap:wrap}
++.welcome-compact .sub{margin:12px 0 19px;color:#e5f0f3;max-width:30ch}
++.welcome-compact .welcome-actions{display:grid;gap:6px}
++.welcome-compact .primary{min-height:52px;width:100%;background:#9beef8;color:#03151b;border-radius:14px}
++.welcome-compact .quiet{min-height:44px;padding-inline:8px;text-decoration:underline;text-underline-offset:3px}
++.welcome-compact .micro{margin:4px 0 0;text-align:center;color:#e5f0f3}
++.welcome-compact .error{font-size:14px;margin-top:8px}
++@media (max-height:480px){.shell[data-entry-compact="true"] main{align-items:flex-start}}
+ </style>
+@@ -465,2 +479,16 @@
+ topBack.onclick=goBack;
++function enterWelcome(){
++ if(busy||page!=="home"||!interviewRequired())return;
++ if(!entryDisclosure.hasAccepted()){stack=[];route("disclosure",false);return}
++ try{
++  localStorage.setItem(launchSequenceKey,"app");
++  if(localStorage.getItem(launchSequenceKey)!=="app")throw Error("progress not saved");
++ }catch(_){
++  const error=$("welcome-error");
++  if(error){error.textContent="Não consegui salvar sua entrada. Confira o armazenamento e tente de novo.";error.hidden=false}
++  return;
++ }
++ busy=true;
++ location.replace("./index.html");
++}
+ planEnter.onclick=()=>{
+@@ -683,3 +711,5 @@
+ function paint(){
++ const compactWelcome=page==="home"&&interviewRequired();
+  shell.dataset.scene=page;
++ shell.dataset.entryCompact=String(compactWelcome);
+  planFinish.hidden=page!=="plan";
+@@ -688,3 +718,3 @@
+   :window.VexoAndroidOcr?"Ao entrar, a meta aparece no balão e ajuda a acompanhar seu turno na Folha de ponto.":"Esta é uma prévia da meta por hora. Entre pelo app Android para salvá-la.";
+- screen.className="content "+(page==="home"?"hero":page==="plan"||page==="garage"?"wide":"");
++ screen.className="content "+(page==="home"?(compactWelcome?"hero welcome-compact":"hero"):page==="plan"||page==="garage"?"wide":"");
+  let body="";
+@@ -693,3 +723,9 @@
+  case "disclosurePaused":body=$("entry-declined-view").innerHTML;break;
+- case "home": body='<p class="eyebrow">E aí, motora?</p>'+wrap("","Quanto precisa sobrar no bolso?","Simule seus custos e descubra quanto precisa ganhar por hora, mesmo antes da primeira corrida.",'<div class="actions"><button type="button" class="primary" data-action="begin">Começar'+icon("arrow")+'</button></div>'); break;
++ case "home":
++  if(compactWelcome){
++   body=wrap("","E aí, motora?","Organize seus ganhos, seus custos e a meta do seu turno.",
++    '<div class="welcome-actions"><button type="button" class="primary" data-action="enter-welcome">Entrar no Vexo'+icon("arrow")+'</button><button type="button" class="quiet" data-action="begin">Configurar meu plano</button></div><p class="micro">Pode entrar agora e ajustar depois.</p><p id="welcome-error" class="error" role="alert" hidden></p>');
++   break;
++  }
++  body='<p class="eyebrow">E aí, motora?</p>'+wrap("","Quanto precisa sobrar no bolso?","Simule seus custos e descubra quanto precisa ganhar por hora, mesmo antes da primeira corrida.",'<div class="actions"><button type="button" class="primary" data-action="begin">Começar'+icon("arrow")+'</button></div>'); break;
+  case "work":body=wrap("","Já roda por aplicativo?","Se só quiser mexer na barrinha, dá pra testar sem preencher nada.",'<div class="options">'+choice("Já rodo","","car","yes")+choice("Quero começar","","map","no")+'</div><button type="button" class="quiet shortcut" data-action="try">Só quero testar</button>');break;
+@@ -741,2 +777,3 @@
+  if(page==="disclosurePaused"&&a==="entry-reread"){route("disclosure",false);return}
++ if(a==="enter-welcome"){enterWelcome();return}
+  if(a==="begin")route("work");
+@@ -765,3 +802,3 @@
+  e.preventDefault();
+- if(page==="home")route("work");
++ if(page==="home"){if(interviewRequired())enterWelcome();else route("work")} 
+  else if(page==="work")route("type");
