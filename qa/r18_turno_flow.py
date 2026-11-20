@@ -13,7 +13,7 @@ def driver(r12):
     class Turno(baseline.product_driver(r12)):
         def run(self):
             self.product_stages.update(prior_settings='NOT_RUN', upgrade='NOT_RUN', draft='NOT_RUN',
-                                       turno_reopen='NOT_RUN', manual_totals='NOT_RUN', saved_reopen='NOT_RUN')
+                                       turno_reopen='NOT_RUN', closure_draft='NOT_RUN', manual_totals='NOT_RUN', saved_reopen='NOT_RUN')
             ok = False
             try:
                 self.revision('prior', 'VEXO_R18_PRIOR', 4)
@@ -79,11 +79,28 @@ def driver(r12):
                 self.product_stages['saved_reopen']='PASS'
                 ok = True
             except (r12.Failure, ValueError, OSError) as exc:
+                print('R18_DIAGNOSTIC: '+self.safe_reason(exc), flush=True)
                 self.ev('r18-turno','INCONCLUSIVE',reason=str(exc))
                 try:self.shot('turno-inconclusive')
                 except r12.Failure:pass
             self.write('driver-result.json',json.dumps(dict(product_stages=self.product_stages))+'\n')
             return 0 if ok else 1
+
+        def safe_reason(self, exc):
+            detail=str(exc)
+            categories={
+                'ADB timeout': 'adb_timeout',
+                'ADB (': 'adb_command_failed',
+                'expected an empty': 'clean_install_precondition',
+                'APK installation not confirmed': 'install_no_success',
+                'APK could not be identified': 'installed_path_invalid',
+                'installed APK differs': 'installed_hash_mismatch',
+                'version code did not match': 'version_mismatch',
+                'product state missing': 'state_missing',
+            }
+            for text,label in categories.items():
+                if text in detail:return label
+            return 'ui_or_device_check' if isinstance(exc,r12.Failure) else 'driver_error'
 
         def reopen(self,stage,*texts):
             self.sh('am','force-stop',self.pkg)
@@ -102,11 +119,13 @@ def driver(r12):
 
         def revision(self,stage,var,version,replacing=False):
             path=Path(os.environ[var]); digest=hashlib.file_digest(path.open('rb'),'sha256').hexdigest()
-            if not replacing and self.sh('pm','path',self.pkg).strip().startswith('package:'):
+            if not replacing and ('package:'+self.pkg) in self.sh('pm','list','packages',self.pkg).splitlines():
                 raise r12.Failure('expected an empty disposable device')
+            self.ev(stage+'-install-start','PASS')
             args=['-r'] if replacing else []
             answer=self.cmd('install',*args,'--streaming',str(path),timeout=170).decode()
             if 'Success' not in answer:raise r12.Failure('APK installation not confirmed')
+            self.ev(stage+'-install-return','PASS')
             row=self.sh('pm','path',self.pkg).strip()
             match=re.fullmatch(r'package:(/[\w./=+~-]+/base\.apk)',row)
             if not match:raise r12.Failure('APK could not be identified')

@@ -24,7 +24,7 @@ cleanup() {
 }
 trap cleanup EXIT
 [[ $GITHUB_REPOSITORY == wayluloli-beep/vexo-mlkit-lab && $GITHUB_RUN_ATTEMPT == 1 ]]
-[[ $GITHUB_EVENT_NAME == create && $GITHUB_REF == refs/heads/vexo-product-r18-turno-once ]]
+[[ $GITHUB_EVENT_NAME == create && $GITHUB_REF == refs/heads/vexo-product-r18-turno-retry ]]
 [[ $(git rev-parse HEAD) == "$GITHUB_SHA" ]]
 [[ $(git ls-tree -r --name-only HEAD qa/payload | wc -l) == 24 ]]
 printf '%s  %s\n' '1f1e08574699aabab795687db1816a5962d033652879b21d924cfc590d50199d' "$work/payload.tar.gz" > "$work/payload-check"
@@ -324,6 +324,7 @@ export VEXO_R18_CANDIDATE="$work/candidate.apk" VEXO_R18_PRIOR="$work/prior.apk"
 driver_rc=0
 PYTHONDONTWRITEBYTECODE=1 timeout 480s python3 -u qa/r18_turno_flow.py > "$work/driver.log" 2>&1 || driver_rc=$?
 report "DRIVER_EXIT:$driver_rc"
+grep -E '^R18_DIAGNOSTIC: [a-z_]{1,36}$' "$work/driver.log" || true
 sed -nE 's/^LIVE:([a-zA-Z0-9_-]{1,64}):([A-Z_]{1,32})([ ].*)?$/R18_STEP: \1 \2/p' "$work/driver.log" | tail -100
 python3 - "$OUT/driver-result.json" <<'PYRESULT'
 from pathlib import Path
