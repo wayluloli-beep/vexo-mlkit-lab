@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Save allowlisted synthetic QA prints to the same private R15 branch, even on test failure."""
+"""Save allowlisted synthetic QA prints to the same private R16 branch, even on test failure."""
 import base64
 import hashlib
 import http.client
@@ -13,9 +13,9 @@ import zlib
 from pathlib import Path
 
 REPO = 'wayluloli-beep/vexo-mlkit-lab'
-BRANCH = 'vexo-product-r15-warm-once'
-ROUND = 'r15'
-TAG = 'R15_RETENTION'
+BRANCH = 'vexo-product-r16-card-once'
+ROUND = 'r16'
+TAG = 'R16_RETENTION'
 API = '/repos/' + REPO
 LIMIT = 1536 * 1024
 SCENES = ('A', 'B', 'N', 'A2', 'B2', 'C', 'D', 'OCCLUDED', 'OCCLUSION', 'RESTORED', 'GALLERY')
@@ -31,7 +31,7 @@ PRODUCT_PNG_NAMES = (
     'welcome-terms.png', 'welcome-data.png', 'welcome-data-choice.png', 'welcome-plan-preview.png',
     'central-home.png', 'central-config.png', 'central-help.png', 'central-about.png',
     'central-back-home.png', 'main-returned.png', 'local-before.png', 'local-idle.png',
-    'local-result.png', 'local-training-stopped.png', 'local-first-card.png', 'local-next-card.png', 'local-next-result.png', 'local-next-stale.png', 'external_entry-before.png', 'failure-external_entry.png',
+    'local-result.png', 'local-training-stopped.png', 'local-first-card.png', 'local-next-card.png', 'local-next-result.png', 'local-next-stale.png', 'external_entry-before.png', 'external_entry-central.png', 'failure-external_entry.png',
     'failure-native-launcher.png', 'failure-initial-welcome.png', 'failure-welcome-data.png',
     'failure-central-home.png', 'failure-local-real-ocr.png', 'failure-local-result-ui.png',
     'failure-local-open-training.png', 'failure-local-open-training-options.png', 'failure-local-pop-only-open.png', 'failure-local-pace-long-open.png', 'local-inconclusive.png',
@@ -125,7 +125,7 @@ def api_call(token, method, path, body=None):
     try:
         raw = None if body is None else json.dumps(body, separators=(',',':')).encode()
         c.request(method, path, raw, {'Authorization':'Bearer '+token, 'Accept':'application/vnd.github+json',
-                  'User-Agent':'Vexo-R15-private-QA-evidence', 'Content-Type':'application/json',
+                  'User-Agent':'Vexo-R16-private-QA-evidence', 'Content-Type':'application/json',
                   'X-GitHub-Api-Version':'2022-11-28'})
         r = c.getresponse()
         need(200 <= r.status < 300, 'GitHub API status %d (%s)' % (r.status, method))
@@ -179,7 +179,7 @@ def main(env, call=api_call):
         entries.append({'path':dest+name,'mode':'100644','type':'blob','sha':expected_blob})
     tree = api('POST', API+'/git/trees', {'base_tree':base['tree']['sha'], 'tree':entries})
     need(HEX.fullmatch(tree.get('sha','')), 'invalid new tree')
-    commit = api('POST', API+'/git/commits', {'message':'Retain R15 clean AVD evidence [skip ci]', 'tree':tree['sha'], 'parents':[sha]})
+    commit = api('POST', API+'/git/commits', {'message':'Retain R16 clean AVD evidence [skip ci]', 'tree':tree['sha'], 'parents':[sha]})
     need(HEX.fullmatch(commit.get('sha','')), 'invalid new commit')
     check_head()
     updated = api('PATCH', API+'/git/refs/heads/'+BRANCH, {'sha':commit['sha'], 'force':False})

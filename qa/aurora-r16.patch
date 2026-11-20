@@ -1,0 +1,167 @@
+--- a/app/build.gradle.kts
++++ b/app/build.gradle.kts
+@@ -15,3 +15,3 @@
+         versionCode = System.getenv("GITHUB_RUN_NUMBER")?.toIntOrNull() ?: 4
+-        versionName = "0.1.3-r15-interno"
++        versionName = "0.1.3-r16-interno"
+     }
+--- a/app/src/main/assets/aurora/central.html
++++ b/app/src/main/assets/aurora/central.html
+@@ -28,3 +28,3 @@
+ <button class="card primary" data-action="lab"><span class="card-title">Ler uma oferta no Vexo</span><span class="detail">Abra o simulador e acompanhe a leitura no balão.</span><span class="arrow" aria-hidden="true">→</span></button>
+-<button class="card" data-action="externo"><span class="card-title">OCR em outros apps</span><span class="detail">Inicie a captura pelo Android ou encerre a sessão ativa.</span><span class="arrow" aria-hidden="true">→</span></button></div>
++<button class="card" data-action="externo" aria-label="OCR em outros apps" aria-describedby="intro-externo"><span class="card-title">OCR em outros apps</span><span class="detail" id="intro-externo">Inicie a captura pelo Android ou encerre a sessão ativa.</span><span class="arrow" aria-hidden="true">→</span></button></div>
+ <div id="shortcuts" role="region" aria-labelledby="atalhos">
+@@ -66,3 +66,3 @@
+ <section id="sobre" hidden aria-labelledby="h-sobre"><h1 id="h-sobre" tabindex="-1">Informações</h1><p class="intro">Um copiloto que lê a oferta e compara o ganho previsto com o seu plano. A decisão da corrida é sua.</p>
+-<dl><div><dt>Versão</dt><dd>0.1.3-r15-interno</dd></div><div><dt>Edição</dt><dd>Teste interno R15</dd></div><div><dt>Leitor</dt><dd>Google ML Kit no aparelho</dd></div></dl>
++<dl><div><dt>Versão</dt><dd>0.1.3-r16-interno</dd></div><div><dt>Edição</dt><dd>Teste interno R16</dd></div><div><dt>Leitor</dt><dd>Google ML Kit no aparelho</dd></div></dl>
+ <h2>Dados e permissões</h2><p>O leitor interno analisa a área de ofertas do simulador. O externo usa a captura autorizada pelo Android. O app guarda preferências e pode registrar dados de corridas no aparelho. Os mapas podem acessar a internet.</p>
+--- a/app/src/main/assets/aurora/index.html
++++ b/app/src/main/assets/aurora/index.html
+@@ -248,3 +248,3 @@
+ .ocr-lab-box a{color:#d0defe;text-decoration:underline;text-underline-offset:2px}
+-.ocr-lab-run{position:fixed;z-index:70;top:4px;right:5px;display:flex;align-items:center;gap:4px;padding:0 3px 0 6px;background:#202631;color:#fff;border-radius:7px;font:700 9px/16px system-ui,sans-serif}
++.ocr-lab-run{position:fixed;z-index:70;top:max(36px,calc(env(safe-area-inset-top,0px) + 8px));left:8px;right:auto;display:flex;align-items:center;gap:4px;padding:0 3px 0 6px;background:#202631;color:#fff;border-radius:7px;font:700 9px/16px system-ui,sans-serif}
+ .ocr-lab-run button{min-width:26px;min-height:24px;border-radius:5px;background:#3e4757;color:#fff;font-size:17px}
+@@ -632,2 +632,8 @@
+   };
++  function visibleBounds(rect, width, height) {
++    if (!rect || ![rect.left, rect.top, rect.right, rect.bottom, width, height].every(Number.isFinite) || width<=0 || height<=0) return null;
++    const left=Math.max(0,rect.left), top=Math.max(0,rect.top);
++    const right=Math.min(width,rect.right), bottom=Math.min(height,rect.bottom);
++    return right>left&&bottom>top?[left,top,right,bottom,width,height]:null;
++  }
+   function subscribe(update, activeToken) {
+@@ -654,3 +660,3 @@
+   }
+-  window.VexoLocalOcr = Object.freeze({subscribe, cardToken});
++  window.VexoLocalOcr = Object.freeze({subscribe, cardToken, visibleBounds});
+ })();</script>
+@@ -3546,4 +3552,7 @@
+      rect.right<=0||rect.left>=window.innerWidth||style.visibility!=="visible"||+style.opacity<=0)return;
++  const bounds=offerPhase?api.visibleBounds(rect,window.innerWidth,window.innerHeight):null;
++  if(offerPhase&&!bounds)return;
+   localVisual.current={token,node};
+-  bridge.setLocalOfferToken(token);
++  if(bounds&&typeof bridge.setLocalOfferRegion==="function")bridge.setLocalOfferRegion(token,...bounds);
++  else bridge.setLocalOfferToken(token);
+  };
+--- a/app/src/main/java/com/trackingracing/AuroraActivity.kt
++++ b/app/src/main/java/com/trackingracing/AuroraActivity.kt
+@@ -277,5 +277,13 @@
+ 
+-        @JavascriptInterface fun setLocalOfferToken(token: String) {
++        @JavascriptInterface fun setLocalOfferToken(token: String) = selectLocalOffer(token)
++
++        @JavascriptInterface fun setLocalOfferRegion(token: String, left: Double, top: Double, right: Double,
++                                                    bottom: Double, width: Double, height: Double) {
++            val region = AuroraLocalOfferPixels.Region.from(left, top, right, bottom, width, height)
++            if (region == null) selectLocalOffer("") else selectLocalOffer(token, region)
++        }
++
++        private fun selectLocalOffer(token: String, region: AuroraLocalOfferPixels.Region? = null) {
+             // Revoke the old frame immediately, before a pending main-thread result can be delivered.
+-            val selected = localOffers.select(token) ?: return
++            val selected = localOffers.select(token, region) ?: return
+             selected.token?.let { traceLocal("selected", it) }
+@@ -506,8 +514,15 @@
+         val height=web.height
+-        val top=(height*.34).roundToInt()
+-        val scale=minOf(1f,1080f/width)
+-        val b=Bitmap.createBitmap((width*scale).roundToInt(),((height-top)*scale).roundToInt(),Bitmap.Config.ARGB_8888)
++        val region = frame.region
++        val left = region?.let { kotlin.math.floor(it.left * width).toInt() } ?: 0
++        val top = region?.let { kotlin.math.floor(it.top * height).toInt() } ?: (height*.34).roundToInt()
++        val right = region?.let { kotlin.math.ceil(it.right * width).toInt() } ?: width
++        val bottom = region?.let { kotlin.math.ceil(it.bottom * height).toInt() } ?: height
++        val cropWidth = right - left
++        val cropHeight = bottom - top
++        if (cropWidth < 100 || cropHeight < 100) return
++        val scale = minOf(1f, (if (region == null) 1080f else 540f) / cropWidth)
++        val b=Bitmap.createBitmap((cropWidth*scale).roundToInt(),(cropHeight*scale).roundToInt(),Bitmap.Config.ARGB_8888)
+         val pos=IntArray(2)
+         web.getLocationInWindow(pos)
+-        val source=Rect(pos[0],pos[1]+top,pos[0]+width,pos[1]+height)
++        val source=Rect(pos[0]+left,pos[1]+top,pos[0]+right,pos[1]+bottom)
+         busy=true
+@@ -524,3 +539,3 @@
+                 canvas.scale(scale,scale)
+-                canvas.translate(0f,-top.toFloat())
++                canvas.translate(-left.toFloat(),-top.toFloat())
+                 web.draw(canvas)
+@@ -528,5 +543,6 @@
+             if (!currentLocalCapture(session,frame)) { release(); return }
+-            panelRect?.let { r -> Canvas(b).drawRect(r.left*scale,(r.top-top)*scale,
+-                r.right*scale,(r.bottom-top)*scale,Paint().apply { color=Color.BLACK }) }
++            panelRect?.let { r -> Canvas(b).drawRect((r.left-left)*scale,(r.top-top)*scale,
++                (r.right-left)*scale,(r.bottom-top)*scale,Paint().apply { color=Color.BLACK }) }
+             traceLocal("capture_"+pixelSource.token, frame.token)
++            if (region != null) traceLocal("card_crop", frame.token, pixelAt)
+             analyze(b,session,frame,pixelAt,pixelSource)
+--- a/app/src/main/java/com/trackingracing/AuroraLocalOfferPixels.kt
++++ b/app/src/main/java/com/trackingracing/AuroraLocalOfferPixels.kt
+@@ -4,4 +4,16 @@
+ internal class AuroraLocalOfferPixels {
+-    class Selection internal constructor(val token: String?)
+-    class Frame internal constructor(val token: String, val pixelCopy: Boolean)
++    data class Region(val left: Double, val top: Double, val right: Double, val bottom: Double) {
++        companion object {
++            fun from(left: Double, top: Double, right: Double, bottom: Double,
++                     width: Double, height: Double): Region? {
++                if (!listOf(left, top, right, bottom, width, height).all(Double::isFinite) ||
++                    width <= 0 || height <= 0 || left < 0 || top < 0 || right > width || bottom > height ||
++                    left >= right || top >= bottom) return null
++                return Region(left / width, top / height, right / width, bottom / height)
++            }
++        }
++    }
++
++    class Selection internal constructor(val token: String?, val region: Region?)
++    class Frame internal constructor(val token: String, val pixelCopy: Boolean, val region: Region?)
+     private val tokenPattern = Regex("[0-9]{1,18}-[0-9]{1,6}")
+@@ -10,6 +22,7 @@
+ 
+-    @Synchronized fun select(raw: String): Selection? {
++    @Synchronized fun select(raw: String, region: Region? = null): Selection? {
+         val token = raw.takeIf { tokenPattern.matches(it) }
+-        if (selection?.token == token) return null
+-        val update = Selection(token)
++        val bounds = if (token == null) null else region
++        if (selection?.token == token && selection?.region == bounds) return null
++        val update = Selection(token, bounds)
+         selection = update
+@@ -26,3 +39,3 @@
+         if (stamp !== selection || committedFrame != null) return false
+-        committedFrame = Frame(token, pixelCopy)
++        committedFrame = Frame(token, pixelCopy, stamp.region)
+         return true
+--- a/app/src/test/java/com/trackingracing/AuroraLocalOfferPixelsTest.kt
++++ b/app/src/test/java/com/trackingracing/AuroraLocalOfferPixelsTest.kt
+@@ -65,2 +65,26 @@
+     }
++    @Test fun cropCannotTransferAcrossCardsOrSurviveAnUpdatedBounds() {
++        val first = AuroraLocalOfferPixels.Region.from(8.0, 400.0, 352.0, 780.0, 360.0, 800.0)!!
++        val updated = AuroraLocalOfferPixels.Region.from(8.0, 360.0, 352.0, 780.0, 360.0, 800.0)!!
++        val a = gate.select("1760000000000-1", first)!!
++        assertTrue(gate.markFrame(a, true))
++        val frame = gate.frame()!!
++        assertEquals(0.5, frame.region!!.top, 0.000001)
++        val changed = gate.select("1760000000000-1", updated)!!
++        assertFalse(gate.isCurrent(frame))
++        assertFalse(gate.markFrame(a, true))
++        assertTrue(gate.markFrame(changed, true))
++        val b = gate.select("1760000000000-3")!!
++        assertTrue(gate.markFrame(b, true))
++        assertNull(gate.frame()!!.region)
++    }
++
++    @Test fun boundsRejectOutsideInvisibleAndNonFiniteRegions() {
++        with(AuroraLocalOfferPixels.Region) {
++            assertNull(from(-4.0, 0.0, 10.0, 30.0, 40.0, 50.0))
++            assertNull(from(4.0, 0.0, 40.1, 30.0, 40.0, 50.0))
++            assertNull(from(10.0, 0.0, 10.0, 30.0, 40.0, 50.0))
++            assertNull(from(Double.NaN, 0.0, 10.0, 30.0, 40.0, 50.0))
++        }
++    }
+ }

@@ -215,10 +215,23 @@ def driver(r12):
             raise r12.Failure('did not return from training via visible Android UI')
 
         def app_button(self, label, seconds=31):
-            # The inherited R12 flow starts the Activity again before looking for its control.
-            # Re-establish Central *after* that launch, then pick the actual visible control.
-            self.central()
-            return super().app_button(label, seconds)
+            # Use Android Back from the idle simulator to reach Central. The tiny menu
+            # target can sit partly under status-bar gestures on edge-to-edge Android 15.
+            expected = ('OCR em outros apps', 'Parar OCR externo', 'Parar captura')
+            def where(root):
+                if 'painel do motorista' in self.content(root):
+                    return 'central'
+                if baseline.click_of(root, self.pkg, 'Treino OCR'):
+                    return 'main'
+                return None
+            _, _, page = self.product_observe(label+'-route', where, seconds)
+            if page == 'main':
+                self.sh('input', 'keyevent', 'KEYCODE_BACK')
+            self.state(label+'-central', 'Painel do motorista', seconds=seconds)
+            _, key, point = self.product_observe(label, lambda root: baseline.click_of(
+                root, self.pkg, *expected, allow_detail=True), seconds, scroll=True)
+            self.shot(label+'-before')
+            self.act(key, point, label)
 
         def consent(self):
             with self.clip('product-flow'):
