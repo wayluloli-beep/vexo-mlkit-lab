@@ -2,7 +2,7 @@
 set -euo pipefail
 umask 077
 export LC_ALL=C
-[[ ${GITHUB_REPOSITORY:-} == wayluloli-beep/vexo-mlkit-lab && ${GITHUB_REF:-} == refs/heads/vexo-product-r19-privacy-recheck ]]
+[[ ${GITHUB_REPOSITORY:-} == wayluloli-beep/vexo-mlkit-lab && ${GITHUB_REF:-} == refs/heads/vexo-product-r19-prints ]]
 export JAVA_HOME="${JAVA_HOME_17_X64:?}"
 export PATH="$JAVA_HOME/bin:$PATH"
 sdk="${ANDROID_HOME:-${ANDROID_SDK_ROOT:-}}"
@@ -68,4 +68,8 @@ done
 "$ADB" -s "$serial" shell svc wifi disable
 mapfile -t next < <(find "$work/src/aurora/app/build/outputs/apk/debug" -maxdepth 1 -name '*.apk')
 [[ ${#next[@]} == 1 ]]
-timeout 150s node qa/r19/android-webview-smoke.cjs --privacy-only "${next[0]}"
+"$ADB" -s "$serial" shell wm size 720x1280
+"$ADB" -s "$serial" shell wm density 240
+export VEXO_EVIDENCE_DIR="$RUNNER_TEMP/vexo-live-evidence"
+mkdir -p "$VEXO_EVIDENCE_DIR"
+timeout 240s node qa/r19/android-webview-smoke.cjs --gallery "${next[0]}"

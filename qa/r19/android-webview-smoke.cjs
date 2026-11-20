@@ -1,6 +1,8 @@
 'use strict';
 const assert = require('node:assert/strict');
 const {execFileSync} = require('node:child_process');
+const {writeFileSync} = require('node:fs');
+const {join} = require('node:path');
 const {setTimeout: sleep} = require('node:timers/promises');
 const adbPath = process.env.ADB;
 const serial = 'emulator-5554', pkg = 'com.trackingracing.aurora';
@@ -103,6 +105,70 @@ async function run() {
   assert.equal(adb('shell','getprop','sys.boot_completed'),'1');
   assert.equal(adb('shell','settings','get','global','airplane_mode_on'),'1');
   const prior = process.argv[2], candidate = process.argv[3];
+  if (prior === '--gallery') {
+    const {VEXO_EVIDENCE_DIR: output, RUNNER_TEMP: temp} = process.env;
+    assert.equal(output,join(temp,'vexo-live-evidence'));
+    const names = ["01-boas-vindas.png","02-meu-turno.png","03-turno-ativo.png","04-recebimentos.png","05-gastos.png","06-conferencia.png","07-turno-fechado.png","08-privacidade.png","09-aparencia.png"];
+    async function shot(index, selector) {
+      phase='print-'+names[index].split('.')[0];
+      if(selector) {
+        await poll(()=>evaluate(visible(selector)));
+        await evaluate('document.activeElement?.blur(); '+query(selector)+'.scrollIntoView({block:"start",behavior:"instant"})');
+        await evaluate('window.scrollBy(0,-44)');
+      } else {
+        await evaluate('document.activeElement?.blur();window.scrollTo(0,0)');
+      }
+      await sleep(580);
+      const png=execFileSync(adbPath,['-s',serial,'exec-out','screencap','-p'],{timeout:16000,maxBuffer:2*1024*1024});
+      assert.equal(png.subarray(0,8).toString('hex'),'89504e470d0a1a0a');
+      assert.equal(png.readUInt32BE(16),720);
+      assert.equal(png.readUInt32BE(20),1280);
+      writeFileSync(join(output,names[index]),png,{flag:'wx',mode:0o600});
+      console.log('R19_PRINT: '+names[index]);
+    }
+    phase='fresh-r19-launch';
+    assert.match(adb('install',candidate),/Success/);
+    await open();
+    await poll(() => evaluate(visible('#opening-continue') + ' || ' + visible('#entry-accept')), 35);
+    if (await evaluate(visible('#opening-continue'))) await click('#opening-continue');
+    await click('#entry-accept');
+    await click('#entry-continue');
+    await poll(()=>evaluate(visible('[data-action="enter-welcome"]')));
+    await shot(0);
+    await click('[data-action="enter-welcome"]');
+    await poll(()=>evaluate(visible('#privacy-toggle')));
+    await shot(1);
+    await click('#turno-action');
+    await poll(()=>evaluate(visible('#turno-badge')));
+    await shot(2);
+    await click('#turno-action');
+    await shot(3,'[data-turn-step="1"]');
+    await type('#t-uber','150,50');
+    await type('#t-nove','39,50');
+    await type('#t-indrive','30');
+    await click('#turno-payment summary');
+    await type('#t-cash','65');
+    await type('#t-pix','100');
+    await click('#turno-next');
+    await shot(4,'[data-turn-step="2"]');
+    await type('#t-fuel','45');
+    await type('#t-extra','15');
+    await click('#turno-next');
+    await type('#t-km','100');
+    await click('#turno-reserve summary');
+    await type('#t-reserve-rate','0,25');
+    await shot(5,'[data-turn-step="3"]');
+    await click('#turno-confirm');
+    await poll(()=>evaluate(visible('#turno-last')));
+    assert.match(await text('#turno-last-values'),/220,00.*60,00.*160,00/);
+    await shot(6,'#turno-last');
+    await click('#privacy-toggle');
+    assert.equal(await evaluate('document.documentElement.hasAttribute("data-vexo-values-hidden")'),true);
+    await shot(7);
+    await click('nav [data-page="config"]');
+    await shot(8,'#comfort-settings');
+    return;
+  }
   if (prior === '--privacy-only') {
     await mark('r19-privacy-mask-persists-through-immediate-stop', async()=>{
       assert.match(adb('install',candidate),/Success/);

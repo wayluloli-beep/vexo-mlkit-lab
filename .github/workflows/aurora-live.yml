@@ -1,11 +1,13 @@
-name: Vexo Android 16 private privacy recheck
+name: Vexo R19 private screenshot gallery
 'on':
   create:
 permissions:
   contents: read
 jobs:
   journey:
-    if: ${{ github.repository == 'wayluloli-beep/vexo-mlkit-lab' && github.event.ref_type == 'branch' && github.event.ref == 'vexo-product-r19-privacy-recheck' && github.event.repository.private == true }}
+    if: ${{ github.repository == 'wayluloli-beep/vexo-mlkit-lab' && github.event.ref_type == 'branch' && github.event.ref == 'vexo-product-r19-prints' && github.event.repository.private == true }}
+    permissions:
+      contents: write
     runs-on: ubuntu-26.04
     timeout-minutes: 27
     steps:
@@ -15,6 +17,13 @@ jobs:
           ref: ${{ github.sha }}
           persist-credentials: false
           fetch-depth: 1
-      - name: Run the focused offline privacy restart check
+      - name: Capture R19 screens in an offline Android emulator
         shell: bash
         run: bash qa/r19/run-webview-smoke.sh
+      - name: Retain only the synthetic PNGs on this private branch
+        if: ${{ always() && github.event.repository.private == true && github.run_attempt == '1' && github.ref == 'refs/heads/vexo-product-r19-prints' }}
+        timeout-minutes: 4
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: PYTHONDONTWRITEBYTECODE=1 python3 qa/r19/retain-r19-prints.py
