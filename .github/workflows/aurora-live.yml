@@ -16,7 +16,9 @@ jobs:
         with:
           persist-credentials: false
           fetch-depth: 1
-      - name: Synthesize 20 licensed Kokoro pt-BR clips and build signed Android APK
+      - name: Assemble signed APK using 20 pinned neural pt-BR audio clips
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: bash qa/r21/build.sh
       - name: Publish private test APK
         timeout-minutes: 5
