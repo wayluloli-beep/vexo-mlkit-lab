@@ -1,40 +1,30 @@
-name: Vexo R20 review full OCR product
+name: Vexo R20 native bridge inspection
 'on':
-  create:
   push:
-    branches:
-      - vexo-r20-ocr-full
+    branches: [vexo-r20-ocr-full]
 permissions:
   contents: read
 jobs:
   inspect:
     if: ${{ github.repository == 'wayluloli-beep/vexo-mlkit-lab' && github.ref == 'refs/heads/vexo-r20-ocr-full' && github.event.repository.private == true }}
     runs-on: ubuntu-26.04
-    timeout-minutes: 15
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
         with:
           persist-credentials: false
-      - name: Inspect original OCR shell and R19 navigation
+      - name: Native bridge and onboarding inspection
         shell: bash
         run: |
           set -euo pipefail
           work=$(mktemp -d)
-          bash qa/r19/materialize.sh "$work"
+          bash qa/r19/materialize.sh "$work" >/dev/null
           src="$work/src/aurora"
-          echo 'VEXO_R20_MANIFEST'
-          cat "$src/app/src/main/AndroidManifest.xml"
-          echo 'VEXO_R20_NATIVE_REFERENCES'
-          grep -nE 'startExternal|warmLocalRecognizer|tick|Simulador99Activity|ScreenCaptureService|showCentral|loadUrl|openCentral|central.html|index.html|launchCentral|setContentView' "$src/app/src/main/java/com/trackingracing/AuroraActivity.kt" | head -110
-          echo 'VEXO_R20_CENTRAL_JS'
-          cat "$src/app/src/main/assets/aurora/central.js"
-          echo 'VEXO_R20_INDEX_TOP'
-          head -c 7000 "$src/app/src/main/assets/aurora/index.html"
-          echo
-          echo 'VEXO_R20_CENTRAL_CSS'
-          head -c 3800 "$src/app/src/main/assets/aurora/central.css"
-          echo
-          echo 'VEXO_R20_MAIN_NATIVE_FILES'
-          find "$src/app/src/main/java/com/trackingracing" -maxdepth 1 -type f -printf '%f\n' | sort
-          echo 'VEXO_R20_BUILD_GRADLE'
-          cat "$src/app/build.gradle.kts"
+          echo 'NATIVE_PART_1'
+          sed -n '1,240p' "$src/app/src/main/java/com/trackingracing/AuroraActivity.kt"
+          echo 'NATIVE_PART_2'
+          sed -n '280,350p' "$src/app/src/main/java/com/trackingracing/AuroraActivity.kt"
+          echo 'NATIVE_PART_3'
+          sed -n '420,465p' "$src/app/src/main/java/com/trackingracing/AuroraActivity.kt"
+          echo 'ONBOARDING_ENTRY'
+          grep -nE 'central.html|vexo.entry.sequence.x4|vexo.entry.disclosure.v1|location.replace' "$src/app/src/main/assets/aurora/onboarding.html" | head -40
