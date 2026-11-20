@@ -16,8 +16,9 @@ class Element extends EventTarget {
   click() { this.dispatchEvent(new Event('click')); }
 }
 
-function home(storage = new Map()) {
+function home(storage = new Map(), native = undefined) {
   const document = new EventTarget(), window = new EventTarget();
+  window.VexoAndroidOcr = native;
   const elements = new Map(['privacy-values', 'privacy-toggle', 'privacy-auto', 'privacy-status', 'turno-form'].map(id => [id, new Element()]));
   const fields = ['uber', 'indrive', 'cash', 'km'].map(name => Object.assign(new Element(), {name}));
   const [field, indrive, cash, km] = fields, timers = new Map(), observed = new Map();
@@ -119,4 +120,25 @@ test('invalid stored privacy settings cannot enable automatic hiding', () => {
   const page = home(new Map([[key, '{"manual":"false","auto":"true"}']]));
   assert.equal(page.auto.checked, false);
   assert.equal(page.isMasked(), false);
+});
+
+test('Android preference survives a new Home before paint even if browser data was never updated', () => {
+  let confirmed = '';
+  const native = {
+    readPrivacyPrefs() { return confirmed; },
+    writePrivacyPrefs(manual, auto) { confirmed = JSON.stringify({manual, auto}); return true; }
+  };
+  const browser = new Map(), page = home(browser, native);
+  page.button.click();
+  assert.equal(page.isMasked(), true);
+  assert.equal(browser.has(key), false);
+  assert.equal(home(new Map(), native).startupMasked, true);
+  const reopened = home(new Map(), native);
+  reopened.button.click();
+  assert.equal(home(new Map(), native).startupMasked, false);
+});
+
+test('native preference read failure keeps the dashboard values masked', () => {
+  const page = home(new Map(), {readPrivacyPrefs: () => null, writePrivacyPrefs: () => false});
+  assert.equal(page.startupMasked, true);
 });

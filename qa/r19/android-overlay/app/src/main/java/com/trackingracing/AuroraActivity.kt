@@ -139,6 +139,18 @@ class AuroraActivity : Activity() {
         private fun fuelPrefs() = getSharedPreferences("aurora_balloon", MODE_PRIVATE)
         private fun goalPrefs() = getSharedPreferences("vexo.gain-goal", MODE_PRIVATE)
 
+        private fun privacyPrefs() = getSharedPreferences("vexo.privacy-values.v1", MODE_PRIVATE)
+
+        @JavascriptInterface fun readPrivacyPrefs(): String? = runCatching {
+            privacyPrefs().getString("saved", "") ?: ""
+        }.getOrNull()
+
+        @JavascriptInterface fun writePrivacyPrefs(manual: Boolean, auto: Boolean): Boolean {
+            val update = privacyPrefs().edit()
+            update.putString("saved", """{"manual":$manual,"auto":$auto}""")
+            return update.commit()
+        }
+
         @JavascriptInterface fun readManualTurn(): String? = synchronized(turnLock) {
             try {
                 turnFile.readFully().toString(Charsets.UTF_8)

@@ -25,7 +25,7 @@ test('manual bridge preserves the local package, WebView origin and persisted mo
     assert.ok(activity.includes('"' + key + '"'), key);
   }
   assert.deepEqual([...activity.matchAll(/@JavascriptInterface\s+fun\s+(\w+)/g)].map(m=>m[1]).sort(),
-    ['appVersion', 'fuelPrice', 'hourlyGoalCents', 'kmPerLiter', 'readManualTurn', 'saveFuel', 'setHourlyGoalCents', 'writeManualTurn']);
+    ['appVersion', 'fuelPrice', 'hourlyGoalCents', 'kmPerLiter', 'readManualTurn', 'readPrivacyPrefs', 'saveFuel', 'setHourlyGoalCents', 'writeManualTurn', 'writePrivacyPrefs']);
   assert.doesNotMatch(activity, /MODE_WORLD|loadDataWithBaseURL/);
   assert.ok(existsSync(join(src,'app/src/test/java/com/trackingracing/VexoManualWebTest.kt')));
 });

@@ -20,7 +20,7 @@ ce5061c11f715233cb34a8d30befb1c88b8f49cb92fc24bc7bbb726358c578c7  app/src/main/a
 453419096a0f30f1f14585ba5485b34cce33b24113fe6e558c722cf568b8fc89  app/src/main/assets/aurora/index.html
 88778c2ffcbd668b0354dae6a0f1060806949594b7ea9e08868cfb179e70ec6b  app/src/main/assets/aurora/onboarding.html
 2912ca289813ffae3e83c03ccec7135d291149a33d5cd8e1ab7516241d6fdf1e  app/src/main/assets/aurora/privacy-values.css
-2ee00b05843cc8dcb14718a04790afef0760eaa0bfa487e81cfc80774d3fa2c4  app/src/main/assets/aurora/privacy-values.js
+09a002f7162ab783b1e92a9b0aca9eb5cc609c5f27835fef731e2b7fd33779c2  app/src/main/assets/aurora/privacy-values.js
 a197f9124dd451284317fdfaca86d340ad0865394d47c3130e65d3b24ae2b83d  app/src/main/assets/aurora/product-flags.js
 042dbc4932b3bb1221684b76776fcb0672a5a864db5602243f18269e02030fae  app/src/main/assets/aurora/quick-value.js
 03d833067ee9bd4ddfb2173e6a7f036e10d40171f99a4a84ee24f4d553e3befe  app/src/main/assets/aurora/turno-storage.js
@@ -28,7 +28,7 @@ a197f9124dd451284317fdfaca86d340ad0865394d47c3130e65d3b24ae2b83d  app/src/main/a
 87417a687a1a6a0f9adfd63516bd3915e1e30b8ebaf87305a4fecdbd3637b64c  app/src/main/assets/aurora/turno-ui.js
 22c07e89cfde9687ed4af421bbd94345b555bc2c19306e154499f70759f74580  app/src/main/assets/aurora/turno.js
 dbe485f4f484623db8c1b6c4d2f039ec25106945210fee28eba26ba117d7106a  app/src/main/assets/aurora/veiculo.html
-1d1ef98da783ae88da970e514f5c45aee7f301cedd79cebd1e024c87325f1efa  app/src/main/java/com/trackingracing/AuroraActivity.kt
+50c1b6b5d71bc3522fbb13ff9b16d1e8959c616c7e7dd2ec6ee4da2dd94dde9b  app/src/main/java/com/trackingracing/AuroraActivity.kt
 8b40cf2204b65e1d21cc32e1968514c2d1f3d9e7ff71c7fa9226ca35f7cf4fb9  app/src/main/java/com/trackingracing/VexoManualWeb.kt
 7689756c04db92f446c64ebe9fe8ea96932047130ca9866285f30a4589fb8ec4  app/src/main/res/drawable/vexo_launcher_mark.xml
 db47c29cbe9ac76d682afb0ffd97fed4941d082d346ea854914fbe53422274ce  app/src/main/res/values/styles.xml

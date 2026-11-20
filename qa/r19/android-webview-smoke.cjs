@@ -103,6 +103,25 @@ async function run() {
   assert.equal(adb('shell','getprop','sys.boot_completed'),'1');
   assert.equal(adb('shell','settings','get','global','airplane_mode_on'),'1');
   const prior = process.argv[2], candidate = process.argv[3];
+  if (prior === '--privacy-only') {
+    await mark('r19-privacy-mask-persists-through-immediate-stop', async()=>{
+      assert.match(adb('install',candidate),/Success/);
+      await open();
+      if (await evaluate(visible('#opening-continue'))) await click('#opening-continue');
+      await click('#entry-accept');
+      await click('#entry-continue');
+      await click('[data-action="enter-welcome"]');
+      await click('#privacy-toggle');
+      assert.equal(await evaluate('document.documentElement.hasAttribute("data-vexo-values-hidden")'),true,'mask active before restart');
+      assert.equal(await evaluate('JSON.parse(window.VexoAndroidOcr.readPrivacyPrefs()).manual'),true,'native preference confirmed before restart');
+      await relaunch('#privacy-toggle');
+      assert.equal(await evaluate('document.documentElement.hasAttribute("data-vexo-values-hidden")'),true,'mask active immediately after restart');
+      await click('#privacy-toggle');
+      await relaunch('#privacy-toggle');
+      assert.equal(await evaluate('document.documentElement.hasAttribute("data-vexo-values-hidden")'),false,'explicit reveal also persisted');
+    });
+    return;
+  }
   await mark('r18-normal-entry-fuel-active-turn', async()=>{
     assert.match(adb('install',prior),/Success/);
     await open();

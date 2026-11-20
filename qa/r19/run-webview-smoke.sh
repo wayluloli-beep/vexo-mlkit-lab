@@ -2,7 +2,7 @@
 set -euo pipefail
 umask 077
 export LC_ALL=C
-[[ ${GITHUB_REPOSITORY:-} == wayluloli-beep/vexo-mlkit-lab && ${GITHUB_REF:-} == refs/heads/vexo-product-r19-durable-qa ]]
+[[ ${GITHUB_REPOSITORY:-} == wayluloli-beep/vexo-mlkit-lab && ${GITHUB_REF:-} == refs/heads/vexo-product-r19-privacy-qa ]]
 export JAVA_HOME="${JAVA_HOME_17_X64:?}"
 export PATH="$JAVA_HOME/bin:$PATH"
 sdk="${ANDROID_HOME:-${ANDROID_SDK_ROOT:-}}"
@@ -25,7 +25,7 @@ clean() {
   exit "$rc"
 }
 trap clean EXIT
-VEXO_QA_COPY_R18=1 bash qa/r19/materialize.sh "$work"
+bash qa/r19/materialize.sh "$work"
 python3 qa/r19/isolate-native.py "$work/src/aurora"
 export ANDROID_USER_HOME="$work/android" ANDROID_AVD_HOME="$work/avd" GRADLE_USER_HOME="$work/gradle-home"
 mkdir -p "$ANDROID_USER_HOME" "$ANDROID_AVD_HOME"
@@ -40,7 +40,6 @@ image='system-images;android-36;google_apis;x86_64'
 packages=()
 [[ -x $ADB ]] || packages+=(platform-tools)
 [[ -x $emulator ]] || packages+=(emulator)
-[[ -f $sdk/platforms/android-35/android.jar ]] || packages+=('platforms;android-35')
 [[ -f $sdk/platforms/android-36/android.jar ]] || packages+=('platforms;android-36')
 [[ -x $sdk/build-tools/35.0.0/aapt ]] || packages+=('build-tools;35.0.0')
 [[ -f $sdk/system-images/android-36/google_apis/x86_64/package.xml ]] || packages+=("$image")
@@ -54,7 +53,6 @@ printf 'f397b287023acdba1e9f6fc5ea72d22dd63669d59ed4a289a29b1a76eee151c6  %s\n' 
 unzip -q "$work/gradle.zip" -d "$work"
 gradle="$work/gradle-8.11.1/bin/gradle"
 # Both debug artifacts use the same disposable runner debug key. Neither becomes a release.
-"$gradle" --project-dir "$work/r18-source" --no-daemon --console=plain --max-workers=2 :app:assembleDebug
 "$gradle" --project-dir "$work/src/aurora" --no-daemon --console=plain --max-workers=2 :app:assembleDebug :app:assembleRelease :app:testDebugUnitTest
 mapfile -t release < <(find "$work/src/aurora/app/build/outputs/apk/release" -maxdepth 1 -name '*unsigned.apk')
 [[ ${#release[@]} == 1 ]]
@@ -74,8 +72,7 @@ done
 "$ADB" -s "$serial" shell wm dismiss-keyguard
 "$ADB" -s "$serial" shell cmd connectivity airplane-mode enable
 "$ADB" -s "$serial" shell svc wifi disable
-mapfile -t prior < <(find "$work/r18-source/app/build/outputs/apk/debug" -maxdepth 1 -name '*.apk')
 mapfile -t next < <(find "$work/src/aurora/app/build/outputs/apk/debug" -maxdepth 1 -name '*.apk')
-[[ ${#prior[@]} == 1 && ${#next[@]} == 1 ]]
-timeout 240s node qa/r19/android-webview-smoke.cjs "${prior[0]}" "${next[0]}"
+[[ ${#next[@]} == 1 ]]
+timeout 150s node qa/r19/android-webview-smoke.cjs --privacy-only "${next[0]}"
 exit "$gate"
