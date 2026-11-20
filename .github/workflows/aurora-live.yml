@@ -1,25 +1,25 @@
-name: Vexo R20 private preview APK
+name: Aura neural voice model metadata
 'on':
   push:
-    branches: [vexo-r20-ocr-full]
+    branches: [vexo-r21-aura-sync-voice]
 permissions:
   contents: read
 jobs:
-  build:
-    if: ${{ github.repository == 'wayluloli-beep/vexo-mlkit-lab' && github.event.repository.private == true && !contains(github.event.head_commit.message, '[skip ci]') }}
+  model:
     runs-on: ubuntu-26.04
-    timeout-minutes: 25
-    permissions:
-      contents: write
+    timeout-minutes: 6
     steps:
-      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
-        with:
-          persist-credentials: false
-          fetch-depth: 1
-      - name: Build and verify full R20 APK
-        run: bash qa/r20/build.sh
-      - name: Upload signed APK to private GitHub prerelease
-        timeout-minutes: 6
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: PYTHONDONTWRITEBYTECODE=1 python3 qa/r20/publish_release.py
+      - name: Verify neural Brazilian Portuguese female model manifest
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          import json, urllib.request
+          base='https://huggingface.co/api/models/litert-community/Kokoro-82M'
+          req=urllib.request.Request(base+'/revision/main',headers={'User-Agent':'Vexo-R21-Metadata/1.0'})
+          info=json.load(urllib.request.urlopen(req,timeout=30))
+          rev=info['sha']
+          files=json.load(urllib.request.urlopen(urllib.request.Request(base+'/tree/'+rev+'?recursive=true',headers={'User-Agent':'Vexo-R21-Metadata/1.0'}),timeout=40))
+          for f in files:
+            if f.get('path') in ('kokoro_int8_gpu_fp16.litertlm','kokoro_int8_fp16.litertlm'):
+              print('AURA_MODEL_PIN',rev,f.get('path'),f.get('size'),f.get('lfs',{}).get('oid'))
+          PY
