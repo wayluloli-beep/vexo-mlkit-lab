@@ -9,14 +9,51 @@ presenter=$(realpath -- "${2:?presenter APK required}")
 [[ $PKG == com.trackingracing && -s $candidate && -s $presenter ]]
 mkdir -p "$OUT"
 dev() { timeout "${ADB_TIMEOUT:-22}s" "$ADB" -s "$SERIAL" "$@"; }
+rec=""
+stage=BOOT_GATE
+cleanup() {
+  local rc=$?
+  printf 'stage=%s exit=%s\n' "$stage" "$rc" > "$OUT/shell-result.txt"
+  if [[ -n $rec ]]; then
+    touch "$OUT/record-external.done"
+    wait "$rec" 2>/dev/null || true
+  fi
+  # Preserve the device briefly after an inconclusive local run so a corrected selector
+  # can be retried on the same disposable AVD without a six-minute reboot. No CI wait.
+  if (( rc != 0 )) && [[ $SERIAL == emulator-5556 && ${ANDROID_AVD_HOME:-} == /tmp/vexo-r13-avd-*/avd ]] &&
+     [[ $(dev get-state 2>/dev/null || true) == device ]]; then
+    local limit=$((SECONDS + 180))
+    printf '%s\n' 'LOCAL_RESULT_INCONCLUSIVE; qualified selector retry available for 180s'
+    : > "$front/runtime/retry-available"
+    while [[ ! -e $front/runtime/retry ]]; do
+      (( SECONDS < limit )) || break
+      sleep 2
+    done
+    rm -f -- "$front/runtime/retry-available"
+    if [[ -e $front/runtime/retry ]]; then
+      rm -f -- "$front/runtime/retry"
+      trap - EXIT
+      for retry_package in "$PKG" com.vexo.qa.pixels; do
+        if [[ $(dev shell pm path "$retry_package" 2>/dev/null || true) == package:* ]]; then
+          dev uninstall "$retry_package" | grep -Fxq Success || exit 1
+        fi
+      done
+      mv -- "$OUT" "$OUT.inconclusive.$(date -u +%Y%m%dT%H%M%SZ)"
+      exec bash "$front/run-local.sh" "$candidate" "$presenter"
+    fi
+  fi
+  return "$rc"
+}
+trap cleanup EXIT
+
 package_hash() {
   local pkg=$1 local_path=$2 row remote device_sum expected
   expected=$(sha256sum "$local_path" | cut -d ' ' -f1)
-  row=$(dev shell pm path "$pkg")
-  [[ $row =~ ^package:(/[[:alnum:]/_.=+~-]+/base[.]apk)$ ]]
+  row=$(dev shell pm path "$pkg") || return 1
+  [[ $row =~ ^package:(/[[:alnum:]/_.=+~-]+/base[.]apk)$ ]] || return 1
   remote=${BASH_REMATCH[1]}
   device_sum=$(dev shell sha256sum "$remote" | cut -d ' ' -f1)
-  [[ $device_sum == "$expected" ]]
+  [[ $device_sum == "$expected" ]] || return 1
   printf '%s  %s\n' "$device_sum" "$pkg"
 }
 install_and_hash() {
@@ -31,8 +68,12 @@ dev shell getprop ro.build.fingerprint > "$OUT/android-fingerprint.txt"
 dev shell cmd package list packages "$PKG" > "$OUT/package-before.txt"
 [[ ! -s $OUT/package-before.txt ]]
 dev shell wm dismiss-keyguard
+stage=OFFLINE_DEVICE
+dev shell cmd connectivity airplane-mode enable > "$OUT/android-airplane-mode.txt" 2>&1
 dev shell svc wifi disable
-dev shell svc data disable
+[[ $(dev shell settings get global airplane_mode_on | tr -d '\r') == 1 ]]
+printf '%s\n' 'airplane_mode_verified=1' >> "$OUT/android-airplane-mode.txt"
+stage=APK_INSTALL_AND_HASH
 {
   install_and_hash "$PKG" "$candidate"
   install_and_hash com.vexo.qa.pixels "$presenter"
@@ -61,18 +102,16 @@ record() {
 }
 record &
 rec=$!
-cleanup() {
-  touch "$OUT/record-external.done"
-  wait "$rec" 2>/dev/null || true
-}
-trap cleanup EXIT
+stage=ADB_DRIVER
 set +e
 PYTHONDONTWRITEBYTECODE=1 timeout 900s python3 -u "$front/r13_product_flow.py" 2>&1 | tee "$OUT/driver-console.txt"
 status=${PIPESTATUS[0]}
 set -e
+stage=APK_FINAL_HASH
 if ! { package_hash "$PKG" "$candidate" && package_hash com.vexo.qa.pixels "$presenter"; } > "$OUT/device-apks-after.sha256" ||
    ! cmp -s "$OUT/device-apks.sha256" "$OUT/device-apks-after.sha256"; then
   printf '%s\n' 'SAME_APK_EXIT_HASH_NOT_PROVEN'
   exit 1
 fi
+stage=COMPLETE
 exit "$status"

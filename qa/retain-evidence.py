@@ -13,7 +13,7 @@ import zlib
 from pathlib import Path
 
 REPO = 'wayluloli-beep/vexo-mlkit-lab'
-BRANCH = 'vexo-product-r13-once'
+BRANCH = 'vexo-product-r13-retry-once'
 ROUND = 'r13'
 TAG = 'R13_RETENTION'
 API = '/repos/' + REPO
@@ -34,6 +34,7 @@ PRODUCT_PNG_NAMES = (
     'local-result.png', 'local-training-stopped.png',
     'failure-native-launcher.png', 'failure-initial-welcome.png', 'failure-welcome-data.png',
     'failure-central-home.png', 'failure-local-real-ocr.png', 'failure-local-result-ui.png',
+    'failure-local-open-training.png', 'failure-local-open-training-options.png', 'failure-local-pop-only-open.png', 'failure-local-pace-long-open.png', 'local-inconclusive.png',
 )
 HEX = re.compile(r'[0-9a-f]{40}\Z')
 

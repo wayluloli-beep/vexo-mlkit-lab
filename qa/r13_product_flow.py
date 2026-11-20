@@ -122,6 +122,8 @@ def product_driver(r12):
                 os.environ['SERIAL'] = selected
             self.serial = selected
             self.product_ok = False
+            self.product_stages = dict.fromkeys(('launcher', 'first_terms', 'welcome_and_example',
+                                                 'central_navigation', 'local_ocr'), 'NOT_RUN')
 
         def content(self, root):
             return norm(r12.alltext(root, self.pkg))
@@ -246,6 +248,7 @@ def product_driver(r12):
             if ('Starting:' not in output or 'Error:' in output):
                 raise r12.Failure('Android could not launch the installed Vexo APK')
             self.ev('native-launcher','PASS',component=component)
+            self.product_stages['launcher']='PASS'
             # Never invoke the skip button. The real video should progress before welcome.
             # Screencaps do not wait for WebView accessibility idle while the animation plays.
             for n in range(1,4):
@@ -259,8 +262,13 @@ def product_driver(r12):
                 'welcome' if any(norm(s) in self.content(root) for s in ('E aí, motora?','Quanto precisa sobrar no bolso?','Boas-vindas')) else None))
             if witness=='terms':
                 self.shot('welcome-terms')
+                self.ev('entry-disclosure','OBSERVED',png='welcome-terms.png')
                 self.tap('accept-terms-check','Aceito os Termos de uso desta minuta.','entry-accept',scroll=True)
                 self.tap('accept-terms-continue','Aceitar e continuar','entry-continue',scroll=True)
+                self.product_stages['first_terms']='OBSERVED_AND_ACCEPTED'
+            else:
+                self.ev('entry-disclosure','NOT_OBSERVED',reason='initial UI already showed welcome')
+                self.product_stages['first_terms']='NOT_OBSERVED'
             root,key,_=self.product_observe('welcome-data',lambda root: any(
                 norm(s) in self.content(root) for s in ('E aí, motora?','Quanto precisa sobrar no bolso?','Boas-vindas')))
             pic=self.shot('welcome-data')
@@ -270,10 +278,14 @@ def product_driver(r12):
             self.tap('welcome-without-data','Só quero testar','Testar sem preencher')
             self.state('welcome-plan-preview','Confira seu plano')
             self.tap('welcome-enter','Ir para o aplicativo',scroll=True)
+            self.state('main-after-welcome','Treino OCR')
+            self.product_stages['welcome_and_example']='PASS'
 
         def central(self):
             def state(r):
-                if 'painel do motorista' in self.content(r): return 'central'
+                text=self.content(r)
+                if ('painel do motorista' in text or all(x in text for x in
+                    ('inicio','configuracoes','ajuda','informacoes'))): return 'central'
                 if click_of(r,self.pkg,'Meus atalhos'): return 'shortcuts'
                 if click_of(r,self.pkg,'Abrir Menu de Ganhos e Solicitações Visualizadas'): return 'menu'
                 return None
@@ -282,6 +294,9 @@ def product_driver(r12):
                 self.tap('main-open-menu','Abrir Menu de Ganhos e Solicitações Visualizadas')
             if at!='central':
                 self.tap('main-open-shortcuts','Meus atalhos',scroll=True)
+            root,_,_=self.product_observe('central-opened',lambda root: state(root)=='central')
+            if 'painel do motorista' not in self.content(root):
+                self.tap('central-top-home','Início',bottom=True)
             self.state('central-home','Painel do motorista')
 
         def navigation(self):
@@ -296,6 +311,7 @@ def product_driver(r12):
             self.state('central-back-home','Painel do motorista')
             self.tap('central-return-main','Voltar à tela principal',scroll=True)
             self.state('main-returned','Treino OCR')
+            self.product_stages['central_navigation']='PASS'
 
         def local_log(self):
             pid = self.sh('pidof','-s',self.pkg,timeout=12).strip()
@@ -351,8 +367,24 @@ def product_driver(r12):
             self.tap('local-end-training','Encerrar treino')
             self.state('local-training-stopped','Treino OCR')
             self.no_projection('local-stopped')
+            self.product_stages['local_ocr']='PASS'
+
+        def exit_local_if_visible(self):
+            root,key=self.xml('local-safe-exit')
+            choice=click_of(root,self.pkg,'Encerrar treino')
+            if choice:
+                self.act(key,choice,'end-inconclusive-local')
+            else:
+                modal=click_of(root,self.pkg,'Fechar')
+                text=self.content(root)
+                if modal and any(stage in text for stage in ('ajustar treino','iniciar treino')):
+                    self.act(key,modal,'close-inconclusive-local-options')
+            self.state('main-after-local-attempt','Treino OCR',seconds=20)
+            self.no_projection('local-after-inconclusive')
 
         def app_button(self,label,seconds=31):
+            if label=='stop_toggle':
+                self.central()
             choices=('OCR em outros apps','OCR sobre outros apps','Parar OCR externo','Parar captura')
             def inspect(r):
                 point=click_of(r,self.pkg,*choices,allow_detail=True)
@@ -372,8 +404,19 @@ def product_driver(r12):
                 self.launcher()
                 self.first_entry()
                 self.navigation()
-                self.local()
-            self.product_ok=True
+                try:
+                    self.local()
+                except r12.Failure as issue:
+                    self.errs.append(('local-real-ocr',str(issue)))
+                    self.product_stages['local_ocr']='INCONCLUSIVE'
+                    self.ev('local-real-ocr','INCONCLUSIVE',reason=str(issue)[:300])
+                    try:
+                        self.shot('local-inconclusive')
+                    except r12.Failure:
+                        pass
+                    self.exit_local_if_visible()
+            self.product_ok=(self.product_stages['first_terms']=='OBSERVED_AND_ACCEPTED'
+                             and self.product_stages['local_ocr']=='PASS')
             if os.environ.get('VEXO_PRODUCT_ONLY')=='1':
                 raise r12.Failure('product-only mode: external flow not requested')
             self.central()
@@ -385,9 +428,11 @@ def product_driver(r12):
             status_path=self.out/'driver-result.json'
             status=json.loads(status_path.read_text())
             status['product_real_ocr_chain']=self.product_ok
+            status['product_stages']=self.product_stages
+            status['motion_review']='MANUAL_FRAME_REVIEW_REQUIRED'
             status['same_apk_witness']='device-apks.sha256'
             self.write('driver-result.json',json.dumps(status,ensure_ascii=False,indent=2)+'\n')
-            return (0 if self.product_ok else 1) if os.environ.get('VEXO_PRODUCT_ONLY')=='1' else rc
+            return (0 if self.product_ok else 1) if os.environ.get('VEXO_PRODUCT_ONLY')=='1' else (rc or int(not self.product_ok))
 
     return ProductRun
 
