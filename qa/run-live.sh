@@ -24,7 +24,7 @@ cleanup() {
 }
 trap cleanup EXIT
 [[ $GITHUB_REPOSITORY == wayluloli-beep/vexo-mlkit-lab && $GITHUB_RUN_ATTEMPT == 1 ]]
-[[ $GITHUB_EVENT_NAME == create && $GITHUB_REF == refs/heads/vexo-product-r14-bound-once ]]
+[[ $GITHUB_EVENT_NAME == create && $GITHUB_REF == refs/heads/vexo-product-r14-render-once ]]
 [[ $(git rev-parse HEAD) == "$GITHUB_SHA" ]]
 [[ $(git ls-tree -r --name-only HEAD qa/payload | wc -l) == 24 ]]
 printf '%s  %s\n' '1f1e08574699aabab795687db1816a5962d033652879b21d924cfc590d50199d' "$work/payload.tar.gz" > "$work/payload-check"
@@ -238,7 +238,7 @@ from xml.etree import ElementTree as E
 import sys
 r=[E.parse(x).getroot() for x in Path(sys.argv[1]).glob("TEST-*.xml")]
 counts={k:sum(int(a.get(k, 0)) for a in r) for k in ("tests","failures","errors","skipped")}
-assert counts['tests'] >= 60 and not any(counts[k] for k in ("failures","errors"))
+assert counts['tests'] >= 61 and not any(counts[k] for k in ("failures","errors"))
 print("R14_JUNIT: "+" ".join(str(k)+"="+str(v) for k,v in counts.items()))
 PYJUNIT
 mapfile -t apks < <(find "$work/src/aurora/app/build/outputs/apk/release" -maxdepth 1 -name '*unsigned.apk')
@@ -266,7 +266,7 @@ printf 'QA public certificate SHA-256 %s\n' "$cert_a" > "$OUT/qa-public-cert.txt
 report "SIGNER_QA_SHA256:$cert_a"
 rm -f -- "$work/private/qa.p12"
 grep -Fq "package: name='com.trackingracing'" "$work/candidate.badging"
-grep -Fq "versionName='0.1.3-r14-interno'" "$work/candidate.badging"
+grep -Fq "versionName='0.1.3-r14b-interno'" "$work/candidate.badging"
 grep -Fq "package: name='com.vexo.qa.pixels'" "$work/presenter.badging"
 grep -E '^(package:|sdkVersion:|targetSdkVersion:)' "$work/candidate.badging" | sed 's/^/AURORA_APK: /'
 "$bt/aapt" dump permissions "$work/candidate.apk" > "$OUT/candidate-permissions.txt"
@@ -289,6 +289,7 @@ bash qa/run-local.sh "$work/candidate.apk" "$work/presenter.apk" > "$work/driver
 report "DRIVER_EXIT:$driver_rc"
 sed -nE 's/^LIVE:([a-zA-Z0-9_-]{1,64}):([A-Z_]{1,32})([ ].*)?$/R14_STEP: \1 \2/p' "$work/driver.log" | tail -85
 if [[ -s $OUT/local-ocr.log ]]; then
+  sed -nE 's/^.*VexoLocalOcr[[:space:]]*:[[:space:]]+(witness=[a-z_]{1,30} card=[0-9]{1,18}-[0-9]{1,6} t=[0-9]{1,18})$/R14_WITNESS: \1/p' "$OUT/local-ocr.log" | tail -80
   sed -nE 's/^.*VexoLocalOcr[[:space:]]*:[[:space:]]+((pixels src=(pixelcopy|web_draw)|parsed kind=(pop|negocia)|dispatched kind=offer|accepted kind=offer) cap=[0-9]{1,18} card=[0-9]{1,18}-[0-9]{1,6})$/R14_LOCAL: \1/p' "$OUT/local-ocr.log" | tail -24
 fi
 if [[ -s $OUT/vexo-r10-native-timing.txt ]]; then

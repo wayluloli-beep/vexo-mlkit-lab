@@ -5,7 +5,7 @@
          // O GitHub Actions fornece GITHUB_RUN_NUMBER; builds locais mantêm 2.
          versionCode = System.getenv("GITHUB_RUN_NUMBER")?.toIntOrNull() ?: 4
 -        versionName = "0.1.3-r13-interno"
-+        versionName = "0.1.3-r14-interno"
++        versionName = "0.1.3-r14b-interno"
      }
  
      // A chave nunca fica no repositório. O GitHub Actions a recria
@@ -16,7 +16,7 @@
  <button class="outline" data-action="diagnostico">Copiar diagnóstico do balão externo</button></section>
  <section id="sobre" hidden aria-labelledby="h-sobre"><h1 id="h-sobre" tabindex="-1">Informações</h1><p class="intro">Um copiloto que lê a oferta e compara o ganho previsto com o seu plano. A decisão da corrida é sua.</p>
 -<dl><div><dt>Versão</dt><dd>0.1.3-r13-interno</dd></div><div><dt>Edição</dt><dd>Teste interno R13</dd></div><div><dt>Leitor</dt><dd>Google ML Kit no aparelho</dd></div></dl>
-+<dl><div><dt>Versão</dt><dd>0.1.3-r14-interno</dd></div><div><dt>Edição</dt><dd>Teste interno R14</dd></div><div><dt>Leitor</dt><dd>Google ML Kit no aparelho</dd></div></dl>
++<dl><div><dt>Versão</dt><dd>0.1.3-r14b-interno</dd></div><div><dt>Edição</dt><dd>Teste interno R14B</dd></div><div><dt>Leitor</dt><dd>Google ML Kit no aparelho</dd></div></dl>
  <h2>Dados e permissões</h2><p>O leitor interno analisa a área de ofertas do simulador. O externo usa a captura autorizada pelo Android. O app guarda preferências e pode registrar dados de corridas no aparelho. Os mapas podem acessar a internet.</p>
  <button class="outline" data-page="ajuda">Abrir ajuda e diagnóstico</button></section>
  <p id="status" role="status" aria-live="polite"></p></main>
@@ -214,7 +214,7 @@
      }
  
      override fun onDestroy() {
-@@ -262,7 +267,20 @@
+@@ -262,7 +267,21 @@
          }
  
          @JavascriptInterface fun setSimulatorVisible(active: Boolean) {
@@ -228,6 +228,7 @@
 +        @JavascriptInterface fun setLocalOfferToken(token: String) {
 +            // Revoke the old frame immediately, before a pending main-thread result can be delivered.
 +            val selected = localOffers.select(token) ?: return
++            selected.token?.let { traceLocal("selected", it) }
 +            ui.post {
 +                if (!localOffers.isSelected(selected)) return@post
 +                invalidateLocalCapture()
@@ -236,10 +237,14 @@
          }
  
          @JavascriptInterface fun maskPanel(x: Double, y: Double, w: Double, h: Double, viewport: Double) {
-@@ -404,9 +422,36 @@
+@@ -404,9 +423,50 @@
          }
      }
  
++    private fun traceLocal(stage: String, card: String) {
++        Log.i("VexoLocalOcr", "witness="+stage+" card="+card+" t="+SystemClock.elapsedRealtime())
++    }
++
 +    private fun armLocalPixels() {
 +        val selected = localOffers.selected() ?: return
 +        if (!visible || !navigation.canCapture || !hasWindowFocus()) return
@@ -247,23 +252,33 @@
 +        val request = selected to session
 +        if (visualRequest == request) return
 +        visualRequest = request
++        val token=selected.token ?: return
++        traceLocal("armed", token)
 +        fun current() = visible && navigation.canCapture && generation == session &&
 +            hasWindowFocus() && localOffers.isSelected(selected)
 +        web.postVisualStateCallback(session.toLong(), object : WebView.VisualStateCallback() {
 +            override fun onComplete(requestId: Long) {
 +                if (!current()) return
++                traceLocal("visual_ready", token)
 +                if (Build.VERSION.SDK_INT >= 29 && web.isHardwareAccelerated) {
 +                    // VisualState says what the next draw will contain, not what is queued in Window yet.
 +                    web.viewTreeObserver.registerFrameCommitCallback {
-+                        ui.post { if (current()) localOffers.markFrame(selected, true) }
++                        ui.post {
++                            if (current() && localOffers.markFrame(selected, true)) traceLocal("window_committed", token)
++                        }
 +                    }
++                    // After VisualState is ready, draw directly if Window will not acknowledge a frame.
++                    ui.postDelayed({
++                        if (current() && localOffers.markFrame(selected, false)) traceLocal("direct_draw_ready", token)
++                    }, 240L)
 +                    web.postInvalidateOnAnimation()
 +                } else {
 +                    // On older/non-hardware paths only the synchronous WebView draw is used.
-+                    localOffers.markFrame(selected, false)
++                    if (localOffers.markFrame(selected, false)) traceLocal("direct_draw_ready", token)
 +                }
 +            }
 +        })
++        web.postInvalidateOnAnimation()
 +    }
 +
      private fun capturePixels() {
@@ -273,7 +288,7 @@
          // Copy rendered pixels, not the DOM, fixture, or replay state.
          val width=web.width
          val height=web.height
-@@ -419,46 +464,50 @@
+@@ -419,46 +479,57 @@
          busy=true
          val session=generation
          val capturedAt=SystemClock.elapsedRealtime()
@@ -282,6 +297,7 @@
 +            if (!currentLocalCapture(session,frame)) { release(); return }
 +            val pixelSource = if (copySucceeded) AuroraWebCapture.PixelSource.PIXEL_COPY
 +                else AuroraWebCapture.PixelSource.WEB_DRAW
++            val pixelAt=if (copySucceeded) capturedAt else SystemClock.elapsedRealtime()
 +            if (!copySucceeded) {
 +                val canvas=Canvas(b)
 +                canvas.scale(scale,scale)
@@ -291,7 +307,8 @@
 +            if (!currentLocalCapture(session,frame)) { release(); return }
 +            panelRect?.let { r -> Canvas(b).drawRect(r.left*scale,(r.top-top)*scale,
 +                r.right*scale,(r.bottom-top)*scale,Paint().apply { color=Color.BLACK }) }
-+            analyze(b,session,frame,capturedAt,pixelSource)
++            traceLocal("capture_"+pixelSource.token, frame.token)
++            analyze(b,session,frame,pixelAt,pixelSource)
 +        }
          try {
 -            PixelCopy.request(window,source,b,{ status ->
@@ -311,7 +328,8 @@
 -                    analyze(b,session,capturedAt,pixelSource)
 -                }
 +            if (frame.pixelCopy) PixelCopy.request(window,source,b,{ status ->
-+                readDrawnPixels(status==PixelCopy.SUCCESS)
++                try { readDrawnPixels(status==PixelCopy.SUCCESS) }
++                catch (_:RuntimeException) { release() }
              },ui)
 -        } catch (_:IllegalArgumentException) {
 -            busy=false
@@ -335,9 +353,13 @@
          recognizer.process(InputImage.fromBitmap(b,0))
              .addOnSuccessListener { read ->
 -                if (!currentLocalCapture(session)) return@addOnSuccessListener
-+                if (!currentLocalCapture(session,frame)) return@addOnSuccessListener
++                if (!currentLocalCapture(session,frame)) {
++                    traceLocal("late_discarded",frame.token)
++                    return@addOnSuccessListener
++                }
                  val completion=finalizacao.observar(read.text)
                  val offer=AuroraOferta.from(read)
++                if (offer==null && completion==null) traceLocal("no_offer",frame.token)
                  var proofKey: String? = null
                  var isNegocia = false
                  val json=JSONObject().put("ocrMs",SystemClock.elapsedRealtime()-started)
@@ -349,7 +371,7 @@
                      if (key!=lastOfferKey) { lastOfferKey=key; offerSequence++ }
                      isNegocia = read.text.contains("Negocia",true)
                      json.put("offer",AuroraOferta.json(offer,offerSequence,isNegocia))
-@@ -467,31 +516,45 @@
+@@ -467,31 +538,45 @@
                  if(completion!=null) {
                      json.put("completion",JSONObject().put("id",completion.id)
                          .put("amountCents",completion.valorCentavos?:JSONObject.NULL))
@@ -413,7 +435,7 @@
      }
 --- /dev/null
 +++ b/app/src/main/java/com/trackingracing/AuroraLocalOfferPixels.kt
-@@ -0,0 +1,31 @@
+@@ -0,0 +1,33 @@
 +package com.trackingracing
 +
 +/** Synchronized because selection comes from the WebView bridge, not the UI thread. */
@@ -437,9 +459,11 @@
 +    @Synchronized fun isSelected(stamp: Selection): Boolean = stamp === selection
 +    @Synchronized fun pause() { committedFrame = null }
 +
-+    @Synchronized fun markFrame(stamp: Selection, pixelCopy: Boolean) {
-+        val token = stamp.token ?: return
-+        if (stamp === selection) committedFrame = Frame(token, pixelCopy)
++    @Synchronized fun markFrame(stamp: Selection, pixelCopy: Boolean): Boolean {
++        val token = stamp.token ?: return false
++        if (stamp !== selection || committedFrame != null) return false
++        committedFrame = Frame(token, pixelCopy)
++        return true
 +    }
 +
 +    @Synchronized fun frame(): Frame? = committedFrame
@@ -447,7 +471,7 @@
 +}
 --- /dev/null
 +++ b/app/src/test/java/com/trackingracing/AuroraLocalOfferPixelsTest.kt
-@@ -0,0 +1,58 @@
+@@ -0,0 +1,66 @@
 +package com.trackingracing
 +
 +import org.junit.Assert.*
@@ -495,6 +519,14 @@
 +        assertFalse(gate.isCurrent(old))
 +        assertNull(gate.frame())
 +        assertSame(a, gate.selected())
++    }
++    @Test fun lateHardwareCommitCannotReplaceAnAlreadyReadyDirectDraw() {
++        val stamp = gate.select("1760000000000-1")!!
++        assertTrue(gate.markFrame(stamp, false))
++        val frame = gate.frame()!!
++        assertFalse(gate.markFrame(stamp, true))
++        assertTrue(gate.isCurrent(frame))
++        assertFalse(frame.pixelCopy)
 +    }
 +    @Test fun malformedOrUntaggedCardNeverProducesFrame() {
 +        assertNull(gate.select("address-not-an-id"))

@@ -13,7 +13,7 @@ import zlib
 from pathlib import Path
 
 REPO = 'wayluloli-beep/vexo-mlkit-lab'
-BRANCH = 'vexo-product-r14-bound-once'
+BRANCH = 'vexo-product-r14-render-once'
 ROUND = 'r14'
 TAG = 'R14_RETENTION'
 API = '/repos/' + REPO

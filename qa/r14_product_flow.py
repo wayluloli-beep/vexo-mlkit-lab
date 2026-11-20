@@ -17,6 +17,8 @@ CARD_TAG = re.compile(
 )
 
 
+WITNESS_TAG = re.compile(r"\bVexoLocalOcr\s*:\s*witness=[a-z_]{1,30} card=[0-9]{1,18}-[0-9]{1,6} t=[0-9]{1,18}\s*$")
+
 def accepted_chains(log):
     """Only complete, ordered chains with a single card token per native capture."""
     records, conflicting, complete = {}, set(), {}
@@ -77,7 +79,7 @@ def driver(r12):
                 raise r12.Failure('Vexo app process not available to read local log')
             raw = self.cmd('logcat', '-d', '-v', 'monotonic', '--pid='+pid, '-t', '2500',
                            '-s', 'VexoLocalOcr:I', '*:S', timeout=17).decode('utf-8', 'replace')
-            clean = ''.join(row+'\n' for row in raw.splitlines() if CARD_TAG.search(row))
+            clean = ''.join(row+'\n' for row in raw.splitlines() if CARD_TAG.search(row) or WITNESS_TAG.search(row))
             self.write('local-ocr.log', clean)
             return accepted_chains(clean)
 
@@ -221,6 +223,12 @@ def driver(r12):
                                self.product_stages['local_cleanup'] == 'PASS')
             self.product_stages['external_attempt'] = 'ATTEMPTED'
             self.ev('external-independent', 'ATTEMPTED')
+            if self.product_stages['local_cleanup'] != 'PASS':
+                self.no_projection('before-independent-relaunch')
+                self.sh('am','force-stop',self.pkg)
+                self.launcher()
+                self.state('external-reopened-main','Treino OCR',seconds=55)
+                self.ev('external-isolation', 'PASS')
             self.central()
             # Retain the exact R12 permission, native consent, FGS, presenter and stop path.
             r12.Run.consent(self)
