@@ -1,4 +1,4 @@
-name: Vexo R20 full OCR and daytime home
+name: Vexo R20 private preview APK
 'on':
   push:
     branches: [vexo-r20-ocr-full]
@@ -6,6 +6,7 @@ permissions:
   contents: read
 jobs:
   build:
+    if: ${{ github.repository == 'wayluloli-beep/vexo-mlkit-lab' && github.event.repository.private == true && !contains(github.event.head_commit.message, '[skip ci]') }}
     runs-on: ubuntu-26.04
     timeout-minutes: 25
     permissions:
@@ -15,21 +16,10 @@ jobs:
         with:
           persist-credentials: false
           fetch-depth: 1
-      - name: Build and test full OCR Vexo R20
-        shell: bash
+      - name: Build and verify full R20 APK
         run: bash qa/r20/build.sh
-      - name: Save verified APK on private R20 branch
-        shell: bash
+      - name: Upload signed APK to private GitHub prerelease
+        timeout-minutes: 6
         env:
           GH_TOKEN: ${{ github.token }}
-        run: |
-          python3 - <<'PY'
-          from pathlib import Path
-          code=Path('qa/r19/retain-internal-apk.py').read_text()
-          for a,b in [('vexo-r19-apk-download','vexo-r20-ocr-full'),('Vexo-R19-teste.apk','Vexo-R20-teste.apk')]:
-              assert a in code
-              code=code.replace(a,b)
-          assert '45 * 1024 * 1024' in code
-          code=code.replace('45 * 1024 * 1024','95 * 1024 * 1024')
-          exec(compile(code,'qa/r20/retainer.py','exec'),{'__name__':'__main__'})
-          PY
+        run: PYTHONDONTWRITEBYTECODE=1 python3 qa/r20/publish_release.py
