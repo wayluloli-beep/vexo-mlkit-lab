@@ -1,11 +1,11 @@
-name: Vexo Android 16 private privacy persistence
+name: Vexo Android 16 private privacy recheck
 'on':
   create:
 permissions:
   contents: read
 jobs:
   journey:
-    if: ${{ github.repository == 'wayluloli-beep/vexo-mlkit-lab' && github.event.ref_type == 'branch' && github.event.ref == 'vexo-product-r19-privacy-qa' && github.event.repository.private == true }}
+    if: ${{ github.repository == 'wayluloli-beep/vexo-mlkit-lab' && github.event.ref_type == 'branch' && github.event.ref == 'vexo-product-r19-privacy-recheck' && github.event.repository.private == true }}
     runs-on: ubuntu-26.04
     timeout-minutes: 27
     steps:
@@ -15,6 +15,6 @@ jobs:
           ref: ${{ github.sha }}
           persist-credentials: false
           fetch-depth: 1
-      - name: Verify the private offline privacy preference across restart
+      - name: Run the focused offline privacy restart check
         shell: bash
         run: bash qa/r19/run-webview-smoke.sh

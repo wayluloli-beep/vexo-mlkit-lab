@@ -106,16 +106,30 @@ async function run() {
   if (prior === '--privacy-only') {
     await mark('r19-privacy-mask-persists-through-immediate-stop', async()=>{
       assert.match(adb('install',candidate),/Success/);
+      phase='privacy-initial-local-webview';
       await open();
+      console.log('VEXO_PRIVACY_STAGE: emulator-webview-connected');
+      phase='privacy-first-screen';
+      await poll(() => evaluate(visible('#opening-continue') + ' || ' + visible('#entry-accept') + ' || ' + visible('#privacy-toggle')), 35);
       if (await evaluate(visible('#opening-continue'))) await click('#opening-continue');
-      await click('#entry-accept');
-      await click('#entry-continue');
-      await click('[data-action="enter-welcome"]');
+      if (!(await evaluate(visible('#privacy-toggle')))) {
+        phase='privacy-accept-terms';
+        await click('#entry-accept');
+        await click('#entry-continue');
+        phase='privacy-guest-entry';
+        await click('[data-action="enter-welcome"]');
+      }
+      console.log('VEXO_PRIVACY_STAGE: guest-entry');
+      phase='privacy-toggle-visible-and-native-confirmation';
       await click('#privacy-toggle');
       assert.equal(await evaluate('document.documentElement.hasAttribute("data-vexo-values-hidden")'),true,'mask active before restart');
       assert.equal(await evaluate('JSON.parse(window.VexoAndroidOcr.readPrivacyPrefs()).manual'),true,'native preference confirmed before restart');
+      console.log('VEXO_PRIVACY_STAGE: native-hide-confirmed');
+      phase='privacy-hidden-after-force-stop';
       await relaunch('#privacy-toggle');
       assert.equal(await evaluate('document.documentElement.hasAttribute("data-vexo-values-hidden")'),true,'mask active immediately after restart');
+      console.log('VEXO_PRIVACY_STAGE: hide-after-restart');
+      phase='privacy-reveal-after-force-stop';
       await click('#privacy-toggle');
       await relaunch('#privacy-toggle');
       assert.equal(await evaluate('document.documentElement.hasAttribute("data-vexo-values-hidden")'),false,'explicit reveal also persisted');
