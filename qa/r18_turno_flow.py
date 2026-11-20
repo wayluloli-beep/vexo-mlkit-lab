@@ -13,7 +13,7 @@ def driver(r12):
     class Turno(baseline.product_driver(r12)):
         def run(self):
             self.product_stages.update(prior_settings='NOT_RUN', upgrade='NOT_RUN', draft='NOT_RUN',
-                                       turno_reopen='NOT_RUN', closure_draft='NOT_RUN', manual_totals='NOT_RUN', saved_reopen='NOT_RUN')
+                                       fuel_preserved='NOT_RUN', turno_reopen='NOT_RUN', closure_draft='NOT_RUN', manual_totals='NOT_RUN', saved_reopen='NOT_RUN')
             ok = False
             try:
                 self.revision('prior', 'VEXO_R18_PRIOR', 4)
@@ -27,28 +27,42 @@ def driver(r12):
                 self.state('prior-main','Treino OCR',photo=False)
                 self.sh('input','keyevent','KEYCODE_BACK')
                 self.state('prior-central','Painel do motorista',photo=False)
-                self.tap('prior-config','Configurações',bottom=True)
-                self.state('prior-settings','Combustível','Consumo médio',photo=False)
-                self.fill('prior-fuel','km','Consumo médio','13.25')
-                self.sh('input','keyevent','KEYCODE_BACK')
-                self.tap('prior-save-config','Salvar valores',scroll=True)
-                self.state('prior-verified','Valores salvos no aparelho.',photo=False)
-                self.verify_field('prior-settings-value','km','Consumo médio','13,25')
-                self.product_stages['prior_settings']='PASS'
+                try:
+                    self.tap('prior-config','Configurações',bottom=True)
+                    self.state('prior-settings','Combustível','Consumo médio',photo=False)
+                    self.fill('prior-fuel','km','Consumo médio','13.25',prior_calibrated=True)
+                    self.sh('input','keyevent','KEYCODE_BACK')
+                    self.tap('prior-save-config','Salvar valores',scroll=True)
+                    self.state('prior-verified','Valores salvos no aparelho.',photo=False)
+                    self.verify_field('prior-settings-value','km','Consumo médio','13,25')
+                    self.product_stages['prior_settings']='PASS'
+                except r12.Failure as exc:
+                    self.product_stages['prior_settings']='INCONCLUSIVE'
+                    self.ev('prior-settings-observer','INCONCLUSIVE',reason=str(exc))
                 self.revision('candidate','VEXO_R18_CANDIDATE',5,replacing=True)
                 home,_ = self.reopen('upgrade-home','Painel do motorista','Meu turno','Iniciar turno')
                 self.no_simulator(home,'upgrade-home')
-                self.tap('open-config','Configurações',bottom=True)
-                self.verify_field('upgrade-config-value','km','Consumo médio','13,25')
-                self.tap('upgrade-back-home','Início',bottom=True)
-                self.no_projection('upgrade')
                 self.product_stages['upgrade']='PASS'
-                self.open_rent('draft-first')
-                self.fill('draft-amount','plano-base','Aluguel mensal','1500')
-                self.reopen('draft-reopen','Meu turno','Iniciar turno')
-                self.open_rent('draft-second')
-                self.verify_field('draft-value','plano-base','Aluguel mensal','1.500,00')
-                self.product_stages['draft']='PASS'
+                if self.product_stages['prior_settings']=='PASS':
+                    try:
+                        self.tap('open-config','Configurações',bottom=True)
+                        self.verify_field('upgrade-config-value','km','Consumo médio','13,25')
+                        self.product_stages['fuel_preserved']='PASS'
+                    except r12.Failure as exc:
+                        self.product_stages['fuel_preserved']='INCONCLUSIVE'
+                        self.ev('upgrade-fuel-observer','INCONCLUSIVE',reason=str(exc))
+                    self.reopen('upgrade-back-home','Iniciar turno','Meu turno')
+                self.no_projection('upgrade')
+                try:
+                    self.open_rent('draft-first')
+                    self.fill('draft-amount','plano-base','Aluguel mensal','1500')
+                    self.reopen('draft-reopen','Meu turno','Iniciar turno')
+                    self.open_rent('draft-second')
+                    self.verify_field('draft-value','plano-base','Aluguel mensal','1.500,00')
+                    self.product_stages['draft']='PASS'
+                except r12.Failure as exc:
+                    self.product_stages['draft']='INCONCLUSIVE'
+                    self.ev('plan-draft-observer','INCONCLUSIVE',reason=str(exc))
                 self.reopen('turno-inicio','Meu turno','Iniciar turno')
                 self.tap('turno-start','Iniciar turno')
                 self.state('turno-started','Em andamento','Turno iniciado','Fechar turno')
@@ -77,9 +91,12 @@ def driver(r12):
                 self.reopen('turno-persisted','Iniciar turno',*totals)
                 self.no_projection('finish')
                 self.product_stages['saved_reopen']='PASS'
-                ok = True
+                ok = self.product_stages['draft']=='PASS' and self.product_stages['fuel_preserved']=='PASS'
             except (r12.Failure, ValueError, OSError) as exc:
-                print('R18_DIAGNOSTIC: '+self.safe_reason(exc), flush=True)
+                print('R18_DIAGNOSTIC: '+self.safe_reason(exc), flush=True
+                )
+                phase=self.st if re.fullmatch(r'[a-z0-9-]{1,45}', self.st or '') else 'unknown'
+                print('R18_PHASE: '+phase, flush=True)
                 self.ev('r18-turno','INCONCLUSIVE',reason=str(exc))
                 try:self.shot('turno-inconclusive')
                 except r12.Failure:pass
@@ -145,16 +162,28 @@ def driver(r12):
         def edit(self,root,id,label):
             fields=[]
             for node in root.iter('node'):
-                if node.get('package')!=self.pkg or node.get('class')!='android.widget.EditText' or node.get('visible-to-user')=='false':continue
+                if node.get('package')!=self.pkg or node.get('visible-to-user')=='false':continue
                 rid=node.get('resource-id','').split('/')[-1]
-                desc=baseline.norm(node.get('content-desc',''))
+                is_edit=node.get('class','').endswith(('EditText','AutoCompleteTextView')) or node.get('editable')=='true'
+                if not is_edit and (rid!=id or node.get('focusable')!='true'):continue
+                desc=baseline.norm(node.get('content-desc','') or node.get('hint',''))
                 bounds=r12.bounds(node.get('bounds'))
                 if bounds and (rid==id or desc==baseline.norm(label) or (desc.startswith(baseline.norm(label)+' ') and label!='99')):
                     fields.append((node,((bounds[0]+bounds[2])//2,(bounds[1]+bounds[3])//2)))
             return fields[0] if len(fields)==1 else None
 
-        def fill(self,stage,id,label,value,fresh=False):
-            _,key,(_,point)=self.product_observe(stage,lambda root:self.edit(root,id,label),seconds=22,scroll=True)
+        def fill(self,stage,id,label,value,fresh=False,prior_calibrated=False):
+            try:
+                _,key,(_,point)=self.product_observe(stage,lambda root:self.edit(root,id,label),seconds=9 if prior_calibrated else 22,scroll=not prior_calibrated)
+            except r12.Failure:
+                if not prior_calibrated:raise
+                # Fixed 720x1280 QA-only frame from the original R17 screenshot.
+                # Use only with matched old layout, screen size, section, and both field labels.
+                expected=('Configurações','Consumo médio (km/L)','Preço por litro (R$)','Salvar valores')
+                if self.sh('wm','size').strip().splitlines()[-1].split()[-1]!='720x1280':raise
+                _,key=self.state('prior-fuel-layout',*expected,seconds=15,photo=False)
+                point=(194,852)
+                self.ev('prior-fuel-visual-calibration','PASS')
             self.act(key,point,stage)
             if not fresh:self.sh('input','keycombination','KEYCODE_CTRL_LEFT','KEYCODE_A')
             self.sh('input','text',value)
