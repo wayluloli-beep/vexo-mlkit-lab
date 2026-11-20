@@ -11,38 +11,20 @@ mkdir -p "$OUT"
 adb=''
 emulator_pid=''
 serial=emulator-5554
-record_pid=''
-stop_recording() {
-  if [[ -n $record_pid ]]; then
-    touch "$work/stop-recording"
-    for _ in {1..21}; do
-      kill -0 "$record_pid" 2>/dev/null || break
-      sleep 1
-    done
-    kill "$record_pid" 2>/dev/null || true
-    wait "$record_pid" 2>/dev/null || true
-    record_pid=''
-  fi
-}
 cleanup() {
   rc=$?
   set +e
-  stop_recording
   printf 'stage=%s\nexit=%s\nrevision=%s\n' "$stage" "$rc" "${GITHUB_SHA:-unknown}" > "$OUT/job-result.txt"
-  for n in kvm sdk-status build-status emulator-status; do
-    [[ ! -s $work/$n ]] || cp -- "$work/$n" "$OUT/$n.txt"
-  done
   if [[ -n $adb && -n $emulator_pid ]]; then
-    timeout 12s "$adb" -s "$serial" logcat -d -v brief -s VexoOCR AndroidRuntime CrRendererMain ActivityManager |
-      grep -Ei 'VexoOCR|com.trackingracing|ANR in|crashpad|Fatal signal|renderer' | tail -110 > "$OUT/android-logagem.txt" || true
     timeout 8s "$adb" -s "$serial" emu kill >/dev/null 2>&1 || true
+    kill "$emulator_pid" 2>/dev/null || true
   fi
-  if [[ -n $emulator_pid ]]; then kill "$emulator_pid" 2>/dev/null || true; fi
   rm -rf -- "$work"
   if (( rc != 0 )); then report "FAILED_$stage:$rc"; fi
 }
 trap cleanup EXIT
-[[ $GITHUB_REF == refs/heads/vexo-live-aurora-r12-once ]]
+[[ $GITHUB_REPOSITORY == wayluloli-beep/vexo-mlkit-lab && $GITHUB_RUN_ATTEMPT == 1 ]]
+[[ $GITHUB_EVENT_NAME == create && $GITHUB_REF == refs/heads/vexo-product-r13-once ]]
 [[ $(git rev-parse HEAD) == "$GITHUB_SHA" ]]
 [[ $(git ls-tree -r --name-only HEAD qa/payload | wc -l) == 24 ]]
 printf '%s  %s\n' '1f1e08574699aabab795687db1816a5962d033652879b21d924cfc590d50199d' "$work/payload.tar.gz" > "$work/payload-check"
@@ -76,11 +58,11 @@ report PREWARM_PATCH_CHECKED
 patch --quiet --batch --forward -d "$work/src/aurora" -p1 < qa/aurora-r12.patch
 (cd "$work/src/aurora" && sha256sum --strict --check "$GITHUB_WORKSPACE/qa/product-r12.sha256")
 report PENDING_NEWEST_FRAME_PATCH_CHECKED
-if command -v ffmpeg >/dev/null && command -v ffprobe >/dev/null; then report VIDEO_TOOLS_AVAILABLE; else report VIDEO_TOOLS_CONTAINER_ONLY; fi
-ui_python=$(command -v python3)
+PYTHONDONTWRITEBYTECODE=1 python3 qa/apply-r13-product.py "$work/src/aurora"
+report R13_PRODUCT_LAYER_CHECKED
 # Save unmodified screenshots independently of any host OCR/observer.
 if command -v tesseract >/dev/null; then
-  "$ui_python" qa/pixel-preflight.py --driver qa/driver.py || true
+  python3 qa/pixel-preflight.py --driver qa/driver.py > "$work/pixel-observer.log" 2>&1 || true
 else
   report PIXEL_OBSERVER_UNAVAILABLE_VISUAL_EVIDENCE_REQUIRED
 fi
@@ -170,8 +152,8 @@ device() {
 }
 rows=$(transports) || exit 1
 [[ -z $rows ]]
-printf 'no\n' | timeout 45s "$cmdline/avdmanager" create avd -n vexo_s13_once -k "$image" > "$work/avd.log" 2>&1
-"$emulator" -avd vexo_s13_once -port 5554 -accel on -gpu swiftshader \
+printf 'no\n' | timeout 45s "$cmdline/avdmanager" create avd -n vexo_product_r13_once -k "$image" > "$work/avd.log" 2>&1
+"$emulator" -avd vexo_product_r13_once -port 5554 -accel on -gpu swiftshader \
   -no-window -no-audio -no-boot-anim -no-snapshot -wipe-data > "$work/emulator.log" 2>&1 &
 emulator_pid=$!
 deadline=$((SECONDS + 210))
@@ -272,85 +254,57 @@ printf 'QA public certificate SHA-256 %s\n' "$cert_a" > "$OUT/qa-public-cert.txt
 report "SIGNER_QA_SHA256:$cert_a"
 rm -f -- "$work/private/qa.p12"
 grep -Fq "package: name='com.trackingracing'" "$work/candidate.badging"
-grep -Fq "versionName='0.1.3'" "$work/candidate.badging"
+grep -Fq "versionName='0.1.3-r13-interno'" "$work/candidate.badging"
 grep -Fq "package: name='com.vexo.qa.pixels'" "$work/presenter.badging"
 grep -E '^(package:|sdkVersion:|targetSdkVersion:)' "$work/candidate.badging" | sed 's/^/AURORA_APK: /'
 "$bt/aapt" dump permissions "$work/candidate.apk" > "$OUT/candidate-permissions.txt"
 grep -Fq 'android.permission.SYSTEM_ALERT_WINDOW' "$OUT/candidate-permissions.txt"
 grep -Fq 'android.permission.FOREGROUND_SERVICE_MEDIA_PROJECTION' "$OUT/candidate-permissions.txt"
 ! grep -q 'BIND_ACCESSIBILITY_SERVICE' "$OUT/candidate-permissions.txt" || exit 1
-(cd "$work" && sha256sum candidate.apk presenter.apk) | tee "$OUT/device-apks.sha256"
+(cd "$work" && sha256sum candidate.apk presenter.apk) > "$OUT/signed-source-apks.sha256"
 report SIGN_TEMP_OK
 
-stage=INSTALL
-for role in candidate presenter; do
-  ADB_COMMAND_TIMEOUT=100s device install --streaming "$work/$role.apk" > "$work/$role.install"
-  grep -Fxq Success "$work/$role.install"
-done
-device shell dumpsys webviewupdate | grep -E 'Current WebView package|Valid package' > "$OUT/webview.txt" || true
-device shell getprop ro.build.fingerprint > "$OUT/android-fingerprint.txt"
-sed 's/^/AURORA_DEVICE: /' "$OUT/android-fingerprint.txt"
+stage=REAL_UI
 device shell wm size 720x1280
 device shell wm density 240
-report BOTH_INSTALLED
-
-stage=REAL_UI
-export ADB="$adb" SERIAL="$serial" PKG=com.trackingracing FIXTURE="$work/src/fixtures/controle-0954.png"
-record_video() {
-  local path="/sdcard/VexoR12-External-Test.mp4" partial="$OUT/recording.partial" capture
-  until [[ -s $OUT/record-external.ready ]]; do
-    [[ ! -e $work/stop-recording ]] || return 0
-    sleep .2
-  done
-  [[ ! -e $work/stop-recording ]] || return 0
-  report SCREENRECORD_START
-  timeout 82s "$adb" -s "$serial" shell screenrecord --size 540x960 --bit-rate 340000 --time-limit 70 "$path"     > "$OUT/screenrecord-status.txt" 2>&1 &
-  capture=$!
-  while kill -0 "$capture" 2>/dev/null; do
-    if [[ -s $OUT/record-external.done || -e $work/stop-recording ]]; then
-      timeout 6s "$adb" -s "$serial" shell pkill -2 -x screenrecord >/dev/null 2>&1 || true
-      break
-    fi
-    sleep .3
-  done
-  wait "$capture" || true
-  if timeout 12s "$adb" -s "$serial" pull "$path" "$partial" >/dev/null 2>&1 && [[ -s $partial ]]; then
-    mv "$partial" "$OUT/vexo-fluxo.mp4"
-    report "SCREENRECORD_PULLED_BYTES:$(stat -c %s "$OUT/vexo-fluxo.mp4")"
-  else
-    report SCREENRECORD_NOT_RECOVERED
-    rm -f -- "$partial"
-  fi
-  timeout 4s "$adb" -s "$serial" shell rm -f "$path" >/dev/null 2>&1 || true
-}
-record_video &
-record_pid=$!
-set +e
-timeout 480s "$ui_python" -u qa/driver.py 2>&1 | tee "$OUT/observacao.txt"
-driver_rc=${PIPESTATUS[0]}
-set -e
-stop_recording
+unset VEXO_PRODUCT_ONLY
+export ADB="$adb" SERIAL="$serial" PKG=com.trackingracing
+export VEXO_R12_DRIVER="$GITHUB_WORKSPACE/qa/driver.py"
+# Runner side keeps raw ADB logs and captures ephemeral. The next workflow step retains only
+# PNGs passing the narrow evidence validator, regardless of this wrapper's exit status.
+driver_rc=0
+bash qa/run-local.sh "$work/candidate.apk" "$work/presenter.apk" > "$work/driver.log" 2>&1 || driver_rc=$?
 report "DRIVER_EXIT:$driver_rc"
-if [[ -s $OUT/vexo-r10-native-timing.txt ]]; then
-  sed -nE 's/^.*VexoR10[[:space:]]*:[[:space:]]+((cena=|limpeza_cena |ocr_inicio |ocr_fim |ocr_erro |descartado_cena |descartado_apos_parse |falha_isolada |ui_envio )[0-9a-z =_-]{1,155})$/R10_TIMING: \1/p' "$OUT/vexo-r10-native-timing.txt" | tail -200
-  sed -nE 's/^.*VexoR11[[:space:]]*:[[:space:]]+((prewarm_inicio |prewarm_fim |prewarm_erro |ocr_pixels )[0-9a-z =_-]{1,155})$/R11_TIMING: \1/p' "$OUT/vexo-r10-native-timing.txt" | tail -100
-fi
-# The R11 driver's row filter is unchanged. Fetch the R12 tag independently and export only
-# the numeric/snake-case event layouts below, never the raw logcat text.
-timeout 8s "$adb" -s "$serial" logcat -d -v monotonic -t 2500 -s VexoR12:V 2>/dev/null |
-  sed -nE 's/^.*[[:space:]]VexoR12[[:space:]]*:[[:space:]]+((fila_guardou|fila_drenou) epoca=[0-9]{1,18} cap=[0-9]{1,18} t=[0-9]{1,18}|fila_descartou epoca=[0-9]{1,18} motivo=[a-z0-9_]{1,35} t=[0-9]{1,18})$/R12_TIMING: \1/p' |
-  tail -120 | tee "$OUT/vexo-r12-native-timing-sanitized.txt" || true
-if [[ -s $OUT/driver-result.json ]]; then
-  python3 -m json.tool "$OUT/driver-result.json" | sed 's/^/AURORA_RESULT: /'
-  if [[ -n ${GITHUB_STEP_SUMMARY:-} ]]; then
-    {
-      printf '### Vexo Aurora Android R12 fila de quadros\n\nCommit `%s`, driver exit `%s`.\n\n' "$GITHUB_SHA" "$driver_rc"
-      printf '```json\n'
-      python3 -m json.tool "$OUT/driver-result.json"
-      printf '```\n'
-    } >> "$GITHUB_STEP_SUMMARY"
-  fi
-fi
+# No exception reasons, UI dumps or raw data make it into remote step logs.
+python3 - "$OUT" <<'PYRESULT'
+import json, pathlib, re, sys
+out=pathlib.Path(sys.argv[1])
+for path in (out/'device-apks.sha256',):
+    if path.is_file() and path.stat().st_size < 512:
+        for line in path.read_text().splitlines():
+            if re.fullmatch(r'[a-f0-9]{64}  (com\.trackingracing|com\.vexo\.qa\.pixels)', line):
+                print('R13_INSTALLED: '+line)
+result=out/'driver-result.json'
+if result.is_file() and result.stat().st_size <= 1024*1024:
+    try:
+        obj=json.loads(result.read_text())
+        if not isinstance(obj, dict): raise ValueError()
+    except (ValueError, OSError):
+        sys.exit(0)
+    for name in ('product_real_ocr_chain', 'collection_complete', 'stop'):
+        value=obj.get(name)
+        if type(value) is bool:
+            print('R13_RESULT: '+name+'='+str(value).lower())
+    allowed={'PASS','NOT_RUN','NOT_PROVEN','INCONCLUSIVE','VISUAL_REVIEW_REQUIRED','FAIL_OTHER_SCENE'}
+    if isinstance(obj.get('primary_chain'), str) and obj['primary_chain'] in allowed:
+        print('R13_RESULT: external_chain='+obj['primary_chain'])
+    states=obj.get('variants')
+    if isinstance(states,dict):
+        for name in ('A','B','N'):
+            state=states.get(name)
+            if isinstance(state,str) and state in allowed:
+                print('R13_RESULT: '+name+'='+state)
+PYRESULT
 (( driver_rc == 0 )) || exit "$driver_rc"
 test -s "$OUT/driver-result.json"
 stage=COMPLETE
