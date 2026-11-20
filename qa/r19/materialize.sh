@@ -75,6 +75,11 @@ raw=p.read_bytes()
 assert raw.count(b'</head>') == 1
 p.write_bytes(raw.replace(b'</head>', b'<link rel="stylesheet" href="comfort.css"><script defer src="comfort.js"></script></head>', 1))
 PYVEHICLE
+resources="$work/src/aurora/app/src/main/res"
+for qualifier in values values-v27; do
+  mkdir -p "$resources/$qualifier"
+  cp -- "qa/r19/res/$qualifier/styles.xml" "$resources/$qualifier/styles.xml"
+done
 (check=$repo/qa/r19/product-r19.sha256
  cd "$work/src/aurora"
  sha256sum --strict --check --status "$check"

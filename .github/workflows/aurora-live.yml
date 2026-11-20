@@ -5,7 +5,7 @@ permissions:
   contents: read
 jobs:
   r19-gate:
-    if: ${{ github.repository == 'wayluloli-beep/vexo-mlkit-lab' && github.event.ref_type == 'branch' && github.event.ref == 'vexo-product-r19-verified' && github.event.repository.private == true }}
+    if: ${{ github.repository == 'wayluloli-beep/vexo-mlkit-lab' && github.event.ref_type == 'branch' && github.event.ref == 'vexo-product-r19-android-check' && github.event.repository.private == true }}
     runs-on: ubuntu-26.04
     timeout-minutes: 30
     steps:
@@ -43,4 +43,9 @@ jobs:
           curl --fail --location --silent --show-error --max-time 180 'https://downloads.gradle.org/distributions/gradle-8.11.1-bin.zip' -o "$work/gradle.zip"
           printf 'f397b287023acdba1e9f6fc5ea72d22dd63669d59ed4a289a29b1a76eee151c6  %s\n' "$work/gradle.zip" | sha256sum --strict --check --status
           unzip -q "$work/gradle.zip" -d "$work"
-          node qa/r19/ci-manual.cjs android "$work/src/aurora" "$work/gradle-8.11.1/bin/gradle"
+          status=0
+          node qa/r19/ci-manual.cjs android "$work/src/aurora" "$work/gradle-8.11.1/bin/gradle" || status=$?
+          if (( status != 0 )); then
+            python3 qa/r19/report-lint.py "$work/src/aurora"
+          fi
+          exit "$status"

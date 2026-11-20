@@ -34,3 +34,10 @@ test('cost examples never write the active profile or meta even if the form is c
  vm.runInNewContext(html.slice(start,end),ctx);planEnter.onclick();
  assert.deepEqual(callbacks,{rate:0,commit:0});assert.deepEqual(routes,['./index.html']);
 });
+
+test('the navigation bar resources respect the Android minimum',()=>{
+ const read=relative=>fs.readFileSync(path.join(src,'res',relative),'utf8');
+ assert.doesNotMatch(read('values/styles.xml'),/android:windowLightNavigationBar/);
+ assert.match(read('values-v27/styles.xml'),/android:windowLightNavigationBar/);
+ for(const dir of ['values','values-v27'])assert.match(read(dir+'/styles.xml'),/name="Theme\.TrackingRacing" parent="Theme\.TrackingRacing\.Base"/);
+});

@@ -1,0 +1,10 @@
+<resources>
+  <style name="Theme.TrackingRacing.Base" parent="Theme.AppCompat.DayNight.NoActionBar">
+    <item name="android:windowBackground">#000000</item>
+    <item name="android:colorAccent">#FFD52B</item>
+    <item name="android:navigationBarColor">#000000</item>
+    <item name="android:statusBarColor">#000000</item>
+    <item name="android:windowLightStatusBar">false</item>
+  </style>
+  <style name="Theme.TrackingRacing" parent="Theme.TrackingRacing.Base" />
+</resources>

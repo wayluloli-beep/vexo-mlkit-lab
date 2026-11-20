@@ -55,7 +55,8 @@ aa2c087f566468df71153c9e34588e87f1522d2cf6a3c41867d4ce7e88cfdc26  app/src/main/j
 7d227736519a8a3b6134de9d29f4b7bec3a75a4b9fd3d6b2a30f56a148126e8a  app/src/main/java/com/trackingracing/Simulador99Estado.kt
 e95d7bc721f7b523dd94b696b4321dd8e3fa196ce8adf016a7ce09d55b1dd687  app/src/main/java/com/trackingracing/SincronizadorPlanilha.kt
 3d7496170c952aef02dd81a8d44ededc4d1286faa3632be15c1204da7b5d2cea  app/src/main/java/com/trackingracing/SlotCenaOcr.kt
-64565a66a8589e199e188f14eac987f4d7e796875c4eadc7cbd7174744b46467  app/src/main/res/values/styles.xml
+147148514a68bf990113a41557fe8c186f5bb6053f1a5d473b411beec95a0ef9  app/src/main/res/values/styles.xml
+91aa67f255620c05980516d8c5f8d97dc9371c76ecc933522f868e37ec89c576  app/src/main/res/values-v27/styles.xml
 43c3e8b24abf9df9923b698e2935a4714f1009a4a77c1665a0a304d09d01f684  app/src/main/res/xml/file_paths.xml
 89c692666f20e2832691b6fd20b65e582bfa70eae6cb3b3148ef76238795f37f  app/src/test/java/com/trackingracing/AuroraCard99Test.kt
 9afe531bf18a7d925c617c2a2e5be441017871482a950766a58875c2e4041de0  app/src/test/java/com/trackingracing/AuroraFinalizacaoTest.kt
