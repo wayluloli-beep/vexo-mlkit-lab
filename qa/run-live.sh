@@ -15,7 +15,6 @@ record_pid=''
 stop_recording() {
   if [[ -n $record_pid ]]; then
     touch "$work/stop-recording"
-    timeout 6s "$adb" -s "$serial" shell pkill -2 -x screenrecord >/dev/null 2>&1 || true
     for _ in {1..21}; do
       kill -0 "$record_pid" 2>/dev/null || break
       sleep 1
@@ -43,7 +42,7 @@ cleanup() {
   if (( rc != 0 )); then report "FAILED_$stage:$rc"; fi
 }
 trap cleanup EXIT
-[[ $GITHUB_REF == refs/heads/vexo-live-aurora-r9-once ]]
+[[ $GITHUB_REF == refs/heads/vexo-live-aurora-r10-once ]]
 [[ $(git rev-parse HEAD) == "$GITHUB_SHA" ]]
 [[ $(git ls-tree -r --name-only HEAD qa/payload | wc -l) == 24 ]]
 printf '%s  %s\n' '1f1e08574699aabab795687db1816a5962d033652879b21d924cfc590d50199d' "$work/payload.tar.gz" > "$work/payload-check"
@@ -68,6 +67,10 @@ report "SOURCE_OK:$GITHUB_SHA"
 stage=PRODUCT
 python3 qa/apply-checked-product.py "$work/src/aurora"
 report PRODUCT_OVERLAY_CHECKED
+patch --quiet --batch --forward -d "$work/src/aurora" -p1 < qa/aurora-r10.patch
+(cd "$work/src/aurora" && sha256sum --strict --check "$GITHUB_WORKSPACE/qa/product-r10.sha256")
+report FRESHNESS_PATCH_CHECKED
+if command -v ffmpeg >/dev/null && command -v ffprobe >/dev/null; then report VIDEO_TOOLS_AVAILABLE; else report VIDEO_TOOLS_CONTAINER_ONLY; fi
 ui_python=$(command -v python3)
 # Save unmodified screenshots independently of any host OCR/observer.
 if command -v tesseract >/dev/null; then
@@ -322,11 +325,14 @@ driver_rc=${PIPESTATUS[0]}
 set -e
 stop_recording
 report "DRIVER_EXIT:$driver_rc"
+if [[ -s $OUT/vexo-r10-native-timing.txt ]]; then
+  sed -nE 's/^.*VexoR10[[:space:]]*:[[:space:]]+((cena=|limpeza_cena |ocr_inicio |ocr_fim |ocr_erro |descartado_cena |descartado_apos_parse |falha_isolada |ui_envio )[0-9a-z =_-]{1,155})$/R10_TIMING: \1/p' "$OUT/vexo-r10-native-timing.txt" | tail -200
+fi
 if [[ -s $OUT/driver-result.json ]]; then
   python3 -m json.tool "$OUT/driver-result.json" | sed 's/^/AURORA_RESULT: /'
   if [[ -n ${GITHUB_STEP_SUMMARY:-} ]]; then
     {
-      printf '### Vexo Aurora Android R9 integrado\n\nCommit `%s`, driver exit `%s`.\n\n' "$GITHUB_SHA" "$driver_rc"
+      printf '### Vexo Aurora Android R10 frescor\n\nCommit `%s`, driver exit `%s`.\n\n' "$GITHUB_SHA" "$driver_rc"
       printf '```json\n'
       python3 -m json.tool "$OUT/driver-result.json"
       printf '```\n'

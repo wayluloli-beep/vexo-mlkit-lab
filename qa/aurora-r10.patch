@@ -1,0 +1,331 @@
+--- a/app/src/main/java/com/trackingracing/ScreenCaptureService.kt
++++ b/app/src/main/java/com/trackingracing/ScreenCaptureService.kt
+@@ -75,6 +75,8 @@
+         private const val CANAL_ID = "vexo_captura"
+         private const val NOTIF_ID = 1001
+         private const val INTERVALO_MS = 500L
++        private const val INTERVALO_PAINEL_MS = 300L
++        private const val TEMPO_TAG = "VexoR10"
+         private const val LEITURAS_ESTAVEIS = 2
+         private const val TAG = "VexoOCR"
+         // Registro restrito à main, como os callbacks do serviço e o botão da Activity.
+@@ -102,6 +104,7 @@
+     private var eventosLab=Lab99Eventos()
+     private val conclusaoAurora = AuroraFinalizacao()
+     private val ordemQuadros = OrdemQuadrosPainel<PainelOcrFlutuante>()
++    private val frescorPainel = FrescorCenaPainel()
+     @Volatile private var exportadorLab: Lab99Exportador? = null
+     private val ui = Handler(Looper.getMainLooper())
+     private val tintaPainel = Paint().apply { color = Color.BLACK }
+@@ -251,7 +254,8 @@
+             handlerLeitura = handler
+             // Inicia uma nova sessão depois da autorização e da tela virtual pronta.
+             testeAtivoId = if (Simulador99Estado.ativo || modoPainel) null else HistoricoCorridas.iniciarTeste(applicationContext)
+-            handler.postDelayed(ciclo, INTERVALO_MS)
++            frescorPainel.reiniciar()
++            handler.postDelayed(ciclo, if (modoPainel) INTERVALO_PAINEL_MS else INTERVALO_MS)
+ 
+             ultimoPublicado = ""
+             vazias = 0
+@@ -280,7 +284,7 @@
+     private val ciclo = object : Runnable {
+         override fun run() {
+             lerUmaVez()
+-            handlerLeitura?.postDelayed(this, INTERVALO_MS)
++            handlerLeitura?.postDelayed(this, if (modoPainel) INTERVALO_PAINEL_MS else INTERVALO_MS)
+         }
+     }
+ 
+@@ -296,13 +300,35 @@
+             null
+         }
+         if (imagem == null) return
++        val painelAtual = painel
++        val quadro = painelAtual?.quadro
++        val instanteImagem = SystemClock.elapsedRealtime()
++        var bilheteCena:FrescorCenaPainel.Bilhete? = null
+         val bitmap = try {
++            if (modoPainel) {
++                if (finalizando || painelAtual==null || quadro==null ||
++                    !quadro.podeLer(imagem.width,imagem.height,instanteImagem)) return
++                val amostraCena=amostrarCena(imagem,quadro.caixa ?: return) ?: return
++                val estado=frescorPainel.observar(amostraCena,imagem.timestamp,instanteImagem)
++                bilheteCena=estado.bilhete
++                if (estado.motivo=="mudanca_suspeita" || estado.limpar) {
++                    Log.i(TEMPO_TAG,"cena="+estado.motivo+" t="+instanteImagem)
++                }
++                if (estado.limpar) ui.post {
++                    if (!finalizando && painel===painelAtual &&
++                        painelAtual.quadro.versao==quadro.versao && !CapturaEstado.telaPropriaVisivel) {
++                        painelAtual.indicar("ATIVO","Aguardando leitura.")
++                        Log.i(TEMPO_TAG,"limpeza_cena t="+SystemClock.elapsedRealtime())
++                    }
++                }
++                // While the recognizer is busy, only the compact sampling above is needed.
++                if (ocupado || bilheteCena==null) return
++            }
+             imagemParaBitmap(imagem)
+         } finally {
+             imagem.close()
+         }
+-        val painelAtual = painel
+-        val quadro = painelAtual?.quadro
++        val cena=bilheteCena
+         if (modoPainel && (quadro == null || !protegerFrameDoPainel(bitmap,quadro))) {
+             bitmap.recycle()
+             return
+@@ -314,6 +340,10 @@
+         fun aceitarPainel(): PainelOcrFlutuante? {
+             val capturado = bilhete ?: return null
+             val atual = painel
++            if (cena==null || !frescorPainel.valido(cena,SystemClock.elapsedRealtime())) {
++                Log.i(TEMPO_TAG,"descartado_cena seq="+capturado.numero+" t="+SystemClock.elapsedRealtime())
++                return null
++            }
+             return ordemQuadros.aceitar(capturado, atual, atual?.quadro?.versao,
+                 !finalizando && !CapturaEstado.telaPropriaVisivel)
+         }
+@@ -325,7 +355,7 @@
+             return
+         }
+         // Rastreamento visual continua mesmo enquanto o OCR está ocupado.
+-        val capturadoEm = SystemClock.elapsedRealtime()
++        val capturadoEm = if (modoPainel) instanteImagem else SystemClock.elapsedRealtime()
+         if (!modoPainel) detectorDeCard.observar(bitmap, capturadoEm)
+         if (ocupado || finalizando) {
+             bitmap.recycle()
+@@ -335,8 +365,13 @@
+         val sessaoGravada = gravador?.atual
+         var amostra: Lab99Exportador.Amostra? = null
+         ocupado = true
++        val inicioOCR=SystemClock.elapsedRealtime()
++        if (bilhete!=null && cena!=null) Log.i(TEMPO_TAG,
++            "ocr_inicio seq="+bilhete.numero+" epoca="+cena.epoca+" cap="+capturadoEm+" t="+inicioOCR)
+         reconhecedor.process(InputImage.fromBitmap(bitmap, 0))
+             .addOnSuccessListener { resultado ->
++                if (bilhete!=null) Log.i(TEMPO_TAG,"ocr_fim seq="+bilhete.numero+
++                    " ms="+(SystemClock.elapsedRealtime()-inicioOCR)+" t="+SystemClock.elapsedRealtime())
+                 if (!finalizando) {
+                     if (bilhete != null && quadro != null) {
+                         val destino = aceitarPainel() ?: return@addOnSuccessListener
+@@ -368,6 +403,18 @@
+                                 viagem=d?.copy(endereco=end.destino?.texto))
+                         }
+                         val agora=SystemClock.elapsedRealtime()
++                        if (cena==null || !frescorPainel.valido(cena,agora)) {
++                            Log.i(TEMPO_TAG,"descartado_apos_parse seq="+bilhete.numero+" t="+agora)
++                            return@addOnSuccessListener
++                        }
++                        val exibir=atual?.takeIf { c ->
++                            (c.preco ?: 0.0)>0 && trechoValido(c.busca) && trechoValido(c.viagem)
++                        }
++                        if (exibir==null && !frescorPainel.falha(cena)) {
++                            Log.i(TEMPO_TAG,"falha_isolada seq="+bilhete.numero+" t="+agora)
++                            return@addOnSuccessListener
++                        }
++                        if (exibir!=null) frescorPainel.acerto(cena)
+                         val wall=System.currentTimeMillis() - (agora-capturadoEm)
+                         val evento=eventosLab.ler(atual?.let { Lab99Eventos.Ficha.de(it) },wall)
+                         if (sessaoGravada != null && evento!=null && atual!=null && (evento.atualizar ||
+@@ -375,7 +422,9 @@
+                             amostra = Lab99Exportador.Amostra(evento.id,evento.inicio,capturadoEm,
+                                 wall, agora, quadro.versao, quadro.caixa, resultado.text, atual, null)
+                         }
+-                        destino.atualizarLeitura(atual,capturadoEm,agora,quadro.versao,evento)
++                        destino.atualizarLeitura(exibir,capturadoEm,agora,quadro.versao,evento)
++                        Log.i(TEMPO_TAG,"ui_envio seq="+bilhete.numero+" venda="+(exibir!=null)+
++                            " cap="+capturadoEm+" t="+SystemClock.elapsedRealtime())
+                         return@addOnSuccessListener
+                     }
+                     val texto = resultado.text.trim()
+@@ -390,9 +439,12 @@
+             }
+             .addOnFailureListener { e ->
+                 if (!finalizando) {
+-                    if (bilhete != null)
+-                        aceitarPainel()?.indicar("ERRO","Não foi possível ler este quadro.")
+-                    else avisar("Erro ao ler texto: ${e.message}")
++                    if (bilhete != null) {
++                        val destino=aceitarPainel()
++                        if (destino!=null && cena!=null && frescorPainel.falha(cena))
++                            destino.indicar("ERRO","Não foi possível ler este quadro.")
++                        Log.i(TEMPO_TAG,"ocr_erro seq="+bilhete.numero+" t="+SystemClock.elapsedRealtime())
++                    } else avisar("Erro ao ler texto: ${e.message}")
+                 }
+             }
+             .addOnCompleteListener {
+@@ -404,6 +456,26 @@
+                 else false
+                 if (!entregue) bitmap.recycle()
+             }
++    }
++
++    // Pre-OCR, 1,152 points, in the lower central screen, before copying a full RGBA frame.
++    // The overlay bounds are treated as unknown on both sides of comparisons.
++    private fun amostrarCena(imagem:Image,caixa:CaixaPainel):IntArray? {
++        val plano=imagem.planes.firstOrNull() ?: return null
++        val buffer=plano.buffer
++        val w=imagem.width;val h=imagem.height
++        if (w<=0 || h<=0 || plano.pixelStride<3) return null
++        val resultado=IntArray(32*36){-1}
++        for (linha in 0 until 36) for (coluna in 0 until 32) {
++            val x=(w*(.08+(.84*(coluna+.5)/32))).toInt()
++            val y=(h*(.53+(.42*(linha+.5)/36))).toInt()
++            if (x in caixa.esquerda until caixa.direita && y in caixa.topo until caixa.fundo) continue
++            val at=buffer.position()+y*plano.rowStride+x*plano.pixelStride
++            if (at<0 || at+2>=buffer.limit()) continue
++            resultado[linha*32+coluna]=((buffer.get(at).toInt() and 255) shl 16) or
++                ((buffer.get(at+1).toInt() and 255) shl 8) or (buffer.get(at+2).toInt() and 255)
++        }
++        return resultado
+     }
+ 
+     private fun protegerFrameDoPainel(bitmap:Bitmap,quadro:QuadroPainel):Boolean {
+@@ -444,6 +516,7 @@
+             display.resize(w,h,resources.displayMetrics.densityDpi)
+             display.surface=novo.surface
+             imageReader=novo
++            frescorPainel.reiniciar()
+             dimensoesCaptura=w to h
+             antigo?.close()
+         }.onFailure { novo.close() }
+--- /dev/null
++++ b/app/src/main/java/com/trackingracing/FrescorCenaPainel.kt
+@@ -0,0 +1,75 @@
++package com.trackingracing
++
++/** The frame producer and ML Kit completion can be on different threads. Work only with
++ * comparable visual pixels and a stable scene; a newer buffer by itself is not a new card. */
++internal class FrescorCenaPainel {
++    class Bilhete(val epoca:Long, val capturadoEm:Long, val frame:Long)
++    class Observacao(val bilhete:Bilhete?, val limpar:Boolean, val motivo:String)
++    private var epoca=0L
++    private var ultimoFrame=0L
++    private var base:IntArray?=null
++    private var candidata:IntArray?=null
++    private var falhas=0
++
++    private fun distancia(a:IntArray,b:IntArray):Double? {
++        if (a.size!=b.size) return null
++        var total=0
++        var passou=0
++        for (i in a.indices) {
++            val x=a[i];val y=b[i]
++            if (x<0 || y<0) continue
++            total++
++            val r=kotlin.math.abs((x shr 16 and 255) - (y shr 16 and 255))
++            val g=kotlin.math.abs((x shr 8 and 255) - (y shr 8 and 255))
++            val bl=kotlin.math.abs((x and 255) - (y and 255))
++            if (r+g+bl>65) passou++
++        }
++        return if(total*3<a.size || total==0) null else passou.toDouble()/total
++    }
++
++    @Synchronized fun reiniciar() {
++        epoca++; ultimoFrame=0L; base=null; candidata=null; falhas=0
++    }
++
++    @Synchronized fun observar(pixels:IntArray,frame:Long,agora:Long):Observacao {
++        if(frame>0 && frame<=ultimoFrame) return Observacao(null,false,"duplicado")
++        if(frame>0) ultimoFrame=frame
++        val anterior=base
++        if(anterior==null) {
++            if(pixels.count{it>=0}*3<pixels.size) return Observacao(null,false,"sem_amostra")
++            base=pixels
++            return Observacao(Bilhete(epoca,agora,frame),false,"primeiro")
++        }
++        val diferenca=distancia(anterior,pixels) ?: return Observacao(null,false,"sem_amostra")
++        if(diferenca<=.28) {
++            val retomada=candidata!=null
++            candidata=null
++            return Observacao(Bilhete(epoca,agora,frame),false,if(retomada) "retomada" else "estavel")
++        }
++        val outra=candidata
++        if(outra==null) {
++            epoca++; candidata=pixels
++            return Observacao(null,false,"mudanca_suspeita")
++        }
++        val concorda=distancia(outra,pixels)
++        if(concorda==null || concorda>.20) {
++            candidata=pixels
++            return Observacao(null,false,"mudando")
++        }
++        epoca++; base=pixels; candidata=null; falhas=0
++        return Observacao(Bilhete(epoca,agora,frame),true,"mudanca_confirmada")
++    }
++
++    @Synchronized fun valido(bilhete:Bilhete,agora:Long):Boolean =
++        bilhete.epoca==epoca && candidata==null && agora-bilhete.capturadoEm in 0..12_000L
++
++    @Synchronized fun acerto(bilhete:Bilhete) {
++        if(bilhete.epoca==epoca && candidata==null) falhas=0
++    }
++
++    @Synchronized fun falha(bilhete:Bilhete):Boolean {
++        if(bilhete.epoca!=epoca || candidata!=null) return false
++        falhas=(falhas+1).coerceAtMost(2)
++        return falhas>=2
++    }
++}
+--- /dev/null
++++ b/app/src/test/java/com/trackingracing/FrescorCenaPainelTest.kt
+@@ -0,0 +1,59 @@
++package com.trackingracing
++
++import org.junit.Assert.*
++import org.junit.Test
++
++class FrescorCenaPainelTest {
++    private fun cor(c:Int) = IntArray(32 * 36){c}
++    @Test fun callbackDaOfertaAnteriorNaoAtravessaRetirada() {
++        val g=FrescorCenaPainel()
++        val b=g.observar(cor(0x101010),1L,100L).bilhete!!
++        val suspeita=g.observar(cor(0xf0f0f0),2L,350L)
++        assertNull(suspeita.bilhete)
++        assertFalse(suspeita.limpar)
++        assertFalse(g.valido(b,400L))
++        val n=g.observar(cor(0xf0f0f0),3L,600L)
++        assertTrue(n.limpar)
++        assertNotNull(n.bilhete)
++        assertFalse(g.valido(b,700L))
++    }
++    @Test fun quadroEquivalenteNaoCancelaOCRQueDemora() {
++        val g=FrescorCenaPainel()
++        val a=g.observar(cor(0x202020),1L,100L).bilhete!!
++        for (i in 2..20) assertFalse(g.observar(cor(0x222222),i.toLong(),100L+i*250L).limpar)
++        assertTrue(g.valido(a,5200L))
++        assertFalse(g.valido(a,13000L))
++    }
++    @Test fun oscilacaoUnicaPreservaOfertaMasInvalidaCallbackEmVoo() {
++        val g=FrescorCenaPainel()
++        val a=g.observar(cor(0x101010),1L,100L).bilhete!!
++        assertFalse(g.observar(cor(0xc0c0c0),2L,350L).limpar)
++        val volta=g.observar(cor(0x101010),3L,600L)
++        assertFalse(volta.limpar)
++        assertNotNull(volta.bilhete)
++        assertFalse(g.valido(a,630L))
++        assertTrue(g.valido(volta.bilhete!!,650L))
++    }
++    @Test fun primeiroErroNaoPiscaSegundoErroLimpa() {
++        val g=FrescorCenaPainel()
++        val a=g.observar(cor(0x101010),1L,100L).bilhete!!
++        g.acerto(a)
++        assertFalse(g.falha(a))
++        assertTrue(g.falha(g.observar(cor(0x101010),2L,330L).bilhete!!))
++    }
++    @Test fun timestampDuplicadoNaoContaComoSegundaObservacao() {
++        val g=FrescorCenaPainel()
++        g.observar(cor(0x101010),1L,100L)
++        g.observar(cor(0xf0f0f0),2L,330L)
++        assertFalse(g.observar(cor(0xf0f0f0),2L,550L).limpar)
++        assertTrue(g.observar(cor(0xf0f0f0),3L,800L).limpar)
++    }
++    @Test fun mascaraDoBalaoNaoGeraMudanca() {
++        val g=FrescorCenaPainel()
++        val a=cor(0x101010).also { for (i in 0..300) it[i]=-1 }
++        val b=cor(0x101010).also { for (i in 400..700) it[i]=-1 }
++        val ticket=g.observar(a,1L,100L).bilhete!!
++        assertFalse(g.observar(b,2L,350L).limpar)
++        assertTrue(g.valido(ticket,365L))
++    }
++}

@@ -8,6 +8,9 @@ SOURCE='com.vexo.qa.pixels'
 SETTINGS='com.android.settings'
 SYS=('com.android.systemui','com.google.android.permissioncontroller','com.android.permissioncontroller','android')
 LABEL='Vexo Aurora'
+SCENE_SAMPLES={'A':(('early',6.2),('final',9.6)),
+               'B':(('early',6.2),('final',9.6)),
+               'N':(('early',2.0),('final',5.2))}
 def norm(v):
     return ' '.join(''.join(c for c in unicodedata.normalize('NFKD',v) if not unicodedata.combining(c)).casefold().split())
 def vals(n): return [v for v in (n.get('text',''),n.get('content-desc','')) if v]
@@ -326,7 +329,7 @@ class Run:
     def __init__(self):
         self.adb=os.environ['ADB'];self.serial=os.environ['SERIAL'];self.pkg=os.environ['PKG'];self.out=Path(os.environ['OUT']);self.out.mkdir(parents=True,exist_ok=True)
         if self.serial!='emulator-5554' or self.pkg!='com.trackingracing':raise Failure('unrecognized dedicated target or package')
-        self.start=time.monotonic();self.st='preflight';self.seq=0;self.granted=False;self.stop_ok=False;self.primary=False;self.results={};self.errs=[];self.last_xml=None;self.reviews={}
+        self.start=time.monotonic();self.st='preflight';self.seq=0;self.granted=False;self.stop_ok=False;self.primary=False;self.results={};self.errs=[];self.last_xml=None;self.reviews={};self.samples={}
     def ev(self,stage,result,**kw):
         msg={'elapsed_s':round(time.monotonic()-self.start,2),'utc':datetime.datetime.now(datetime.timezone.utc).isoformat(),'stage':stage,'status':result,**kw}
         with (self.out/'driver-events.jsonl').open('a') as f:f.write(json.dumps(msg,ensure_ascii=False)+'\n')
@@ -543,23 +546,25 @@ class Run:
             q=subprocess.run([tess,str(dst),'stdout','-l','eng','--psm','6'],capture_output=True,text=True,timeout=6)
             self.write(dst.name+'.txt',q.stdout);return q.stdout
         except (OSError,ValueError,subprocess.SubprocessError):return ''
-    def capture_scene_review(self,scene,tap_ack,k):
+    def capture_scene_review(self,scene,tap_ack,k,sample='final',target_s=6.2):
         """Bracket the original ADB screenshot with ownership/focus from the real system."""
+        stem='scene-'+scene+('-review' if sample=='final' else '-early')
         def state(phase):
             wm=self.sh('dumpsys','window','windows',timeout=5)
             act=self.sh('dumpsys','activity','activities',timeout=5)
-            self.write(f'scene-{scene}-{phase}-windows.txt',wm)
-            self.write(f'scene-{scene}-{phase}-resumed.txt','\n'.join(
+            self.write(f'{stem}-{phase}-windows.txt',wm)
+            self.write(f'{stem}-{phase}-resumed.txt','\n'.join(
                 l for l in act.splitlines() if re.search(r'resumedActivity',l,re.I)))
             has,frame=overlay_window(wm,self.pkg,True,self.uid)
             digest_readable=bool(re.search(r'(?im)^\s*Window #\d+ Window\{',wm))
             return digest_readable and foreground_fixture(wm,act),has,frame
 
-        before=state('before')
         # This is the sampling time, not ML Kit latency, time-to-updated-overlay or proof of accuracy.
-        time.sleep(max(0,6.2-(time.monotonic()-tap_ack)))
+        time.sleep(max(0,target_s-.55-(time.monotonic()-tap_ack)))
+        before=state('before')
+        time.sleep(max(0,target_s-(time.monotonic()-tap_ack)))
         shot_start=time.monotonic()
-        pic=self.shot('scene-'+scene+'-review')
+        pic=self.shot(stem)
         shot_finish=time.monotonic()
         after=state('after')
         raw=pic.read_bytes()
@@ -572,7 +577,8 @@ class Run:
         no_overlay=not before[1] and not after[1]
         ready=bool(external and (visible or (scene=='N' and no_overlay)))
         info={
-            'scene':scene,'screenshot':pic.name,'sha256':hashlib.sha256(raw).hexdigest(),
+            'scene':scene,'sample':sample,'target_s':target_s,
+            'screenshot':pic.name,'sha256':hashlib.sha256(raw).hexdigest(),
             'tap_xml':k+'.xml','tap_ack_s':round(tap_ack-self.start,3),
             'tap_to_screenshot_start_s':round(shot_start-tap_ack,3),
             'tap_to_screenshot_end_s':round(shot_finish-tap_ack,3),
@@ -583,24 +589,44 @@ class Run:
             'overlay_absent_both_dumps':no_overlay,
             'ocr_pixels_status':'REVIEW_REQUIRED' if ready else 'UNVERIFIED'
         }
-        self.reviews[scene]=info
+        self.samples.setdefault(scene,{})[sample]=info
+        if sample=='final':self.reviews[scene]=info
         print('LIVE:scene_'+scene+':REVIEW_CAPTURE:'+json.dumps(info),flush=True)
         self.ev('scene_'+scene,'STRUCTURAL_READY' if ready else 'INCONCLUSIVE',**info)
         return info
 
     def analyze_scene_review(self,scene,info):
         # Run the optional observer after stopping the real capture. It cannot short-circuit B or N.
-        if not info['structural_ready'] or not info['overlay_frame'] or not shutil.which('tesseract'):
+        if not info['structural_ready']:
             return None
+        if scene=='N' and info['overlay_absent_both_dumps']:
+            return {'state':'overlay absent in both surrounding window dumps'}
+        if not info['overlay_frame'] or not shutil.which('tesseract'):return None
         pic=self.out/info['screenshot']
-        result=measurements(scene,self.crop_text(pic,info['overlay_frame']))
+        observed=self.crop_text(pic,info['overlay_frame'])
+        result=measurements(scene,observed)
         if result is not None:
             print('LIVE:overlay_'+scene+':WITNESS:'+json.dumps(
-                {'scene':scene,'owner':self.pkg,'type':2038,'foreground':SOURCE,
+                {'scene':scene,'sample':info.get('sample'),'owner':self.pkg,'type':2038,'foreground':SOURCE,
                  'via':'cropped real screen OCR','frame':info['overlay_frame'],
                  'observed':result,'screenshot':pic.name}),flush=True)
             self.ev('overlay_'+scene,'PASS',observed=result,png=pic.name)
+        if result is None:
+            different=next((other for other in ('A','B') if other!=scene and measurements(other,observed) is not None),None)
+            if different:
+                self.ev('overlay_'+scene,'OTHER_SCENE_OBSERVED',sample=info.get('sample'),observed_scene=different,png=pic.name)
+                return {'unexpected_scene':different}
         return result
+
+    def collect_native_timing(self):
+        try:
+            raw=self.cmd('logcat','-d','-v','monotonic','-t','1200','-s','VexoR10:V',timeout=8).decode('utf-8','replace')
+            rows=[line for line in raw.splitlines() if re.search(r'\bVexoR10\s*:',line) and len(line)<=500]
+            self.write('vexo-r10-native-timing.txt','\n'.join(rows)+'\n' if rows else '')
+            self.ev('native_timing','COLLECTED' if rows else 'UNAVAILABLE',tag='VexoR10',lines=len(rows))
+            return len(rows)
+        except Failure as e:
+            self.ev('native_timing','UNAVAILABLE',reason=str(e)[:150]);return 0
     def stop(self):
         self.st='stop_real'
         before=self.sh('dumpsys','media_projection');before_svc=self.sh('dumpsys','activity','services',self.pkg)
@@ -636,7 +662,13 @@ class Run:
             for scene in ('A','B','N'):
                 try:
                     self.st='fixture_'+scene;ack,xml=self.scene(scene)
-                    self.capture_scene_review(scene,ack,xml)
+                    for sample,target in SCENE_SAMPLES[scene]:
+                        try:self.capture_scene_review(scene,ack,xml,sample,target)
+                        except Exception as e:
+                            self.errs.append((self.st+'_'+sample,str(e)))
+                            self.ev(self.st+'_'+sample,'INCONCLUSIVE',reason=str(e)[:300])
+                            try:self.shot('failure-'+self.st)
+                            except Exception:pass
                 except Exception as e:
                     self.errs.append((self.st,str(e)));self.ev(self.st,'INCONCLUSIVE',reason=str(e)[:300])
                     try:self.shot('failure-'+self.st)
@@ -653,21 +685,30 @@ class Run:
                 try:self.stop()
                 except Exception as e:self.errs.append(('stop',str(e)));self.ev('stop','INCONCLUSIVE',reason=str(e)[:450])
             if recording:self.write('record-external.done','done\n')
-        for scene in ('A','B','N'):
-            info=self.reviews.get(scene)
-            if not info or not info['structural_ready']:
-                self.results[scene]='INCONCLUSIVE' if recording else 'NOT_RUN'
-                continue
-            try:found=self.analyze_scene_review(scene,info)
-            except Exception as e:
-                found=None;self.ev('optional_text_'+scene,'UNAVAILABLE',reason=str(e)[:200])
-            self.results[scene]='PASS' if found is not None else 'VISUAL_REVIEW_REQUIRED'
+        timing_lines=self.collect_native_timing() if self.granted else 0
+        verdicts={}
+        for scene,plan in SCENE_SAMPLES.items():
+            per={};verdicts[scene]=per
+            for sample,_ in plan:
+                info=self.samples.get(scene,{}).get(sample)
+                if not info or not info['structural_ready']:
+                    per[sample]='INCONCLUSIVE' if recording else 'NOT_RUN'
+                    continue
+                try:found=self.analyze_scene_review(scene,info)
+                except Exception as e:
+                    found=None;self.ev('optional_text_'+scene,'UNAVAILABLE',reason=str(e)[:200])
+                per[sample]=('FAIL_OTHER_SCENE' if found and 'unexpected_scene' in found else
+                             'PASS' if found is not None else 'VISUAL_REVIEW_REQUIRED')
+            statuses=set(per.values())
+            self.results[scene]=next(s for s in ('FAIL_OTHER_SCENE','INCONCLUSIVE','NOT_RUN','VISUAL_REVIEW_REQUIRED','PASS') if s in statuses)
         self.primary=self.results['A']=='PASS'
-        collected=self.stop_ok and all(self.results[s] in ('PASS','VISUAL_REVIEW_REQUIRED') for s in ('A','B','N'))
-        chain=('PASS' if all(self.results[s]=='PASS' for s in ('A','B','N')) else 'VISUAL_REVIEW_REQUIRED') if collected else 'NOT_PROVEN'
+        collected=self.stop_ok and all(s not in ('INCONCLUSIVE','NOT_RUN') for per in verdicts.values() for s in per.values())
+        chain=('FAIL_OTHER_SCENE' if 'FAIL_OTHER_SCENE' in self.results.values() else
+               ('PASS' if all(s=='PASS' for s in self.results.values()) else 'VISUAL_REVIEW_REQUIRED') if collected else 'NOT_PROVEN')
         out={'primary_chain':chain,'collection_complete':collected,'A':self.primary,
              'stop':self.stop_ok,'variants':self.results,'scene_reviews':self.reviews,
+             'scene_samples':self.samples,'sample_verdicts':verdicts,'native_timing_lines':timing_lines,
              'errors':self.errs,'gallery':'NOT_RUN','stop_extent':'Observed Android service, current projection and window removal on external foreground; not internal history persistence.'}
         self.write('driver-result.json',json.dumps(out,ensure_ascii=False,indent=2));self.ev('driver',chain)
-        return 0 if collected else 1
+        return 0 if collected and chain!='FAIL_OTHER_SCENE' else 1
 if __name__=='__main__':sys.exit(Run().run())
