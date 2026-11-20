@@ -219,7 +219,7 @@ body.vexo-home #inicio{min-height:calc(100vh - 100px)}
 .vexo-menu-profile{padding:26px 24px 34px;display:flex;align-items:center;gap:18px;font-size:25px}
 .vexo-avatar{width:75px;height:75px;border-radius:50%;background:linear-gradient(145deg,#b8c7d8,#e0e7ed);display:grid;place-items:center;overflow:hidden}
 .vexo-avatar svg{width:70px;height:70px;margin-top:12px;fill:#42566b;stroke:none}
-.vexo-drawer-links{position:static;left:auto;right:auto;bottom:auto;background:transparent;border:0;padding:0 20px 32px;display:flex}
+.vexo-drawer-links{position:static;left:auto;right:auto;bottom:auto;background:transparent;border:0;padding:0 20px 32px;display:flex;flex-direction:column}
 .vexo-drawer-link{display:flex;align-items:center;gap:20px;width:100%;min-height:75px;border:0;background:transparent;color:#17191d;text-align:left;padding:10px 7px;font-size:18px}
 .vexo-drawer-link svg{width:27px;height:27px;min-width:27px;fill:none;stroke:currentColor;stroke-width:1.9;stroke-linecap:round;stroke-linejoin:round}
 .vexo-drawer-link span:nth-child(2){flex:1}
