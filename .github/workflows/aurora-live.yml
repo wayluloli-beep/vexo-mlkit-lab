@@ -5,7 +5,7 @@ permissions:
   contents: read
 jobs:
   r19-gate:
-    if: ${{ github.repository == 'wayluloli-beep/vexo-mlkit-lab' && github.event.ref_type == 'branch' && github.event.ref == 'vexo-product-r19-check' && github.event.repository.private == true }}
+    if: ${{ github.repository == 'wayluloli-beep/vexo-mlkit-lab' && github.event.ref_type == 'branch' && github.event.ref == 'vexo-product-r19-verified' && github.event.repository.private == true }}
     runs-on: ubuntu-26.04
     timeout-minutes: 30
     steps:

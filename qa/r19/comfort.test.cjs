@@ -4,7 +4,8 @@ const { join } = require('node:path');
 const { test } = require('node:test');
 const { runInNewContext } = require('node:vm');
 
-const script = join(__dirname, '../aurora/app/src/main/assets/aurora/comfort.js');
+const source = process.env.VEXO_SOURCE_DIR || join(__dirname, '../aurora');
+const script = join(source, 'app/src/main/assets/aurora/comfort.js');
 const node = props => Object.assign(new EventTarget(), props);
 function start(data = new Map(), { insetPage = false, blocked = false } = {}) {
   const elements = {
