@@ -1,11 +1,11 @@
-name: Vexo Aurora Android OCR freshness R10
+name: Vexo Aurora Android OCR prewarm R11
 'on':
   create:
 permissions:
   contents: read
 jobs:
   live-android:
-    if: ${{ github.event.ref_type == 'branch' && github.event.ref == 'vexo-live-aurora-r10-once' && github.run_attempt == '1' && github.event.repository.private == true }}
+    if: ${{ github.event.ref_type == 'branch' && github.event.ref == 'vexo-live-aurora-r11-once' && github.run_attempt == '1' && github.event.repository.private == true }}
     permissions:
       contents: write
     runs-on: ubuntu-26.04
@@ -21,7 +21,7 @@ jobs:
         shell: bash
         run: bash qa/run-live.sh
       - name: Keep Android test prints and clip on this private QA branch
-        if: ${{ always() && github.event.repository.private == true && github.run_attempt == '1' && github.ref == 'refs/heads/vexo-live-aurora-r10-once' }}
+        if: ${{ always() && github.event.repository.private == true && github.run_attempt == '1' && github.ref == 'refs/heads/vexo-live-aurora-r11-once' }}
         continue-on-error: true
         timeout-minutes: 4
         shell: bash

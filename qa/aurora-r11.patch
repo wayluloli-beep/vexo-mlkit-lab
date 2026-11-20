@@ -1,0 +1,146 @@
+--- a/app/src/main/java/com/trackingracing/ScreenCaptureService.kt
++++ b/app/src/main/java/com/trackingracing/ScreenCaptureService.kt
+@@ -11,6 +11,7 @@
+ import android.graphics.Canvas
+ import android.graphics.Color
+ import android.graphics.Paint
++import android.graphics.Rect
+ import android.graphics.PixelFormat
+ import android.hardware.display.DisplayManager
+ import android.hardware.display.VirtualDisplay
+@@ -77,6 +78,7 @@
+         private const val INTERVALO_MS = 500L
+         private const val INTERVALO_PAINEL_MS = 300L
+         private const val TEMPO_TAG = "VexoR10"
++        private const val AQUER_TAG = "VexoR11"
+         private const val LEITURAS_ESTAVEIS = 2
+         private const val TAG = "VexoOCR"
+         // Registro restrito à main, como os callbacks do serviço e o botão da Activity.
+@@ -255,6 +257,7 @@
+             // Inicia uma nova sessão depois da autorização e da tela virtual pronta.
+             testeAtivoId = if (Simulador99Estado.ativo || modoPainel) null else HistoricoCorridas.iniciarTeste(applicationContext)
+             frescorPainel.reiniciar()
++            if (modoPainel) handler.post { prepararReconhecedor() }
+             handler.postDelayed(ciclo, if (modoPainel) INTERVALO_PAINEL_MS else INTERVALO_MS)
+ 
+             ultimoPublicado = ""
+@@ -368,7 +371,10 @@
+         val inicioOCR=SystemClock.elapsedRealtime()
+         if (bilhete!=null && cena!=null) Log.i(TEMPO_TAG,
+             "ocr_inicio seq="+bilhete.numero+" epoca="+cena.epoca+" cap="+capturadoEm+" t="+inicioOCR)
+-        reconhecedor.process(InputImage.fromBitmap(bitmap, 0))
++        val bitmapOCR=if(cena==null) bitmap else runCatching { usarFaixaCompacta(bitmap) }.getOrDefault(bitmap)
++        if(cena!=null && bilhete!=null) Log.i(AQUER_TAG,"ocr_pixels seq="+bilhete.numero+
++            " w="+bitmapOCR.width+" h="+bitmapOCR.height+" original_h="+bitmap.height)
++        reconhecedor.process(InputImage.fromBitmap(bitmapOCR, 0))
+             .addOnSuccessListener { resultado ->
+                 if (bilhete!=null) Log.i(TEMPO_TAG,"ocr_fim seq="+bilhete.numero+
+                     " ms="+(SystemClock.elapsedRealtime()-inicioOCR)+" t="+SystemClock.elapsedRealtime())
+@@ -448,6 +454,7 @@
+                 }
+             }
+             .addOnCompleteListener {
++                if(bitmapOCR!==bitmap) bitmapOCR.recycle()
+                 ocupado = false
+                 val dados = amostra
+                 val entregue = if (dados != null && gravador != null && sessaoGravada != null &&
+@@ -456,6 +463,44 @@
+                 else false
+                 if (!entregue) bitmap.recycle()
+             }
++    }
++
++    private fun prepararReconhecedor() {
++        if (ocupado || finalizando) return
++        ocupado=true
++        val inicio=SystemClock.elapsedRealtime()
++        val teste=Bitmap.createBitmap(320,144,Bitmap.Config.ARGB_8888)
++        Canvas(teste).apply {
++            drawColor(Color.WHITE)
++            drawText("VEXO 123",20f,84f,Paint(Paint.ANTI_ALIAS_FLAG).apply {
++                color=Color.BLACK;textSize=44f
++            })
++        }
++        Log.i(AQUER_TAG,"prewarm_inicio t="+inicio)
++        try {
++            reconhecedor.process(InputImage.fromBitmap(teste,0)).addOnCompleteListener { tarefa ->
++                teste.recycle()
++                if (tarefa.isSuccessful) Log.i(AQUER_TAG,
++                    "prewarm_fim ms="+(SystemClock.elapsedRealtime()-inicio))
++                else Log.i(AQUER_TAG,"prewarm_erro ms="+(SystemClock.elapsedRealtime()-inicio))
++                ocupado=false
++            }
++        } catch (_:RuntimeException) {
++            teste.recycle()
++            Log.i(AQUER_TAG,"prewarm_erro ms="+(SystemClock.elapsedRealtime()-inicio))
++            ocupado=false
++        }
++    }
++
++    private fun usarFaixaCompacta(orig:Bitmap):Bitmap {
++        val w=orig.width;val h=orig.height
++        val f=FaixaUniformeOCR.margens(w,h) ?: return orig
++        if(!FaixaUniformeOCR.confirmar(w,f){y,row->orig.getPixels(row,0,w,0,y,w,1)}) return orig
++        val novo=Bitmap.createBitmap(w,h-(f.fim-f.inicio),Bitmap.Config.ARGB_8888)
++        val c=Canvas(novo)
++        c.drawBitmap(orig,Rect(0,0,w,f.inicio),Rect(0,0,w,f.inicio),null)
++        c.drawBitmap(orig,Rect(0,f.fim,w,h),Rect(0,f.inicio,w,novo.height),null)
++        return novo
+     }
+ 
+     // Pre-OCR, 1,152 points, in the lower central screen, before copying a full RGBA frame.
+--- /dev/null
++++ b/app/src/main/java/com/trackingracing/FaixaUniformeOCR.kt
+@@ -0,0 +1,23 @@
++package com.trackingracing
++
++/** Limits optimization to a pixel-exact empty band. Keep the original when uncertain. */
++internal object FaixaUniformeOCR {
++    data class Faixa(val inicio:Int,val fim:Int)
++    fun margens(w:Int,h:Int):Faixa? {
++        if(w<300 || h<600 || w>=h) return null
++        return Faixa((h*.36).toInt(),(h*.51).toInt())
++    }
++    fun confirmar(w:Int,f:Faixa,linha:(Int,IntArray)->Unit):Boolean {
++        if(w<=0 || f.inicio<0 || f.fim<=f.inicio)return false
++        val row=IntArray(w)
++        linha(f.inicio,row)
++        val c=row[0]
++        // An all-black band may be a protection mask. Don't crop it.
++        if ((c and 0x00ffffff)==0 || row.any{it!=c}) return false
++        for(y in f.inicio+1 until f.fim) {
++            linha(y,row)
++            if(row.any{it!=c})return false
++        }
++        return true
++    }
++}
+--- /dev/null
++++ b/app/src/test/java/com/trackingracing/FaixaUniformeOCRTest.kt
+@@ -0,0 +1,26 @@
++package com.trackingracing
++
++import org.junit.Assert.*
++import org.junit.Test
++
++class FaixaUniformeOCRTest {
++    @Test fun removeApenasFaixaVaziaNaTelaVertical() {
++        val intervalo=FaixaUniformeOCR.margens(720,1280)!!
++        assertEquals(460,intervalo.inicio)
++        assertEquals(652,intervalo.fim)
++        assertTrue(FaixaUniformeOCR.confirmar(720,intervalo){ _,row -> row.fill(0xffdde3e3.toInt()) })
++    }
++
++    @Test fun UmPixelPodeSerTextoNaoRemoveFaixa() {
++        val f=FaixaUniformeOCR.margens(720,1280)!!
++        assertFalse(FaixaUniformeOCR.confirmar(720,f){ y,row ->
++            row.fill(0xffdde3e3.toInt())
++            if(y==f.fim-1) row[719]=0xffdde3e2.toInt()
++        })
++    }
++
++    @Test fun SemAmostraOuPaisagemMantemImagem() {
++        assertNull(FaixaUniformeOCR.margens(1280,720))
++        assertNull(FaixaUniformeOCR.margens(0,0))
++    }
++}

@@ -16,13 +16,14 @@ import zlib
 from pathlib import Path
 
 REPO = 'wayluloli-beep/vexo-mlkit-lab'
-BRANCH = 'vexo-live-aurora-r10-once'
-ROUND = 'r10'
-TAG = 'R10_RETENTION'
+BRANCH = 'vexo-live-aurora-r11-once'
+ROUND = 'r11'
+TAG = 'R11_RETENTION'
 API = '/repos/' + REPO
 LIMIT = 1536 * 1024
 VIDEO_NAME = 'vexo-fluxo.mp4'
 VIDEO_LIMIT = 4 * 1024 * 1024
+MP4_BRANDS = {b'isom', b'iso2', b'iso4', b'iso5', b'iso6', b'mp41', b'mp42', b'avc1', b'3gp4', b'3gp5', b'3gp6'}
 CHUNK = 192 * 1024
 MIN_FRAMES = 2
 MAX_SECONDS = 180
@@ -281,19 +282,52 @@ def prepare_video(data, find_tool=shutil.which):
         return None, report
 
 
-def split_video(data, validation=None):
+def can_preserve_original(data, diagnostics):
+    """Retain bounded native-container bytes for private examination only, never as playable proof."""
+    if not data or diagnostics.get('status') != 'rejected':
+        return False
+    if diagnostics.get('stage') != 'fallback_no_ffprobe':
+        return False  # Never retain a clip that was actually decoded and rejected.
+    try:
+        top = mp4_top(data)
+        _, a, b = top[0]
+        brands = [data[a:a+4], *(data[i:i+4] for i in range(a+8, b, 4))]
+        if not any(k in MP4_BRANDS for k in brands):
+            return False
+        movie = next((a, b) for k, a, b in top if k == b'moov')
+        handlers = []
+        for k, a, b in boxes(data, *movie):
+            if k != b'trak':
+                continue
+            for tag, p, q in boxes(data, a, b):
+                if tag != b'mdia':
+                    continue
+                for role, u, v in boxes(data, p, q):
+                    if role == b'hdlr':
+                        need(v-u >= 12, 'truncated_track_handler')
+                        handlers.append(data[u+8:u+12])
+        # The dedicated screenrecord command asks for no audio. Refuse any declared audio track;
+        # allow vendor data/metadata tracks for local review if the container has exactly one video.
+        return handlers.count(b'vide') == 1 and b'soun' not in handlers
+    except (ValueError, struct.error):
+        return False
+
+
+def split_video(data, validation=None, raw=False):
     parts = []
     files = {}
+    directory = 'video-raw' if raw else 'video'
+    filename = 'vexo-fluxo.raw.mp4' if raw else VIDEO_NAME
     for index, offset in enumerate(range(0, len(data), CHUNK)):
         part = data[offset:offset+CHUNK]
-        path = 'video/part-%03d.bin' % index
+        path = '%s/part-%03d.bin' % (directory, index)
         files[path] = part
         parts.append({'index':index, 'path':path, 'bytes':len(part), 'sha256':hashlib.sha256(part).hexdigest()})
-    manifest = {'version':1, 'filename':VIDEO_NAME, 'bytes':len(data),
+    manifest = {'version':1, 'filename':filename, 'bytes':len(data),
                 'sha256':hashlib.sha256(data).hexdigest(), 'parts':parts}
     if validation is not None:
         manifest['validation'] = validation
-    files['video/manifest.json'] = (json.dumps(manifest, separators=(',',':'))+'\n').encode('ascii')
+    files[directory+'/manifest.json'] = (json.dumps(manifest, separators=(',',':'))+'\n').encode('ascii')
     return files
 
 
@@ -309,6 +343,9 @@ def collect(directory):
         saved, diagnostics = prepare_video(video)
         if saved is not None:
             chosen.update(split_video(saved, diagnostics))
+        elif can_preserve_original(video, diagnostics):
+            diagnostics.update(status='pending_local_verification', method='raw_native_container_for_private_diagnosis')
+            chosen.update(split_video(video, diagnostics, raw=True))
         if chosen or video is not None:
             chosen['video/diagnostics.json'] = (json.dumps(diagnostics, separators=(',',':'))+'\n').encode('ascii')
         print(TAG+': clip '+json.dumps(diagnostics, separators=(',',':')))
@@ -323,7 +360,7 @@ def api_call(token, method, path, body=None):
     try:
         raw = None if body is None else json.dumps(body, separators=(',',':')).encode()
         c.request(method, path, raw, {'Authorization':'Bearer '+token, 'Accept':'application/vnd.github+json',
-                  'User-Agent':'Vexo-R10-private-QA-evidence', 'Content-Type':'application/json',
+                  'User-Agent':'Vexo-R11-private-QA-evidence', 'Content-Type':'application/json',
                   'X-GitHub-Api-Version':'2022-11-28'})
         r = c.getresponse()
         need(200 <= r.status < 300, 'GitHub API status %d (%s)' % (r.status, method))
@@ -377,14 +414,15 @@ def main(env, call=api_call):
         entries.append({'path':dest+name,'mode':'100644','type':'blob','sha':expected_blob})
     tree = api('POST', API+'/git/trees', {'base_tree':base['tree']['sha'], 'tree':entries})
     need(HEX.fullmatch(tree.get('sha','')), 'invalid new tree')
-    commit = api('POST', API+'/git/commits', {'message':'Retain R10 clean AVD evidence [skip ci]', 'tree':tree['sha'], 'parents':[sha]})
+    commit = api('POST', API+'/git/commits', {'message':'Retain R11 clean AVD evidence [skip ci]', 'tree':tree['sha'], 'parents':[sha]})
     need(HEX.fullmatch(commit.get('sha','')), 'invalid new commit')
     check_head()
     updated = api('PATCH', API+'/git/refs/heads/'+BRANCH, {'sha':commit['sha'], 'force':False})
     need(updated.get('ref')=='refs/heads/'+BRANCH and updated.get('object',{}).get('sha')==commit['sha'], 'unconfirmed ref update')
     png_count = sum(name.endswith('.png') for name in files)
-    part_count = sum(name.endswith('.bin') for name in files)
-    print(TAG+': '+str(png_count)+' PNG(s), '+str(part_count)+' video part(s) at '+dest+' commit '+commit['sha'])
+    part_count = sum(name.startswith('video/') and name.endswith('.bin') for name in files)
+    raw_count = sum(name.startswith('video-raw/') and name.endswith('.bin') for name in files)
+    print(TAG+': '+str(png_count)+' PNG(s), '+str(part_count)+' video part(s), '+str(raw_count)+' pending raw part(s) at '+dest+' commit '+commit['sha'])
 
 
 if __name__=='__main__':

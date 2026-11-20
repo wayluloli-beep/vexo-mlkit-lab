@@ -8,9 +8,10 @@ SOURCE='com.vexo.qa.pixels'
 SETTINGS='com.android.settings'
 SYS=('com.android.systemui','com.google.android.permissioncontroller','com.android.permissioncontroller','android')
 LABEL='Vexo Aurora'
-SCENE_SAMPLES={'A':(('early',6.2),('final',9.6)),
-               'B':(('early',6.2),('final',9.6)),
+SCENE_SAMPLES={'A':(('early',6.2),('final',11.6)),
+               'B':(('early',6.2),('final',11.6)),
                'N':(('early',2.0),('final',5.2))}
+PREWARM_RE=re.compile(r'\bVexoR11\s*:\s*prewarm_(fim|erro)(?![\w])')
 def norm(v):
     return ' '.join(''.join(c for c in unicodedata.normalize('NFKD',v) if not unicodedata.combining(c)).casefold().split())
 def vals(n): return [v for v in (n.get('text',''),n.get('content-desc','')) if v]
@@ -620,13 +621,30 @@ class Run:
 
     def collect_native_timing(self):
         try:
-            raw=self.cmd('logcat','-d','-v','monotonic','-t','1200','-s','VexoR10:V',timeout=8).decode('utf-8','replace')
-            rows=[line for line in raw.splitlines() if re.search(r'\bVexoR10\s*:',line) and len(line)<=500]
+            raw=self.cmd('logcat','-d','-v','monotonic','-t','2500','-s','VexoR10:V','VexoR11:V',timeout=8).decode('utf-8','replace')
+            rows=[line for line in raw.splitlines() if re.search(r'\bVexoR(?:10|11)\s*:',line) and len(line)<=500]
             self.write('vexo-r10-native-timing.txt','\n'.join(rows)+'\n' if rows else '')
-            self.ev('native_timing','COLLECTED' if rows else 'UNAVAILABLE',tag='VexoR10',lines=len(rows))
+            self.ev('native_timing','COLLECTED' if rows else 'UNAVAILABLE',tags=['VexoR10','VexoR11'],lines=len(rows))
             return len(rows)
         except Failure as e:
             self.ev('native_timing','UNAVAILABLE',reason=str(e)[:150]);return 0
+
+    def wait_prewarm(self,limit_s=35.0):
+        started=time.monotonic();deadline=started+limit_s;read_errors=0;event=None
+        while (left:=deadline-time.monotonic())>0:
+            try:
+                raw=self.cmd('logcat','-d','-t','1500','-s','VexoR11:V',timeout=min(3.2,left)).decode('utf-8','replace')
+                hits=PREWARM_RE.findall(raw)
+                if hits:
+                    event='prewarm_'+hits[-1];break
+            except Failure:
+                read_errors+=1
+            time.sleep(max(0,min(.75,deadline-time.monotonic())))
+        status={'prewarm_fim':'FINISHED','prewarm_erro':'ERROR_FAIL_OPEN'}.get(event,'TIMEOUT_FAIL_OPEN')
+        record={'status':status,'device_event':event,'wait_s':round(time.monotonic()-started,3),'logcat_errors':read_errors}
+        self.ev('prewarm',status,**{k:v for k,v in record.items() if k!='status'})
+        print('LIVE:prewarm:OBSERVED:'+json.dumps(record),flush=True)
+        return record
     def stop(self):
         self.st='stop_real'
         before=self.sh('dumpsys','media_projection');before_svc=self.sh('dumpsys','activity','services',self.pkg)
@@ -645,7 +663,7 @@ class Run:
             time.sleep(.6)
         raise Failure('stop not established: empty current projection + no FGS/service/window + external foreground required')
     def run(self):
-        recording=False
+        recording=False;prewarm={'status':'NOT_RUN'}
         try:
             self.st='preflight'
             if self.cmd('get-state').strip()!=b'device' or self.sh('getprop','sys.boot_completed').strip()!='1':raise Failure('dedicated AVD not ready')
@@ -658,6 +676,7 @@ class Run:
             proj=self.sh('dumpsys','media_projection');self.write('baseline-projection.txt',proj)
             if projection_state(proj,self.pkg) is not False:raise Failure('baseline projection not verifiably empty')
             self.ev('preflight','PASS');self.consent();self.st='open_external_fixture';self.source()
+            self.st='wait_prewarm';prewarm=self.wait_prewarm()
             self.write('record-external.ready','ready\n');recording=True;time.sleep(1.3)
             for scene in ('A','B','N'):
                 try:
@@ -708,6 +727,7 @@ class Run:
         out={'primary_chain':chain,'collection_complete':collected,'A':self.primary,
              'stop':self.stop_ok,'variants':self.results,'scene_reviews':self.reviews,
              'scene_samples':self.samples,'sample_verdicts':verdicts,'native_timing_lines':timing_lines,
+             'prewarm':prewarm,
              'errors':self.errs,'gallery':'NOT_RUN','stop_extent':'Observed Android service, current projection and window removal on external foreground; not internal history persistence.'}
         self.write('driver-result.json',json.dumps(out,ensure_ascii=False,indent=2));self.ev('driver',chain)
         return 0 if collected and chain!='FAIL_OTHER_SCENE' else 1
