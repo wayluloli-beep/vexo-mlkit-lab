@@ -1,11 +1,13 @@
-name: Vexo Aurora live Android QA retry
+name: Vexo Aurora live Android QA R8
 'on':
   create:
 permissions:
   contents: read
 jobs:
   live-android:
-    if: ${{ github.event.ref_type == 'branch' && github.event.ref == 'vexo-live-aurora-retry-once' && github.run_attempt == '1' && github.event.repository.private == true }}
+    if: ${{ github.event.ref_type == 'branch' && github.event.ref == 'vexo-live-aurora-r8-once' && github.run_attempt == '1' && github.event.repository.private == true }}
+    permissions:
+      contents: write
     runs-on: ubuntu-26.04
     timeout-minutes: 32
     steps:
@@ -19,11 +21,21 @@ jobs:
         shell: bash
         run: bash qa/run-live.sh
       - name: Retain optional private QA screenshots and video
+        id: retain
         if: always()
         continue-on-error: true
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
           name: Vexo-Aurora-QA-evidencias
           path: ${{ runner.temp }}/vexo-live-evidence/
-          if-no-files-found: warn
+          if-no-files-found: error
           retention-days: 7
+      - name: Rescue selected synthetic-device screenshots to the same private QA branch
+        if: ${{ always() && steps.retain.outcome != 'success' && github.event.repository.private == true && github.ref == 'refs/heads/vexo-live-aurora-r8-once' }}
+        continue-on-error: true
+        timeout-minutes: 2
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VEXO_EVIDENCE_DIR: ${{ runner.temp }}/vexo-live-evidence
+        run: python3 qa/retain-evidence.py

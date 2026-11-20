@@ -234,6 +234,92 @@ def distilled_settings(root,activity,op,d):
         elif len(summary)<5:summary.append(row)
     return {'packages':sorted(pkgs)[:8],'activity':activity.get('component','unknown'),'intent_target':activity.get('target',False),'detail_activity':activity.get('detail',False),'op':op,'decision':d,'nodes':(roles[:5]+summary)[:10]}
 
+# AOSP Android 15 r1 and QPR (r6/r16). These are *separate* resource roles.
+PROJ_OS='com.android.systemui'
+PROJ_SPIN={PROJ_OS+':id/screen_share_mode_spinner',PROJ_OS+':id/screen_share_mode_options'}
+PROJ_TITLE=PROJ_OS+':id/screen_share_dialog_title'
+PROJ_WARNING=PROJ_OS+':id/text_warning'
+PROJ_MODERN={'start','inicio','share screen','compartilhar tela','start now','iniciar agora'}
+PROJ_LEGACY={'start now','iniciar agora','comecar agora'}
+PROJ_WHOLE={'entire screen','whole screen','your entire screen','share entire screen','share your entire screen','tela cheia','tela inteira','compartilhar a tela inteira'}
+PROJ_SINGLE={'a single app','one app','single app','share one app','um unico app','um app','compartilhar um app'}
+PROJ_ACTIONS=PROJ_MODERN|PROJ_LEGACY|{'next','proxima','cancel','cancelar'}
+def projection_foreground(activity,windows):
+    """Accept the actual OS permission Activity from current state, never a historical record."""
+    comp=r'([\w.$]+/[\w.$]+)'
+    top=re.search(r'(?im)^\s*(?:topResumedActivity|mResumedActivity|ResumedActivity)\s*[:=]\s*ActivityRecord\{[^}\n]*?\bu\d+\s+'+comp,activity)
+    f=re.search(r'(?im)^\s*mCurrentFocus\s*=\s*([^\n]+)',windows)
+    mw=re.search(r'\bu\d+\s+'+comp,f[1]) if f else None
+    at=top[1] if top else None; focus=mw[1] if mw else None
+    proper=lambda c:bool(c and c.split('/')[0]==PROJ_OS and c.split('/',1)[1].rsplit('.',1)[-1]=='MediaProjectionPermissionActivity')
+    # Some builds do not export an identifiable mCurrentFocus, but do show the exact current permission Activity.
+    explicit_other=bool((focus and not proper(focus)) or (at and not proper(at)) or (f and re.match(r'null\b',f[1],re.I)))
+    return {'ok':bool((proper(at) or proper(focus)) and not explicit_other),'owner':PROJ_OS if proper(at) or proper(focus) else None,'activity':at or 'unknown','focus':focus or 'unknown'}
+def proj_texts(n):return [norm(v).strip() for v in vals(n) if v]
+def proj_titles_app(n):
+    # AOSP inserts the complete app label as the final title argument. A longer app label is a different requester.
+    lead=(r'(?:'
+          r'(?:start (?:recording or casting|casting or recording)|share (?:your |the )?screen) with'
+          r'|(?:iniciar (?:a )?gravacao ou transmissao|comecar a gravar ou transmitir|compartilhar (?:(?:a sua|sua|a) )?tela) com(?: o (?:app|aplicativo))?'
+          r')')
+    for t in proj_texts(n):
+        t=re.sub(r'[\u200e\u200f\u202a-\u202e\u2066-\u2069]','',t).strip()
+        if re.fullmatch(lead+r'\s+["“«]?'+re.escape(norm(LABEL))+r'["”»]?\s*[?!.]?',t):return True
+    return False
+def projection_choice(root,fg):
+    def no(reason,mode=None,scope='unknown'):return {'action':'wait','reason':reason,'mode':mode,'scope':scope}
+    if not fg.get('ok') or fg.get('owner')!=PROJ_OS:return no('request_activity_not_current')
+    parents={c:p for p in root.iter() for c in p}
+    def visible(n,enabled=False):
+        while n is not None and n.tag=='node':
+            if n.get('visible-to-user')=='false' or n.get('password')=='true' or (enabled and n.get('enabled')=='false'):return False
+            n=parents.get(n)
+        return True
+    ns=[n for n in root.iter('node') if n.get('package')==PROJ_OS and visible(n)]
+    if not ns:return no('no_systemui_nodes')
+    nodes=lambda pred:[n for n in ns if pred(n.get('resource-id',''))]
+    mt=nodes(lambda rid:rid==PROJ_TITLE);sp=nodes(lambda rid:rid in PROJ_SPIN);warn=nodes(lambda rid:rid==PROJ_WARNING)
+    modern=bool(mt or sp or warn);mode='advanced' if modern else 'legacy'
+    titles=mt if modern else nodes(lambda rid:rid in ('android:id/alertTitle',PROJ_OS+':id/alertTitle','android:id/title'))
+    if len(titles)!=1 or not proj_titles_app(titles[0]):return no('requester_not_in_unique_system_title',mode)
+    if modern:
+        if len(warn)!=1 or not any(proj_texts(c) for c in warn[0].iter('node')):return no('system_warning_missing',mode)
+        if len(sp)!=1 or not sp[0].get('class','').endswith('.Spinner'):return no('no_unique_known_scope_spinner',mode)
+        # Read the actual closed Spinner value; do not use the selected-scope text as a button or the warning as the selection.
+        stable=[n for n in sp[0].iter('node') if n.get('package')==PROJ_OS and visible(n,True)]
+        labels={v for n in stable for v in proj_texts(n)}
+        whole=bool(labels&PROJ_WHOLE);single=bool(labels&PROJ_SINGLE)
+        if not whole or single:return no('single_or_ambiguous_scope' if single else 'scope_not_identified',mode,'single_or_ambiguous' if single else 'unknown')
+        allowed=PROJ_MODERN
+    else:
+        msg=nodes(lambda rid:rid in ('android:id/message',PROJ_OS+':id/message'))
+        words=' '.join(v for n in msg for v in proj_texts(n))
+        if len(msg)!=1 or not re.search(r'(all (?:of )?(?:the )?(?:information|content).{0,100}(?:screen|display)|anything (?:that is )?visible on (?:your|the) screen|tod[oa]s? (?:as |o |os )?(?:informac|conteud).{0,110}tela|tudo (?:o que|que).{0,65}tela)',words):return no('legacy_no_explicit_full_display_warning',mode)
+        allowed=PROJ_LEGACY
+    buttons=nodes(lambda rid:rid=='android:id/button1')
+    if len(buttons)!=1:return no('positive_id_missing_or_duplicate',mode,'entire')
+    b=buttons[0];cls=b.get('class','').rsplit('.',1)[-1]
+    if cls not in ('Button','AppCompatButton','MaterialButton') or b.get('clickable')!='true' or b.get('enabled')!='true' or not visible(b,True):return no('positive_not_clickable_enabled_button',mode,'entire')
+    labels={v for n in b.iter('node') if n.get('package')==PROJ_OS and visible(n,True) for v in proj_texts(n)}
+    yes=labels&allowed
+    if len(yes)!=1 or labels&{'next','proxima','cancel','cancelar'} or any(v in PROJ_WHOLE|PROJ_SINGLE for v in labels):return no('positive_label_not_known_for_full_capture',mode,'entire')
+    box=bounds(b.get('bounds'))
+    if not box:return no('positive_bounds_invalid',mode,'entire')
+    return {'action':'confirm','reason':'named_system_positive','mode':mode,'scope':'entire','rid':'android:id/button1','class':cls,'label':next(iter(yes)),'xy':((box[0]+box[2])//2,(box[1]+box[3])//2)}
+def projection_summary(root,fg,decision):
+    ns=[];known=PROJ_SPIN|{PROJ_TITLE,PROJ_WARNING,'android:id/button1','android:id/button2','android:id/button3','android:id/alertTitle','android:id/message'}
+    packages=set()
+    if root is not None:
+        for n in root.iter('node'):
+            p=n.get('package','')
+            if p in (PROJ_OS,'android',SETTINGS,SOURCE,'com.trackingracing'):packages.add(p)
+            if p!=PROJ_OS or n.get('password')=='true':continue
+            rid=n.get('resource-id','')
+            txt=sorted({t for c in n.iter('node') if c.get('package')==PROJ_OS for t in proj_texts(c) if t in PROJ_ACTIONS|PROJ_SINGLE|PROJ_WHOLE}) if rid in PROJ_SPIN|{'android:id/button1','android:id/button2','android:id/button3'} else []
+            if rid in known or (n.get('class','').endswith('.Button') and n.get('clickable')=='true'):
+                ns.append({'id':rid if rid in known else 'other_button','class':re.sub(r'[^\w.]','',n.get('class',''))[-52:],'flags':''.join(c if n.get(k)=='true' else '-' for k,c in [('enabled','E'),('clickable','C'),('selected','S')]),'label_or_option':txt,'requester':bool(rid in (PROJ_TITLE,'android:id/alertTitle') and proj_titles_app(n)),'bounds':str(bounds(n.get('bounds')))[:48]})
+    return {'packages':sorted(packages),'activity':fg.get('activity','unknown'),'focus':fg.get('focus','unknown'),'owner_verified':fg.get('ok',False),'scope':decision.get('scope','unknown'),'mode':decision.get('mode'),'decision':decision.get('action'),'reason':decision.get('reason'),'controls':ns[:10]}
+
 class Failure(Exception):pass
 
 class Run:
@@ -377,6 +463,40 @@ class Run:
             raise Failure('overlay not completed; last='+last_decision.get('reason','no tree')+' before='+before+' after='+last_op+' taps='+str(int(tapped)))
         except Exception:
             trace(last,k,current(),op_read(),last_decision,'FAILURE_LAST_TREE');raise
+    def confirm_system_projection(self):
+        # Screen-share scope is read only. This driver never opens/changes the Spinner or presses Next.
+        deadline=time.monotonic()+34;last=None;lastk='none';decision={'action':'wait','reason':'unobserved'}
+        def read_current():
+            am=self.sh('dumpsys','activity','activities',timeout=7);w=self.sh('dumpsys','window','displays',timeout=6)
+            return projection_foreground(am,w)
+        def trace(tag,root,k,fg,d):
+            row=projection_summary(root,fg,d);row['xml']=k+'.xml' if k!='none' else None
+            line=json.dumps(row,ensure_ascii=True,separators=(',',':'))
+            print('LIVE:projection_diagnostics:'+tag+':'+line,flush=True)
+            with (self.out/'projection-diagnostics.jsonl').open('a') as f:f.write(line+'\n')
+        ready=False;fg={}
+        try:
+            while time.monotonic()<deadline:
+                try:
+                    r,k=self.xml('projection-prompt' if not ready else 'projection-confirm-fresh')
+                    fg=read_current()
+                except Failure as e:
+                    decision={'action':'wait','reason':'ANR' if 'ANR' in str(e) else 'tree_or_current_activity_unavailable'}
+                    trace('READ_ERROR',None,'none',{},decision)
+                    if 'ANR' in str(e):raise
+                    ready=False;time.sleep(.25);continue
+                last,lastk=r,k;decision=projection_choice(r,fg)
+                trace('CONTROL_READY' if decision['action']=='confirm' else 'OBSERVED',r,k,fg,decision)
+                if decision['action']!='confirm':ready=False;time.sleep(.3);continue
+                if not ready:
+                    self.shot('projection-consent-visible');ready=True;continue
+                # Revalidation after screenshot supplied a fresh positive button rect and the same host/scope.
+                self.act(k,decision['xy'],'system_projection_positive');self.granted=True
+                print('LIVE:projection_ui:POSITIVE_TOUCHED:'+json.dumps({'owner':PROJ_OS,'requester':LABEL,'activity':fg['activity'],'mode':decision['mode'],'scope':decision['scope'],'id':decision['rid'],'label':decision['label'],'xml':k+'.xml','screenshot':'projection-consent-visible.png'}),flush=True)
+                return PROJ_OS,k
+            raise Failure('verified system projection button unavailable: '+decision.get('reason','unknown'))
+        except Exception:
+            trace('FINAL',last,lastk,fg,decision);raise
     def consent(self):
         self.st='open_app';self.sh('am','start','-n',self.pkg+'/com.trackingracing.AuroraActivity')
         self.app_button('external_entry')
@@ -384,15 +504,7 @@ class Run:
         r,k,xy=self.observe('disclosure',lambda r:coords(r,self.pkg,['Continuar']) if 'ativar ocr externo' in norm(alltext(r,self.pkg)) else None)
         self.shot('disclosure-visible');self.act(k,xy,'disclosure_continue')
         self.st='system_overlay';self.settings();self.st='system_projection'
-        def yes(r):
-            p=self.systempkg(r)
-            if not p:return None
-            xy=coords(r,p,['Start now','Start recording','Start sharing','Share screen','Share entire screen','Share','Iniciar agora','Compartilhar tela','Começar agora'])
-            return (p,xy) if xy else None
-        r,k,(p,xy)=self.observe('projection-prompt',yes,18)
-        txt=norm(alltext(r,p))
-        if re.search(r'\ba single app\b|\bone app\b',txt) and not re.search(r'entire screen|whole screen',txt):raise Failure('system asks for a single app; expected whole display')
-        self.shot('projection-consent-visible');self.act(k,xy,'system_projection_positive');self.granted=True
+        p,k=self.confirm_system_projection()
         self.st='active_projection_service'
         for _ in range(11):
             proj=self.sh('dumpsys','media_projection');svc=self.sh('dumpsys','activity','services',self.pkg)

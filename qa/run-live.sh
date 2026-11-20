@@ -43,7 +43,7 @@ cleanup() {
   if (( rc != 0 )); then report "FAILED_$stage:$rc"; fi
 }
 trap cleanup EXIT
-[[ $GITHUB_REF == refs/heads/vexo-live-aurora-retry-once ]]
+[[ $GITHUB_REF == refs/heads/vexo-live-aurora-r8-once ]]
 [[ $(git rev-parse HEAD) == "$GITHUB_SHA" ]]
 [[ $(git ls-tree -r --name-only HEAD qa/payload | wc -l) == 24 ]]
 printf '%s  %s\n' '1f1e08574699aabab795687db1816a5962d033652879b21d924cfc590d50199d' "$work/payload.tar.gz" > "$work/payload-check"
@@ -64,6 +64,26 @@ with tarfile.open(sys.argv[1], 'r:gz') as t:
 PY
 (cd "$work/src" && sha256sum --strict --check --status "$GITHUB_WORKSPACE/qa/qa-source.sha256")
 report "SOURCE_OK:$GITHUB_SHA"
+
+stage=OBSERVATION_TOOLS
+# Check the full host crop/OCR path on synthetic calibration pixels before Android boot or Gradle.
+ui_python=$(command -v python3)
+if ! "$ui_python" qa/pixel-preflight.py --driver qa/driver.py; then
+  {
+    timeout 70s sudo -n apt-get -qq update &&
+    timeout 70s sudo -n apt-get -qq install -y --no-install-recommends tesseract-ocr tesseract-ocr-eng python3-pil
+  } > "$work/observation-tools.log" 2>&1 || true
+  if [[ -x /usr/bin/python3 ]] && /usr/bin/python3 qa/pixel-preflight.py --driver qa/driver.py; then
+    ui_python=/usr/bin/python3
+    report OVERLAY_PIXEL_WITNESS_CALIBRATED
+  else
+    grep -Ei 'Unable to locate package|Failed to fetch|^E:|sudo:' "$work/observation-tools.log" |
+      sed -E 's#(https?://)[^/@[:space:]]+:[^/@[:space:]]+@#\1[redacted]@#g' | tail -6 || true
+    report OVERLAY_PIXEL_WITNESS_OPTIONAL_UNAVAILABLE
+  fi
+else
+  report OVERLAY_PIXEL_WITNESS_CALIBRATED
+fi
 
 stage=KVM_DEVICE
 printf 'Runner image: %s %s\n' "${ImageOS:-unknown}" "${ImageVersion:-unknown}"
@@ -274,16 +294,6 @@ device shell wm size 720x1280
 device shell wm density 240
 report BOTH_INSTALLED
 
-stage=OBSERVATION_TOOLS
-# Optional independent witness for the overlay if UIAutomator does not expose the non-focusable WebView.
-if ! command -v tesseract >/dev/null || ! python3 -c 'from PIL import Image' >/dev/null 2>&1; then
-  timeout 90s sudo -n apt-get install -y --no-install-recommends tesseract-ocr python3-pil     > "$work/observation-tools.log" 2>&1 || true
-fi
-if command -v tesseract >/dev/null && python3 -c 'from PIL import Image' >/dev/null 2>&1; then
-  report OVERLAY_PIXEL_WITNESS_AVAILABLE
-else
-  report OVERLAY_PIXEL_WITNESS_OPTIONAL_UNAVAILABLE
-fi
 stage=REAL_UI
 export ADB="$adb" SERIAL="$serial" PKG=com.trackingracing FIXTURE="$work/src/fixtures/controle-0954.png"
 record_video() {
@@ -292,7 +302,7 @@ record_video() {
     [[ ! -e $work/stop-recording ]] || break
     path="/sdcard/VexoQaReplay-$i.mp4"
     episode="$OUT/eclipse-$i.mp4"
-    timeout 140s "$adb" -s "$serial" shell screenrecord --size 540x960 --bit-rate 1300000 --time-limit 120 "$path"       >/dev/null 2>&1 || true
+    timeout 140s "$adb" -s "$serial" shell screenrecord --size 540x960 --bit-rate 700000 --time-limit 120 "$path"       >/dev/null 2>&1 || true
     timeout 15s "$adb" -s "$serial" pull "$path" "$episode" >/dev/null 2>&1 || true
     timeout 5s "$adb" -s "$serial" shell rm -f "$path" >/dev/null 2>&1 || true
   done
@@ -300,7 +310,7 @@ record_video() {
 record_video &
 record_pid=$!
 set +e
-timeout 480s python3 -u qa/driver.py 2>&1 | tee "$OUT/observacao.txt"
+timeout 480s "$ui_python" -u qa/driver.py 2>&1 | tee "$OUT/observacao.txt"
 driver_rc=${PIPESTATUS[0]}
 set -e
 stop_recording
