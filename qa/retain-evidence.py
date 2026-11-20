@@ -13,9 +13,9 @@ import zlib
 from pathlib import Path
 
 REPO = 'wayluloli-beep/vexo-mlkit-lab'
-BRANCH = 'vexo-product-r17-welcome-once'
-ROUND = 'r17-welcome'
-TAG = 'R17_RETENTION'
+BRANCH = 'vexo-product-r18-turno-once'
+ROUND = 'r18-manual'
+TAG = 'R18_RETENTION'
 API = '/repos/' + REPO
 LIMIT = 1536 * 1024
 SCENES = ('A', 'B', 'N', 'A2', 'B2', 'C', 'D', 'OCCLUDED', 'OCCLUSION', 'RESTORED', 'GALLERY')
@@ -27,6 +27,7 @@ PNG_NAMES = tuple('scene-'+s+phase+'.png' for s in SCENES for phase in ('-early'
 # Only synthetic clean-AVD screen captures from known product checkpoints. No video, raw input,
 # UI-tree dumps, full logcat, installer streams, images selected by arbitrary glob, or credentials.
 PRODUCT_PNG_NAMES = (
+    'upgrade-home.png','prior-settings-value.png','upgrade-config-value.png','draft-value.png','turno-inicio.png','turno-started.png','turno-resumed.png','turno-step-ganhos.png','turno-step-gastos.png','turno-step-km.png','saved-close-draft.png','turno-closed.png','turno-persisted.png','turno-inconclusive.png',
     'launch-motion-01.png', 'launch-motion-02.png', 'launch-motion-03.png',
     'welcome-terms.png', 'welcome-data.png', 'optional-plan-open.png', 'welcome-return-from-plan.png', 'welcome-direct-main.png', 'welcome-reopen.png', 'welcome-inconclusive.png', 'welcome-data-choice.png', 'welcome-plan-preview.png',
     'central-home.png', 'central-config.png', 'central-help.png', 'central-about.png',

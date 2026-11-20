@@ -1,0 +1,595 @@
+--- a/app/build.gradle.kts
++++ b/app/build.gradle.kts
+@@ -13,5 +13,5 @@
+         targetSdk = 35
+-        // O GitHub Actions fornece GITHUB_RUN_NUMBER; builds locais mantêm 2.
+-        versionCode = System.getenv("GITHUB_RUN_NUMBER")?.toIntOrNull() ?: 4
+-        versionName = "0.1.3-r16-interno"
++        // O GitHub Actions fornece GITHUB_RUN_NUMBER; builds locais mantêm 5.
++        versionCode = System.getenv("GITHUB_RUN_NUMBER")?.toIntOrNull()?.coerceAtLeast(5) ?: 5
++        versionName = "0.1.3-r18-interno"
+     }
+--- a/app/src/main/AndroidManifest.xml
++++ b/app/src/main/AndroidManifest.xml
+@@ -3,7 +3,3 @@
+ 
+-    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+-    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PROJECTION" />
+-    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+     <uses-permission android:name="android.permission.INTERNET" />
+-    <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW" />
+     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
+@@ -25,11 +21,3 @@
+ 
+-        <activity
+-            android:name=".Simulador99Activity"
+-            android:exported="false"
+-            android:screenOrientation="portrait" />
+ 
+-        <service
+-            android:name=".ScreenCaptureService"
+-            android:exported="false"
+-            android:foregroundServiceType="mediaProjection" />
+ 
+--- a/app/src/main/assets/aurora/central.css
++++ b/app/src/main/assets/aurora/central.css
+@@ -12 +12,10 @@
+ .shortcut-return{display:block;margin-top:8px;font-size:14px}
++
++.turno-card{margin:0 0 18px;padding:clamp(14px,4vw,24px);border:1px solid #40717a;border-radius:20px;background:linear-gradient(150deg,#112a30,#101a23)}
++.turno-heading{display:flex;align-items:center;justify-content:space-between;gap:10px}.turno-heading h2{margin:0;font-size:clamp(23px,6vw,31px)}.turno-card [hidden]{display:none}
++.turno-badge{border:1px solid #3a7465;border-radius:99px;padding:4px 9px;color:#b2f6d7;font-size:.75rem}.turno-totals{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:6px;margin:12px 0}
++.turno-totals div{display:grid;gap:4px;padding:8px 6px;border-radius:9px;background:#071118}.turno-totals dt{font-size:clamp(.66rem,2.7vw,.85rem);color:var(--soft)}.turno-totals dd{margin:0;font-weight:780;font-size:clamp(.8rem,3.6vw,1.2rem);overflow-wrap:anywhere}.turno-totals div:last-child dd{color:var(--mint)}
++#turno-state{margin:0 0 10px}.turno-card .solid{margin:0;min-height:48px}.turno-card .outline{min-height:48px}.turno-card h3{font-size:1.05rem;margin:12px 0 4px}
++#turno-form fieldset{min-width:0;margin:10px 0;border:1px solid var(--line);border-radius:10px;padding:8px}.turno-fields{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px}.turno-fields label{min-width:0;display:grid;gap:4px}.turno-fields input{width:100%;min-width:0}.turno-buttons{display:flex;flex-wrap:wrap;gap:8px}#turno-error{color:#ffd29c}.turno-last{margin-top:14px;border-top:1px solid var(--line)}.turno-last p{margin:3px 0}
++
++#veiculo-frame{display:block;width:100%;min-height:73svh;border:0;border-radius:14px;background:#10191e}.central-secondary{margin:0;width:100%;text-align:left}
+--- a/app/src/main/assets/aurora/central.html
++++ b/app/src/main/assets/aurora/central.html
+@@ -1,3 +1,3 @@
+ <!doctype html>
+-<html lang="pt-BR"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"><meta name="theme-color" content="#0b1117"><title>Vexo • Início</title><link rel="stylesheet" href="central.css"><script defer src="central.js"></script></head>
++<html lang="pt-BR"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"><meta name="theme-color" content="#0b1117"><title>Vexo • Início</title><link rel="stylesheet" href="central.css"><link rel="stylesheet" href="turno-ui.css"><script defer src="product-flags.js"></script><script defer src="turno.js"></script><script defer src="turno-ui.js"></script><script defer src="central.js"></script><script defer src="feedback.js"></script></head>
+ <body><div class="shell">
+@@ -25,46 +25,97 @@
+ <section id="inicio" aria-labelledby="h-inicio"><h1 id="h-inicio" tabindex="-1">Painel do motorista</h1>
++<section class="turno-card" aria-labelledby="turno-title">
++<div class="turno-heading"><div><p class="kicker">Hoje</p><h2 id="turno-title">Meu turno</h2></div><span id="turno-badge" class="turno-badge" hidden>Em andamento</span></div>
++<dl class="turno-totals">
++<div><dt>Recebido</dt><dd id="turno-received">—</dd></div>
++<div><dt>Gastos informados</dt><dd id="turno-spent">—</dd></div>
++<div><dt>Sobra após gastos</dt><dd id="turno-net">—</dd></div>
++</dl>
++<p id="turno-state" class="detail">Sem turno em andamento.</p>
++<button type="button" id="turno-action" class="solid">Iniciar turno</button>
++<form id="turno-form" aria-labelledby="turno-form-title" hidden novalidate>
++  <h3 id="turno-form-title">Fechar turno</h3>
++  <p id="turno-step-label" aria-live="polite" aria-atomic="true">Etapa 1 de 3</p>
++
++  <fieldset data-turn-step="1" aria-describedby="turno-recebimentos-help">
++    <legend tabindex="-1">Recebimentos em reais</legend>
++    <p id="turno-recebimentos-help" class="detail">Informe pelo menos um valor. Se não recebeu nada, digite 0.</p>
++    <div class="turno-fields">
++      <label for="t-uber">Uber<input type="text" id="t-uber" name="uber" inputmode="decimal" maxlength="14" autocomplete="off"></label>
++      <label for="t-nove">99<input type="text" id="t-nove" name="nove" inputmode="decimal" maxlength="14" autocomplete="off"></label>
++      <label for="t-outros">Outros recebimentos<input type="text" id="t-outros" name="outros" inputmode="decimal" maxlength="14" autocomplete="off"></label>
++    </div>
++  </fieldset>
++
++  <fieldset data-turn-step="2" aria-describedby="turno-gastos-help" hidden>
++    <legend tabindex="-1">Gastos</legend>
++    <p id="turno-gastos-help" class="detail">Deixe em branco se não sabe. Digite 0 só se não houve gasto.</p>
++    <div class="turno-fields">
++      <label for="t-fuel">Combustível (R$)<input type="text" id="t-fuel" name="fuel" inputmode="decimal" maxlength="14" autocomplete="off"></label>
++      <label for="t-extra">Outros gastos (R$)<input type="text" id="t-extra" name="extra" inputmode="decimal" maxlength="14" autocomplete="off"></label>
++    </div>
++  </fieldset>
++
++  <fieldset data-turn-step="3" aria-describedby="turno-revisao-help" hidden>
++    <legend tabindex="-1">Quilômetros e resumo</legend>
++    <div class="turno-fields">
++      <label for="t-km">Quilômetros rodados<input type="text" id="t-km" name="km" inputmode="decimal" maxlength="14" autocomplete="off"></label>
++    </div>
++    <p id="turno-revisao-help" class="detail">Confira os valores antes de salvar. Você pode voltar para corrigir.</p>
++    <div id="turno-preview" tabindex="-1"></div>
++    <details class="turno-breakdown-box">
++      <summary>Ver a conta</summary>
++      <dl id="turno-breakdown"></dl>
++    </details>
++  </fieldset>
++
++  <div class="turno-buttons">
++    <button class="outline" id="turno-prev" type="button" hidden>Voltar</button>
++    <button class="solid" id="turno-next" type="button">Continuar</button>
++    <button class="solid" id="turno-confirm" type="submit" hidden>Salvar e fechar</button>
++  </div>
++  <button class="link" id="turno-cancel" type="button">Voltar ao turno</button>
++</form>
++
++<p id="turno-error" role="alert" hidden></p>
++<div id="turno-last" class="turno-last" hidden aria-labelledby="turno-last-title">
++<h3 id="turno-last-title">Último turno fechado</h3>
++<p id="turno-last-values"></p><p id="turno-last-rates" class="detail"></p><details class="turno-breakdown-box"><summary>Ver a conta</summary><dl id="turno-last-breakdown"></dl></details>
++</div>
++<details id="turno-history-panel" hidden><summary>Turnos anteriores</summary><ol id="turno-history"></ol></details>
++</section>
+ <div class="goal"><span class="kicker">Meu plano de ganhos</span><div id="goal-value" class="goal-value">Meta a definir</div><button class="link" data-action="plano">Rever meu plano <span aria-hidden="true">↗</span></button></div>
+-<h2>Leitor de ofertas</h2><div class="actions">
+-<button class="card primary" data-action="lab"><span class="card-title">Ler uma oferta no Vexo</span><span class="detail">Abra o simulador e acompanhe a leitura no balão.</span><span class="arrow" aria-hidden="true">→</span></button>
+-<button class="card" data-action="externo" aria-label="OCR em outros apps" aria-describedby="intro-externo"><span class="card-title">OCR em outros apps</span><span class="detail" id="intro-externo">Inicie a captura pelo Android ou encerre a sessão ativa.</span><span class="arrow" aria-hidden="true">→</span></button></div>
+-<div id="shortcuts" role="region" aria-labelledby="atalhos">
+-<div class="shortcut-heading"><h2 id="atalhos" tabindex="-1">Meus atalhos</h2><button id="shortcut-edit" type="button" class="link" aria-expanded="false" aria-controls="shortcut-editor">Editar atalhos</button></div>
+-<div id="shortcut-list" class="shortcut-list">
+-<button id="shortcut-lab" type="button" class="outline" data-action="lab" hidden>Ler uma oferta no Vexo</button>
+-<button id="shortcut-externo" type="button" class="outline" data-action="externo" hidden>OCR em outros apps</button>
+-<button id="shortcut-plano" type="button" class="outline" data-action="plano">Meu plano</button>
+-<button id="shortcut-config" type="button" class="outline" data-page="config">Configurações</button>
+-<button id="shortcut-ajuda" type="button" class="outline" data-page="ajuda">Ajuda</button>
+-<button id="shortcut-sobre" type="button" class="outline" data-page="sobre" hidden>Informações</button>
+-</div>
+-<p id="shortcut-empty" class="detail" hidden>Nenhum atalho escolhido. Toque em Editar atalhos para adicionar.</p>
+-<form id="shortcut-editor" hidden>
+-<fieldset><legend>O que você quer ter à mão?</legend>
+-<label><input id="shortcut-choice-lab" type="checkbox">Ler uma oferta no Vexo</label>
+-<label><input id="shortcut-choice-externo" type="checkbox">OCR em outros apps</label>
+-<label><input id="shortcut-choice-plano" type="checkbox">Meu plano</label>
+-<label><input id="shortcut-choice-config" type="checkbox">Configurações</label>
+-<label><input id="shortcut-choice-ajuda" type="checkbox">Ajuda</label>
+-<label><input id="shortcut-choice-sobre" type="checkbox">Informações</label>
+-</fieldset>
+-<button type="submit" class="solid">Salvar atalhos</button><button id="shortcut-cancel" type="button" class="outline">Cancelar</button>
+-</form><button id="shortcut-return" type="button" class="link shortcut-return" hidden>Voltar à tela principal</button></div></section>
++<button class="card central-secondary" type="button" data-page="veiculo"><span class="card-title">Meu veículo</span><span class="detail">Acompanhe combustível e manutenção.</span><span class="arrow" aria-hidden="true">→</span></button></section>
++<section id="veiculo" hidden aria-labelledby="h-veiculo"><h1 id="h-veiculo" tabindex="-1">Meu veículo</h1><iframe id="veiculo-frame" data-src="./veiculo.html" title="Meu veículo"></iframe></section>
+ <section id="config" hidden aria-labelledby="h-config"><h1 id="h-config" tabindex="-1">Configurações</h1>
+-<h2>Plano de ganhos</h2><p>O balão soma o tempo até o embarque e o tempo da viagem para comparar o valor bruto da oferta com a sua meta por hora.</p><button class="outline" data-action="plano">Rever meu plano</button>
+-<h2>Combustível</h2><p>O balão estima o combustível até o embarque e durante a viagem. Por exemplo, 20 km a 10 km/L, com o litro a R$ 6,00, custam cerca de R$ 12,00. Depois de editar, toque em <b>Salvar valores</b>.</p>
++<h2>Plano de ganhos</h2><p>Revise os custos que você informou e a meta de faturamento por hora.</p><button class="outline" data-action="plano">Rever meu plano</button>
++<h2>Combustível</h2><p>Salve o consumo e o preço do litro usados no plano. No fechamento, o gasto que entra na conta é o que você informou.</p>
+ <form id="fuel"><div class="fields"><label>Consumo médio (km/L)<input id="km" inputmode="decimal" required maxlength="8"></label><label>Preço por litro (R$)<input id="preco" inputmode="decimal" required maxlength="8"></label></div><button type="submit" class="solid">Salvar valores</button></form></section>
+ <section id="ajuda" hidden aria-labelledby="h-ajuda"><h1 id="h-ajuda" tabindex="-1">Ajuda</h1>
+-<details open><summary>Como testar dentro do Vexo?</summary><p>Em Início, toque em <b>Ler uma oferta no Vexo</b>. No simulador, abra <b>Treino OCR</b> e toque em <b>Iniciar treino</b>. O treino lê só o próprio simulador, sem pedir captura de outros apps.</p></details>
+-<details><summary>Por que o balão ficou sem números?</summary><p>Deixe uma única oferta inteira na tela. Confira se dá para ler o preço, o trecho até o embarque e o trecho da viagem. Se o balão cobrir algum deles, arraste-o para o lado.</p></details>
+-<details><summary>Por que ainda vejo o valor antigo?</summary><p>Se a oferta já saiu da tela, ignore os valores anteriores. Uma foto na galeria pode parecer uma oferta para o leitor, mas não é uma corrida ativa. Pare a captura antes de abrir a galeria.</p></details>
+-<details><summary>Como ler em outro aplicativo?</summary><p>Em Início, toque em <b>OCR em outros apps</b>. A sobreposição permite mostrar o balão. A captura de tela é uma autorização separada do Android. Se puder escolher, selecione só o app que quer ler. Se cancelar o pedido, a captura não começa.</p></details>
+-<details><summary>Como pausar ou parar a captura?</summary><p><b>Pausar Modo Ao Vivo</b> só pausa a troca de ofertas no simulador. Para parar a captura externa, toque de novo em <b>OCR em outros apps</b> ou encerre o compartilhamento pelo Android. Para retomar, inicie uma nova sessão e autorize a captura.</p></details>
+-<details><summary>Quais dados ficam no aparelho?</summary><p>O Vexo guarda as preferências no aparelho. O histórico pode conter preços e endereços. O treino local usa a tela do próprio simulador. Sessões externas podem guardar texto lido e capturas de tela. Limpar o histórico não apaga esses arquivos nem os ZIPs já exportados.</p></details>
+-<h2>Diagnóstico</h2><p><b>Exportar leituras internas</b> abre o compartilhamento de um arquivo que pode conter dados da oferta, como preços e endereços. <b>Copiar diagnóstico do balão externo</b> coloca um resumo técnico na área de transferência. Confira o conteúdo antes de enviá-lo a alguém.</p>
+-<button class="outline" data-action="relatorio">Exportar leituras internas</button>
+-<button class="outline" data-action="diagnostico">Copiar diagnóstico do balão externo</button></section>
+-<section id="sobre" hidden aria-labelledby="h-sobre"><h1 id="h-sobre" tabindex="-1">Informações</h1><p class="intro">Um copiloto que lê a oferta e compara o ganho previsto com o seu plano. A decisão da corrida é sua.</p>
+-<dl><div><dt>Versão</dt><dd>0.1.3-r16-interno</dd></div><div><dt>Edição</dt><dd>Teste interno R16</dd></div><div><dt>Leitor</dt><dd>Google ML Kit no aparelho</dd></div></dl>
+-<h2>Dados e permissões</h2><p>O leitor interno analisa a área de ofertas do simulador. O externo usa a captura autorizada pelo Android. O app guarda preferências e pode registrar dados de corridas no aparelho. Os mapas podem acessar a internet.</p>
+-<button class="outline" data-page="ajuda">Abrir ajuda e diagnóstico</button></section>
++<details open><summary>Como registro um turno?</summary><p>Em Início, toque em <b>Iniciar turno</b>. No fim, toque em <b>Fechar turno</b> e informe o que recebeu, o que gastou e, se tiver, os quilômetros rodados.</p></details>
++<details><summary>De onde vem a sobra?</summary><p>É o valor recebido menos os gastos informados. Se faltarem gastos, a sobra não é o lucro líquido do turno.</p></details>
++<details><summary>Posso fechar o aplicativo durante o turno?</summary><p>Sim. Ao reabrir, o turno salvo continua disponível.</p></details><details id="local-feedback">
++  <summary>Relatar um problema</summary>
++  <p>Gere um relato para revisar e copiar. Nada é enviado pelo app. Não inclua valores nem dados pessoais na descrição.</p>
++  <label for="feedback-category">Tipo de problema</label>
++  <select id="feedback-category" required style="display:block;width:100%;min-height:44px;margin:4px 0 14px;padding:8px 12px;font:inherit;color:inherit;background:#141f28;border:1px solid #445660;border-radius:8px">
++    <option value="" disabled selected>Selecione uma opção</option>
++    <option>Conta errada</option>
++    <option>Não salvou</option>
++    <option>Não achei</option>
++  </select>
++  <label for="feedback-description">Descrição (opcional)</label>
++  <textarea id="feedback-description" rows="3" maxlength="1000" autocomplete="off" style="display:block;width:100%;margin:4px 0 12px;padding:8px 12px;font:inherit;color:inherit;background:#141f28;border:1px solid #445660;border-radius:8px"></textarea>
++  <button id="feedback-generate" type="button" class="outline">Gerar relato</button>
++  <div id="feedback-preview" hidden>
++    <p>Confira o texto antes de copiar.</p>
++    <label for="feedback-report">Texto do relato</label>
++    <textarea id="feedback-report" rows="5" readonly spellcheck="false" style="display:block;width:100%;margin:4px 0 12px;padding:8px 12px;font:inherit;color:inherit;background:#141f28;border:1px solid #445660;border-radius:8px"></textarea>
++    <button id="feedback-copy" type="button" class="outline">Copiar relato</button>
++  </div>
++  <p id="feedback-status" role="status" aria-atomic="true"></p>
++</details>
++</section>
++<section id="sobre" hidden aria-labelledby="h-sobre"><h1 id="h-sobre" tabindex="-1">Informações</h1><p class="intro">Vexo Aurora · turno manual e plano de ganhos.</p>
++<dl><div><dt>Versão</dt><dd>0.1.3-r18-interno</dd></div><div><dt>Edição</dt><dd>Teste interno manual</dd></div></dl>
++<h2>Dados do turno</h2><p>Os valores que você informa ficam neste aparelho. Esta edição não usa localização nem conexão OBD2.</p><button class="outline" data-page="ajuda">Abrir ajuda</button></section>
+ <p id="status" role="status" aria-live="polite"></p></main>
+--- a/app/src/main/assets/aurora/central.js
++++ b/app/src/main/assets/aurora/central.js
+@@ -6,54 +6,5 @@
+   const message = text => { byId("status").textContent = text; };
+-  const pages = ["inicio", "config", "ajuda", "sobre"];
++  const pages = ["inicio", "config", "ajuda", "sobre", "veiculo"];
+   const initial = window.location?.hash?.slice(1);
+   let active = pages.includes(initial) ? initial : "inicio";
+-  const shortcutIds = ["lab", "externo", "plano", "config", "ajuda", "sobre"];
+-  const shortcutKey = "vexo.central.atalhos.v1";
+-  const shortcutDefaults = ["plano", "config", "ajuda"];
+-  const fromShortcutMenu = window.location?.hash === "#atalhos";
+-  const shortcutEditor = byId("shortcut-editor");
+-  const shortcutEdit = byId("shortcut-edit");
+-  function readShortcuts() {
+-    try {
+-      const stored = JSON.parse(localStorage.getItem(shortcutKey));
+-      if (Array.isArray(stored)) {
+-        const valid = shortcutIds.filter(id => stored.includes(id));
+-        if (!stored.length || valid.length) return valid;
+-      }
+-    } catch (_) {}
+-    return shortcutDefaults.slice();
+-  }
+-  let shortcuts = readShortcuts();
+-  function renderShortcuts() {
+-    shortcutIds.forEach(id => { byId("shortcut-"+id).hidden = !shortcuts.includes(id); });
+-    byId("shortcut-list").hidden = !shortcutEditor.hidden;
+-    byId("shortcut-return").hidden = !fromShortcutMenu || !shortcutEditor.hidden;
+-    byId("shortcut-empty").hidden = !shortcutEditor.hidden || shortcuts.length !== 0;
+-  }
+-  function toggleShortcutEditor(open, focus = true) {
+-    shortcutEditor.hidden = !open;
+-    shortcutEdit.setAttribute("aria-expanded", String(open));
+-    if (open) shortcutIds.forEach(id => { byId("shortcut-choice-"+id).checked = shortcuts.includes(id); });
+-    renderShortcuts();
+-    if (focus) (open ? byId("shortcut-choice-lab") : shortcutEdit).focus();
+-  }
+-  const returnFromMenu = () => location.replace("./index.html");
+-  byId("shortcut-return").addEventListener("click", returnFromMenu);
+-  shortcutEdit.addEventListener("click", () => {
+-    message(""); toggleShortcutEditor(shortcutEditor.hidden);
+-  });
+-  byId("shortcut-cancel").addEventListener("click", () => toggleShortcutEditor(false));
+-  shortcutEditor.addEventListener("submit", event => {
+-    event.preventDefault();
+-    shortcuts = shortcutIds.filter(id => byId("shortcut-choice-"+id).checked);
+-    const serialized = JSON.stringify(shortcuts);
+-    let saved = false;
+-    try {
+-      localStorage.setItem(shortcutKey, serialized);
+-      saved = localStorage.getItem(shortcutKey) === serialized;
+-    } catch (_) {}
+-    toggleShortcutEditor(false);
+-    message(saved ? "Atalhos salvos." : "Não foi possível salvar os atalhos. A escolha vale só nesta sessão.");
+-  });
+-  renderShortcuts();
+   function refresh() {
+@@ -73,3 +24,6 @@
+     if (!pages.includes(page)) page = "inicio";
+-    if (page !== "inicio" && !shortcutEditor.hidden) toggleShortcutEditor(false, false);
++    if (page === "veiculo") {
++      const frame=byId("veiculo-frame");
++      if (!frame.hasAttribute("src")) frame.src=frame.dataset.src;
++    }
+     active = page;
+@@ -83,2 +37,3 @@
+     if (page === "inicio" || page === "config") refresh();
++    if (page === "inicio") window.VexoTurnoUI.refresh();
+     window.scrollTo(0,0);
+@@ -92,15 +47,3 @@
+     if (!action) return;
+-    if (action === "lab") {
+-      try { sessionStorage.setItem("vexo.x7.reader","1"); } catch (_) {}
+-      location.replace("./index.html"); return;
+-    }
+-    if (action === "plano") { location.replace("./onboarding.html"); return; }
+-    const method = {externo:"startExternal", relatorio:"exportOcr", diagnostico:"copyBalloonDiagnostics"}[action];
+-    if (typeof bridge?.[method] !== "function") { message("Este recurso está disponível no aplicativo Android."); return; }
+-    message("");
+-    try {
+-      if (bridge[method]() === false) message("O Android não concluiu a ação. Tente novamente.");
+-    } catch (_) {
+-      message("Não foi possível concluir a ação no Android. Tente novamente.");
+-    }
++    if (action === "plano") location.replace("./onboarding.html");
+   });
+@@ -124,17 +67,18 @@
+   window.addEventListener("vexo:android-back", () => {
+-    if (!shortcutEditor.hidden) toggleShortcutEditor(false);
+-    else if (active !== "inicio") show("inicio");
+-    else if (fromShortcutMenu) returnFromMenu();
++    if (active === "inicio" && window.VexoTurnoUI.handleBack()) return;
++    if (active !== "inicio") show("inicio");
+     else message("Você está no início. Use o gesto de início do Android para sair.");
+   });
+-  let openShortcutsLink = fromShortcutMenu;
+-  window.addEventListener("pageshow", () => {
+-    show(active, false);
+-    if (openShortcutsLink) {
+-      openShortcutsLink = false;
+-      const heading = byId("atalhos");
+-      heading.scrollIntoView({block: "start"});
+-      heading.focus({preventScroll: true});
+-    }
++  const garage=byId("veiculo-frame");
++  garage.addEventListener("load",()=>garage.contentWindow?.postMessage({type:"vexo:vehicle-theme",theme:"dark"},location.origin));
++  window.addEventListener("message",event=>{
++    if(event.source!==garage.contentWindow||event.origin!==location.origin||event.data?.type!=="vexo:vehicle-fuel-saved")return;
++    try{
++      const {consumption,price}=event.data;
++      const km=Number.isFinite(consumption)&&consumption>0?consumption:bridge?.kmPerLiter?.();
++      const fuel=Number.isFinite(price)&&price>0?price:bridge?.fuelPrice?.();
++      if(Number.isFinite(km)&&Number.isFinite(fuel))bridge?.saveFuel?.(km,fuel);
++    } catch (_) {}
+   });
++  window.addEventListener("pageshow", () => show(active,false));
+   show(active, false);
+--- a/app/src/main/assets/aurora/onboarding.html
++++ b/app/src/main/assets/aurora/onboarding.html
+@@ -322,3 +322,3 @@
+   <h1>Seu primeiro acesso ao Vexo</h1>
+-  <p>Você pode configurar seu perfil e simular os custos de uma corrida sem iniciar a leitura da tela.</p>
++  <p>Você pode configurar o plano agora ou começar pelo seu turno.</p>
+   <section class="entry-group" aria-labelledby="entry-terms-title">
+@@ -327,7 +327,7 @@
+     <div class="entry-scroll" role="region" tabindex="0" aria-labelledby="entry-terms-title" aria-describedby="entry-version">
+-      <p><strong>O que o Vexo faz.</strong> O simulador estima custos e ganhos com os valores que você informar ou com exemplos identificados. Uma estimativa não garante o valor que você vai receber.</p>
+-      <p><strong>A decisão é sua.</strong> Confira os dados da oferta no aplicativo de origem. A leitura automática pode errar um número ou deixar uma informação de fora. O Vexo não escolhe corridas por você.</p>
++      <p><strong>O que o Vexo faz.</strong> Registra turnos e calcula os totais a partir dos dados que você informar. Valores de exemplo no plano não contam como ganhos reais.</p>
++      <p><strong>A decisão é sua.</strong> Confira seus ganhos e gastos antes de salvar. As estimativas do plano não garantem o que você vai receber.</p>
+       <p><strong>Use com o veículo parado.</strong> Configure, consulte e ajuste o aplicativo em um local seguro.</p>
+-      <p><strong>Use ofertas fictícias neste teste.</strong> Não inclua dados de passageiros. Uma oferta no histórico não significa que você aceitou a corrida.</p>
+-      <p><strong>Recursos opcionais.</strong> O balão e a leitura da tela são escolhas separadas do aceite destes termos. Se não quiser usá-los, você ainda pode montar seu plano no Vexo.</p>
++      
++      
+       <p><strong>Sobre esta versão.</strong> Esta é uma minuta para avaliação nesta versão de teste, não uma versão definitiva dos termos.</p>
+@@ -335,14 +335,4 @@
+   </section>
+-  <section class="entry-group entry-perms" aria-labelledby="entry-access-title">
+-    <h2 id="entry-access-title">Duas escolhas no Android</h2>
+-    <p><strong>Exibir sobre outros apps.</strong> Permite mostrar o balão do Vexo por cima de outro aplicativo. A sobreposição, sozinha, não lê a sua tela.</p>
+-    <p><strong>Capturar a tela.</strong> Permite ler a área compartilhada para identificar valores, distâncias e tempos. Nomes, endereços e notificações também podem aparecer.</p>
+-    <p>Nenhuma dessas permissões é pedida nesta tela. Você pode negar o pedido do Android e continuar usando o perfil e a simulação manual.</p>
+-  </section>
+   <details class="entry-group"><summary>Ler o aviso de privacidade · minuta</summary>
+-    <p><strong>Perfil local.</strong> O Vexo pode guardar no aparelho o veículo, custos, metas e preferências que você informar. Este perfil não cria uma conta on-line.</p>
+-    <p><strong>Leituras e registros.</strong> O histórico pode incluir endereços. Texto e imagens da tela podem ficar em arquivos antes de você tocar em exportar. Verifique o conteúdo antes de compartilhar. Ao exportar, você escolhe o destino. Cancelar o compartilhamento não garante que a cópia temporária seja apagada. Copiar um diagnóstico o coloca na área de transferência, sem enviá-lo ao suporte.</p>
+-    <p><strong>Conexões.</strong> Mapas podem buscar imagens no OpenStreetMap ou na CARTO, expondo o IP da conexão e a área do mapa consultada. Se você escolher abrir um endereço em um app de mapas, o endereço será passado ao aplicativo escolhido. O reconhecimento de texto usa o ML Kit no aparelho. O fornecedor descreve separadamente o envio de métricas técnicas de uso e desempenho.</p>
+-    <p><strong>Apagar dados e pedir ajuda.</strong> Limpar o histórico ou parar a leitura não apaga necessariamente arquivos de captura e exportação. O responsável, o canal para pedir acesso, correção ou exclusão, os prazos de guarda e os passos de exclusão de cada tipo de dado ainda precisam ser confirmados para uma versão publicada.</p>
+-    <p>Para interromper uma captura ativa, use o controle de compartilhamento do Android. A permissão do balão pode ser revista nos ajustes de acesso especial do aparelho. O aceite abaixo não autoriza a captura nem o envio de registros.</p>
++    <p>O plano e os registros que você digita ficam neste aparelho. Esta edição de teste não usa a localização e não lê a tela de outros apps. Não é necessário criar conta para usar o turno manual.</p>
+   </details>
+@@ -371,3 +361,3 @@
+   "use strict";
+-  const KEY = "vexo.gain-profile.v1", LIMIT = 1000000000;
++  const KEY = "vexo.gain-profile.v1", DRAFT = "vexo.gain-draft.v1", LIMIT = 1000000000;
+   const profileText = ["type","car","year","trim","base","maintenance","ipva","fuel","income","goal","other"];
+@@ -411,13 +401,41 @@
+   }
++  function writeFields(key,profile) {
++    try {
++      const raw=JSON.stringify(copyFields(profile));
++      localStorage.setItem(key,raw);
++      return localStorage.getItem(key)===raw;
++    } catch (_) { return false; }
++  }
++  function readFields(key) {
++    try {
++      const saved=JSON.parse(localStorage.getItem(key));
++      return saved && typeof saved==="object" && !Array.isArray(saved) ? copyFields(saved) : null;
++    } catch (_) { return null; }
++  }
++  function discardDraft() {
++    try { localStorage.removeItem(DRAFT); }
++    catch (_) {}
++  }
+   function saveProfile(profile) {
+-    try { localStorage.setItem(KEY, JSON.stringify(copyFields(profile))); }
+-    catch (_) {}
+-  }
+-  function restore(defaults) {
+-    try {
+-      const saved = JSON.parse(localStorage.getItem(KEY));
+-      return saved && typeof saved === "object" ? {...defaults, ...copyFields(saved)} : defaults;
+-    } catch (_) { return defaults; }
+-  }
+-  window.VexoGainPlan = Object.freeze({fromTally,compare,read,activate,saveProfile,restore,format});
++    if (!writeFields(KEY, profile)) return false;
++    discardDraft();
++    return true;
++  }
++  function commitProfile(profile,cents,bridge) {
++    let previous;
++    try { previous=localStorage.getItem(KEY); }
++    catch (_) { return false; }
++    if (!writeFields(KEY,profile)) return false;
++    if (!activate(cents,bridge)) {
++      try { if(previous===null)localStorage.removeItem(KEY);else localStorage.setItem(KEY,previous); }
++      catch (_) {}
++      return false;
++    }
++    discardDraft();
++    return true;
++  }
++  const saveDraft = profile=>writeFields(DRAFT,profile);
++  const hasDraft = ()=>readFields(DRAFT)!==null;
++  const restore = defaults=>({...defaults,...readFields(KEY),...readFields(DRAFT)});
++  window.VexoGainPlan = Object.freeze({fromTally,compare,read,activate,saveProfile,commitProfile,saveDraft,discardDraft,hasDraft,restore,format});
+ })();
+@@ -436,5 +454,5 @@
+ const SNAPSHOTS={"ka:2015:se":{"code":"003410-0","ref":"nov/2026","prior":"out/2026","current":34509,"previous":34683,"source":"https://historicocarro.com.br/tabela-fipe/ford/ka-1-5-se-se-plus-16v-flex-5p/2015"},"argo:2024:catalog":{"code":"001494-0","ref":"nov/2026","prior":"out/2026","current":67585,"previous":67386,"source":"https://valordafipe.com.br/tabela-fipe/carros/fiat/argo-drive-1-0-6v-flex/2024-flex"},"gol:2023:catalog":{"code":"005490-9","ref":"nov/2026","prior":"out/2026","current":54695,"previous":54401,"source":"https://www.webmotors.com.br/tabela-fipe/carros/volkswagen/gol/2023/10-12v-mpi-totalflex-4p-manual?uf=df"},"sandero:2020:catalog":{"code":"025288-3","ref":"nov/2026","prior":"out/2026","current":45976,"previous":44422,"source":"https://www.fipehistorica.com.br/fipe/renault/sandero-zen-flex-1-0-12v-5p-mec/2020-5/025288-3"},"prisma:2019:catalog":{"code":"004433-4","ref":"nov/2026","prior":"out/2026","current":59181,"previous":59279,"source":"https://placafipe.com/tabela-fipe/carros/gm---chevrolet/prisma-sed-lt-14-8v-flexpower-4p/2019-flex"}};
+-const defaults=()=>({works:null,type:null,car:"",year:"",trim:"",base:"",maintenance:"",ipva:"",fuel:"",income:"",goal:"",other:"",simDays:26,simHours:8,useExamples:true,offerValue:"16,70",offerMinutes:"29",offerDistance:"12,6",offerRating:"4,90"});
++const defaults=()=>({works:null,type:null,car:"",year:"",trim:"",base:"",maintenance:"",ipva:"",fuel:"",income:"",goal:"",other:"",simDays:26,simHours:8,useExamples:true});
+ const entryDisclosure=window.VexoEntryDisclosure;
+-let s=window.VexoGainPlan.restore(defaults()), page=entryDisclosure.hasAccepted()?"home":"disclosure", stack=[], busy=false, energy=0;
++let s=window.VexoGainPlan.restore(defaults()), page=entryDisclosure.hasAccepted()?"home":"disclosure", stack=[], busy=false, energy=0, exampleOnly=false;
+ let reduce=matchMedia("(prefers-reduced-motion: reduce)").matches;
+@@ -464,3 +482,3 @@
+  const hint=currency?(example!==undefined?"Ex. "+moneyText(+example):"0,00"):placeholder;
+- const field='<input name="'+id+'" inputmode="'+mode+'" value="'+esc(currency&&n!==null?moneyText(n):s[id])+'" placeholder="'+esc(hint)+'" autocomplete="off"'+(currency?' data-money="true"':'')+'>';
++ const field='<input id="plano-'+id+'" name="'+id+'" inputmode="'+mode+'" value="'+esc(currency&&n!==null?moneyText(n):s[id])+'" placeholder="'+esc(hint)+'" autocomplete="off"'+(currency?' data-money="true"':'')+'>';
+  return '<label class="field">'+(currency?label.replace(' · R$',''):label)+(currency?'<span class="money-input"><span aria-hidden="true">R$</span>'+field+'</span>':field)+'</label>';
+@@ -496,9 +514,8 @@
+  if(!entryDisclosure.hasAccepted()){stack=[];route("disclosure",false);return}
+- const rate=window.VexoGainPlan.fromTally(tally());
++ const rate=exampleOnly?null:window.VexoGainPlan.fromTally(tally());
+  if(rate!==null&&window.VexoAndroidOcr){
+-  if(!window.VexoGainPlan.activate(rate,window.VexoAndroidOcr)){
+-   $("plan-goal-note").textContent="Não consegui salvar a meta. Tente de novo.";
++  if(!window.VexoGainPlan.commitProfile(s,rate,window.VexoAndroidOcr)){
++   $("plan-goal-note").textContent="Não consegui salvar seu plano. Revise o armazenamento e tente de novo.";
+    return;
+   }
+-  window.VexoGainPlan.saveProfile(s);
+  }
+@@ -608,68 +625,2 @@
+ }
+-const metricNames={hour:"R$/hora",km:"R$/km",rating:"Nota",minutes:"Tempo",distance:"Distância"};
+-const keys=Object.keys(metricNames), required=["hour","km"], cardKey="vexo-preview-card-v1";
+-const layout={order:[...keys],extras:[]};
+-try{
+- const pref=JSON.parse(localStorage.getItem(cardKey));
+- if(Array.isArray(pref?.order))layout.order=[...new Set([...pref.order.filter(k=>keys.includes(k)),...keys])];
+- if(Array.isArray(pref?.extras))layout.extras=keys.filter(k=>!required.includes(k)&&pref.extras.includes(k));
+-}catch{}
+-const visibleMetrics=()=>layout.order.filter(k=>required.includes(k)||layout.extras.includes(k));
+-function evaluateOffer(){
+- const t=tally(),price=amount(s.offerValue),time=amount(s.offerMinutes),km=amount(s.offerDistance),rating=amount(s.offerRating);
+- const gross=price>0&&time>0?price*60/time:null;
+- const perKm=price>0&&km>0?price/km:null;
+- const need=t.hourly;
+- const absent=[!(price>0)?"valor":null,!(time>0)?"tempo total":null,!(km>0)?"distância total":null].filter(Boolean);
+- let state="neutral",title,message;
+- const paid=gross===null?"":br.format(gross)+"/h bruto";
+- const goal=need===null?"":br.format(need)+"/h";
+- if(absent.length){
+-  title="Oferta incompleta";message="Informe "+joinPt.format(absent)+".";
+-  if(need===null)message+=" Complete a meta pra comparar.";
+- }else if(need===null){
+-  title="Sem classificação";message=paid+" · Complete a meta pra comparar.";
+- }else{
+-  const meets=Math.round(gross*100)>=Math.round(need*100);
+-  if(t.assumed.length){
+-   title=meets?"Alcança a referência de exemplo":"Abaixo da referência de exemplo";
+-   message=paid+" × "+goal+" de meta de exemplo.";
+-  }else{
+-   state=meets?"meets":"below";title=meets?"Na tua meta ou acima":"Abaixo da tua meta";
+-   message=paid+" × "+goal+" de meta.";
+-  }
+- }
+- const metrics={hour:gross===null?"—":br.format(gross),km:perKm===null?"—":br.format(perKm),rating:rating>0&&rating<=5?numberBR.format(rating):"—",minutes:time>0?timeNumber.format(time)+" min":"—",distance:km>0?timeNumber.format(km)+" km":"—"};
+- return '<div class="ride-preview" data-state="'+state+'"><div class="ride-head"><strong>Prévia do cartão</strong><span>Oferta simulada'+(price>0?' · '+br.format(price):'')+'</span></div><div class="ride-metrics">'+visibleMetrics().map(k=>'<div class="ride-metric" data-card-metric="'+k+'"><span>'+metricNames[k]+(required.includes(k)?' bruto':'')+'</span><b class="offer-number">'+metrics[k]+'</b></div>').join("")+'</div><div class="ride-verdict"><strong>'+title+'</strong><span>'+message+'</span></div></div>';
+-}
+-function editorContent(){
+- const visible=visibleMetrics();
+- function move(k,dir,off){return '<button type="button" data-metric-move="'+k+'" data-direction="'+dir+'" aria-label="Mover '+metricNames[k]+' '+(dir==="up"?"antes":"depois")+'"'+(off?' disabled':'')+'>'+(dir==="up"?"↑":"↓")+'</button>';}
+- return '<fieldset class="metric-options"><legend>Métricas extras</legend>'+keys.filter(k=>!required.includes(k)).map(k=>'<button type="button" data-metric-toggle="'+k+'" aria-pressed="'+visible.includes(k)+'">'+metricNames[k]+'</button>').join("")+'</fieldset><fieldset class="metric-order"><legend>Ordem no cartão</legend>'+visible.map((k,i)=>'<div class="metric-row"><span>'+metricNames[k]+'</span><div class="metric-arrows">'+move(k,"up",i===0)+move(k,"down",i===visible.length-1)+'</div></div>').join("")+'</fieldset>';
+-}
+-function cardContent(){
+- return '<details class="glass card-settings"><summary>Testar e personalizar o cartão</summary><p class="card-help">Some os minutos e quilômetros da busca com os da viagem.</p><div class="ride-fields">'+input("offerValue","Oferta · R$","16,70")+input("offerMinutes","Minutos totais","29")+input("offerDistance","Km totais","12,6")+input("offerRating","Nota opcional","4,90")+'</div><div class="offer" id="offer-result" aria-live="polite" aria-atomic="true">'+evaluateOffer()+'</div><div id="metric-editor">'+editorContent()+'</div></details>';
+-}
+-screen.addEventListener("click",e=>{
+- const control=e.target.closest("[data-metric-toggle],[data-metric-move]");
+- if(!control||page!=="plan"||busy||control.disabled)return;
+- const {metricToggle,metricMove,direction}=control.dataset;
+- let selector;
+- if(metricToggle&&keys.includes(metricToggle)&&!required.includes(metricToggle)){
+-  layout.extras=layout.extras.includes(metricToggle)?layout.extras.filter(k=>k!==metricToggle):[...layout.extras,metricToggle];
+-  selector='[data-metric-toggle="'+metricToggle+'"]';
+- }else if(metricMove&&visibleMetrics().includes(metricMove)){
+-  const visible=visibleMetrics(),other=visible[visible.indexOf(metricMove)+(direction==="up"?-1:1)];
+-  if(!other)return;
+-  const a=layout.order.indexOf(metricMove),b=layout.order.indexOf(other);
+-  [layout.order[a],layout.order[b]]=[layout.order[b],layout.order[a]];
+-  selector='[data-metric-move="'+metricMove+'"]:not(:disabled)';
+- }else return;
+- try{localStorage.setItem(cardKey,JSON.stringify(layout))}catch{}
+- $("offer-result").innerHTML=evaluateOffer();
+- $("metric-editor").innerHTML=editorContent();
+- const buttons=[...screen.querySelectorAll(selector)];
+- (buttons.find(b=>b.dataset.direction===direction)||buttons[0])?.focus({preventScroll:true});
+-});
+-
+ function control(id,label,unit,v,min,max,step){
+@@ -691,3 +642,2 @@
+  +'<details class="glass"><summary>Como calculamos</summary>'+exampleNote+(t.missing.length?'<p>Faltam: '+esc(joinPt.format(t.missing.map(x=>x==="perfil alugado"?"tipo de carro":x)))+'.</p>':"")+(amount(s.income)!==null?'<p>Repasse mensal informado: '+br.format(amount(s.income))+'.</p>':"")+'<p>O total mensal, incluindo combustível, é dividido pelos dias escolhidos. Depois, pelas horas por dia. É meta bruta, não lucro garantido.</p></details>'
+- +cardContent()
+  +'<div class="actions">'+(s.type==="own"||s.type==="finance"?'<button class="quiet" type="button" data-action="garage">Meu Veículo</button>':'')+'<button class="quiet" type="button" data-action="reset">Refazer perfil</button></div></div>';
+@@ -715,5 +665,5 @@
+  planFinish.hidden=page!=="plan";
+- if(page==="plan")$("plan-goal-note").textContent=window.VexoGainPlan.fromTally(tally())===null
+-  ?"Valores de exemplo ou incompletos não alteram o balão."
+-  :window.VexoAndroidOcr?"Ao entrar, a meta aparece no balão e ajuda a acompanhar seu turno na Folha de ponto.":"Esta é uma prévia da meta por hora. Entre pelo app Android para salvá-la.";
++ if(page==="plan")$("plan-goal-note").textContent=exampleOnly||window.VexoGainPlan.fromTally(tally())===null
++  ?"Dados incompletos ficam como rascunho. Valores de exemplo não mudam a sua meta."
++  :window.VexoAndroidOcr?"Ao entrar, sua meta aparece no Painel do motorista.":"Esta é uma prévia da meta por hora. Entre pelo app Android para salvá-la.";
+  screen.className="content "+(page==="home"?(compactWelcome?"hero welcome-compact":"hero"):page==="plan"||page==="garage"?"wide":"");
+@@ -729,3 +679,3 @@
+   }
+-  body='<p class="eyebrow">E aí, motora?</p>'+wrap("","Quanto precisa sobrar no bolso?","Simule seus custos e descubra quanto precisa ganhar por hora, mesmo antes da primeira corrida.",'<div class="actions"><button type="button" class="primary" data-action="begin">Começar'+icon("arrow")+'</button></div>'); break;
++  body='<p class="eyebrow">E aí, motora?</p>'+wrap("","Quanto precisa sobrar no bolso?",window.VexoGainPlan?.hasDraft()?"Retome os dados que você já preencheu. Seu rascunho não altera a meta ativa.":"Simule seus custos e descubra quanto precisa ganhar por hora, mesmo antes da primeira corrida.",'<div class="actions"><button type="button" class="primary" data-action="begin">Começar'+icon("arrow")+'</button></div>'); break;
+  case "work":body=wrap("","Já roda por aplicativo?","Se só quiser mexer na barrinha, dá pra testar sem preencher nada.",'<div class="options">'+choice("Já rodo","","car","yes")+choice("Quero começar","","map","no")+'</div><button type="button" class="quiet shortcut" data-action="try">Só quero testar</button>');break;
+@@ -769,2 +719,3 @@
+  Object.assign(s,m);
++ window.VexoGainPlan.saveDraft(s);
+  if(page==="car"&&stack.at(-1)==="garage"){route("garage",false);stack.pop();return}
+@@ -779,4 +730,4 @@
+  if(a==="begin")route("work");
+- if(a==="try"){s.useExamples=true;route("plan")}
+- if(a==="real")backTo(editTarget());
++ if(a==="try"){exampleOnly=true;s.useExamples=true;route("plan")}
++ if(a==="real"){exampleOnly=false;backTo(editTarget())}
+  if(a==="partial"){
+@@ -787,3 +738,3 @@
+  }
+- if(a==="reset"){s=defaults();stack=[];route("home",false)}
++ if(a==="reset"){window.VexoGainPlan.discardDraft();s=defaults();stack=[];route("home",false)}
+  if(a==="garage")route("garage");
+@@ -793,4 +744,4 @@
+    b.classList.add("chosen");
+-   if(page==="work"){s.works=b.dataset.choice==="yes";route("type")}
+-   else if(page==="type"){if(s.type!==b.dataset.choice)s.base=s.ipva=s.maintenance="";s.type=b.dataset.choice;route(s.type==="own"||s.type==="finance"?"car":s.type==="rent"?"costs":"fuel")}
++   if(page==="work"){exampleOnly=false;s.works=b.dataset.choice==="yes";window.VexoGainPlan.saveDraft(s);route("type")}
++   else if(page==="type"){if(s.type!==b.dataset.choice)s.base=s.ipva=s.maintenance="";s.type=b.dataset.choice;window.VexoGainPlan.saveDraft(s);route(s.type==="own"||s.type==="finance"?"car":s.type==="rent"?"costs":"fuel")}
+  }
+@@ -803,3 +754,3 @@
+  if(page==="home"){if(interviewRequired())enterWelcome();else route("work")} 
+- else if(page==="work")route("type");
++ else if(page==="work"){exampleOnly=false;route("type")}
+  else if(page==="type"){
+@@ -811,3 +762,3 @@
+  if(page==="disclosure"&&e.target.id==="entry-accept"){$("entry-continue").disabled=!e.target.checked;$("entry-error").hidden=true;return}
+- if(e.target.id==="car-select")updateCar(true)
++ if(e.target.id==="car-select"){updateCar(true);s.year=screen.querySelector("[name=year]").value;s.trim=$("trim-select").value;window.VexoGainPlan.saveDraft(s)}
+ });
+@@ -830,3 +781,3 @@
+ });
+-screen.addEventListener("focusout",e=>{if(e.target.dataset.money){moneyField(e.target);if(e.target.name==="offerValue")s.offerValue=e.target.value}});
++screen.addEventListener("focusout",e=>{if(e.target.dataset.money)moneyField(e.target)});
+ screen.addEventListener("paste",e=>{
+@@ -838,8 +789,11 @@
+  const {id,name,value,min,max}=e.target;
+- if(["offerValue","offerMinutes","offerDistance","offerRating"].includes(name)){s[name]=value;$("offer-result").innerHTML=evaluateOffer();return}
++ if(["car","costs","fuel","goal"].includes(page)&&["car","year","trim","base","ipva","maintenance","fuel","income","goal","other"].includes(name)){
++  s[name]=value.slice(0,36);window.VexoGainPlan.saveDraft(s);return;
++ }
+  if(id!=="day-slider"&&id!=="hour-slider")return;
+  s[id==="day-slider"?"simDays":"simHours"]=+value;
++ if(window.VexoGainPlan.hasDraft())window.VexoGainPlan.saveDraft(s);
+  const label=value+(id==="day-slider"?" dias":" h");
+  e.target.style.setProperty("--fill",rangeFill(+value,+min,+max));e.target.setAttribute("aria-valuetext",label);
+- $(id+"-label").textContent=label;$("results").innerHTML=results();$("offer-result").innerHTML=evaluateOffer();energy=Math.max(energy,.35);
++ $(id+"-label").textContent=label;$("results").innerHTML=results();energy=Math.max(energy,.35);
+ });
+--- a/app/src/main/java/com/trackingracing/AuroraActivity.kt
++++ b/app/src/main/java/com/trackingracing/AuroraActivity.kt
+@@ -46,3 +46,4 @@
+     private val ui = Handler(Looper.getMainLooper())
+-    private val recognizer by lazy { TextRecognition.getClient(TextRecognizerOptions.DEFAULT_OPTIONS) }
++    private val recognizerDelegate = lazy { TextRecognition.getClient(TextRecognizerOptions.DEFAULT_OPTIONS) }
++    private val recognizer by recognizerDelegate
+     private val finalizacao = AuroraFinalizacao()
+@@ -204,4 +205,3 @@
+         invalidateLocalCapture()
+-        warmLocalRecognizer()
+-        ui.post(tick)
++        // Manual edition: do not start the capture scheduler or load the model.
+     }
+@@ -229,3 +229,3 @@
+         web.destroy()
+-        recognizer.close()
++        if (recognizerDelegate.isInitialized()) recognizer.close()
+         super.onDestroy()
+@@ -306,3 +306,3 @@
+         }
+-        @JavascriptInterface fun startExternal() { ui.post { if (visible) startExternalCapture() } }
++        @JavascriptInterface fun startExternal() { /* Capture is not available in this manual edition. */ }
+         @JavascriptInterface fun exportOcr() {
+@@ -356,3 +356,3 @@
+                         .setTitle("Ativar OCR externo")
+-                        .setMessage("$sobreposicao\n\nO Android vai pedir para compartilhar a tela inteira. Notificações e endereços podem aparecer. O Vexo lê a tela no aparelho e pode salvar texto e imagens das ofertas antes de você exportar.\n\nCom “Agora não”, você usa o simulador sem compartilhar a tela. Para parar a leitura, use o balão ou o controle do Android.")
++                        .setMessage("$sobreposicao\n\nO Android vai pedir para compartilhar a tela inteira. Notificações e endereços podem aparecer. O Vexo lê a tela no aparelho e pode salvar texto e imagens das ofertas antes de você exportar.\n\nCom “Agora não”, você continua no Vexo sem compartilhar a tela. Para parar a leitura, use o balão ou o controle do Android.")
+                         .setPositiveButton("Continuar") { _, _ ->

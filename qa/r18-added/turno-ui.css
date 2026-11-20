@@ -1,0 +1,118 @@
+#turno-form {
+  margin-top: 14px;
+  border-top: 1px solid var(--line);
+}
+
+#turno-form > h3 {
+  margin: 15px 0 2px;
+  font-size: 1.25rem;
+  line-height: 1.25;
+}
+
+#turno-step-label {
+  margin: 0 0 12px;
+  color: var(--mint);
+  font-size: .875rem;
+  font-weight: 650;
+}
+
+#turno-form fieldset {
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+
+#turno-form legend {
+  padding: 0;
+  font-weight: 700;
+}
+
+#turno-form fieldset > .detail {
+  margin: 2px 0 10px;
+}
+
+#turno-form .turno-fields {
+  grid-template-columns: minmax(0, 1fr);
+  gap: 10px;
+}
+
+#turno-form .turno-fields label {
+  gap: 3px;
+  color: inherit;
+  font-weight: 600;
+}
+
+#turno-form .turno-fields input {
+  min-height: 48px;
+  margin: 0;
+  font-size: 1rem;
+  font-weight: 400;
+}
+
+#turno-form .turno-fields input[aria-invalid="true"] {
+  border-color: #ffd29c;
+}
+
+#turno-form .turno-buttons {
+  margin-top: 14px;
+}
+
+#turno-form .turno-buttons button {
+  min-height: 48px;
+  margin: 0;
+}
+
+#turno-form .turno-buttons .solid {
+  flex: 1 1 9rem;
+}
+
+#turno-cancel {
+  display: block;
+  min-height: 48px;
+  margin: 3px auto 0;
+  padding-inline: 14px;
+  text-align: center;
+}
+
+#turno-preview .turno-totals {
+  margin: 8px 0;
+}
+
+#turno-form .turno-breakdown-box {
+  margin-top: 8px;
+  padding: 0 10px;
+  border: 1px solid #445660;
+  border-radius: 10px;
+  background: #101c24;
+}
+
+#turno-form .turno-breakdown-box summary {
+  min-height: 48px;
+  padding: 12px 0;
+  color: var(--mint);
+}
+
+#turno-breakdown {
+  margin: 0;
+  font-size: .875rem;
+}
+
+#turno-breakdown div {
+  align-items: baseline;
+  padding: 8px 0;
+  gap: 8px;
+  border: 0;
+  border-top: 1px solid var(--line);
+}
+
+#turno-breakdown dd {
+  min-width: 0;
+  overflow-wrap: anywhere;
+  font-variant-numeric: tabular-nums;
+}
+
+@media (min-width: 520px) {
+  #turno-form .turno-fields {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}

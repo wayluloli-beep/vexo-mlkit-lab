@@ -24,7 +24,7 @@ cleanup() {
 }
 trap cleanup EXIT
 [[ $GITHUB_REPOSITORY == wayluloli-beep/vexo-mlkit-lab && $GITHUB_RUN_ATTEMPT == 1 ]]
-[[ $GITHUB_EVENT_NAME == create && $GITHUB_REF == refs/heads/vexo-product-r17-welcome-once ]]
+[[ $GITHUB_EVENT_NAME == create && $GITHUB_REF == refs/heads/vexo-product-r18-turno-once ]]
 [[ $(git rev-parse HEAD) == "$GITHUB_SHA" ]]
 [[ $(git ls-tree -r --name-only HEAD qa/payload | wc -l) == 24 ]]
 printf '%s  %s\n' '1f1e08574699aabab795687db1816a5962d033652879b21d924cfc590d50199d' "$work/payload.tar.gz" > "$work/payload-check"
@@ -72,7 +72,17 @@ report R16_CROP_LAYER_CHECKED
 patch --quiet --batch --forward -d "$work/src/aurora" -p1 < qa/aurora-r17.patch
 (cd "$work/src/aurora" && sha256sum --strict --check --status "$GITHUB_WORKSPACE/qa/product-r17.sha256")
 report R17_WELCOME_CHECKED
-VEXO_SOURCE_DIR="$work/src/aurora" node --test qa/welcome_entry.test.cjs
+cp -a "$work/src/aurora" "$work/prior-source"
+node qa/extract-vehicle.cjs "$work/src/aurora/app/src/main/assets/aurora/index.html" "$work/src/aurora/app/src/main/assets/aurora/veiculo.html"
+cp qa/r18-added/* "$work/src/aurora/app/src/main/assets/aurora/"
+while IFS= read -r path; do
+  [[ $path == app/src/main/* && $path != *..* && -f $work/src/aurora/$path ]]
+  rm -- "$work/src/aurora/$path"
+done < qa/aurora-r18-removed.txt
+patch --quiet --batch --forward -d "$work/src/aurora" -p1 < qa/aurora-r18.patch
+(cd "$work/src/aurora" && sha256sum --strict --check --status "$GITHUB_WORKSPACE/qa/product-r18.sha256" && [[ $(find . -type f | wc -l) == $(wc -l < "$GITHUB_WORKSPACE/qa/product-r18.sha256") ]])
+report R18_PRODUCT_CHECKED
+VEXO_SOURCE_DIR="$work/src/aurora" node --test qa/turno.test.cjs qa/turno-core-extra.test.cjs qa/welcome_entry_r18.test.cjs qa/product-flags.test.cjs qa/release-manual.test.cjs
 # Save unmodified screenshots independently of any host OCR/observer.
 if command -v tesseract >/dev/null; then
   python3 qa/pixel-preflight.py --driver qa/driver.py > "$work/pixel-observer.log" 2>&1 || true
@@ -249,11 +259,21 @@ import sys
 r=[E.parse(x).getroot() for x in Path(sys.argv[1]).glob("TEST-*.xml")]
 counts={k:sum(int(a.get(k, 0)) for a in r) for k in ("tests","failures","errors","skipped")}
 assert counts['tests'] >= 63 and not any(counts[k] for k in ("failures","errors"))
-print("R17_JUNIT: "+" ".join(str(k)+"="+str(v) for k,v in counts.items()))
+print("R18_JUNIT: "+" ".join(str(k)+"="+str(v) for k,v in counts.items()))
 PYJUNIT
 mapfile -t apks < <(find "$work/src/aurora/app/build/outputs/apk/release" -maxdepth 1 -name '*unsigned.apk')
 [[ ${#apks[@]} == 1 ]]
 report AURORA_UNSIGNED_BUILT
+
+stage=BUILD_PRIOR
+report BUILD_PRIOR_START
+if ! timeout 700s "$work/gradle-8.11.1/bin/gradle" --project-dir "$work/prior-source" --no-daemon --console=plain --max-workers=2 :app:assembleRelease > "$work/prior-build.log" 2>&1; then
+  grep -E '(^e:)|BUILD FAILED|Execution failed' "$work/prior-build.log" | tail -12 || true
+  exit 1
+fi
+mapfile -t prior_apks < <(find "$work/prior-source/app/build/outputs/apk/release" -maxdepth 1 -name '*unsigned.apk')
+[[ ${#prior_apks[@]} == 1 ]]
+report BUILD_PRIOR_OK
 
 stage=SIGN_TEMP
 bt="$sdk/build-tools/35.0.0"
@@ -268,81 +288,51 @@ sign_qa() {
   "$bt/aapt" dump badging "$work/$role.apk" > "$work/$role.badging"
 }
 sign_qa "${apks[0]}" candidate
-sign_qa "$work/src/fixtures/source-unsigned.apk" presenter
+sign_qa "${prior_apks[0]}" prior
 cert_a=$(sed -n 's/^Signer #1 certificate SHA-256 digest: //p' "$work/candidate.cert")
-cert_b=$(sed -n 's/^Signer #1 certificate SHA-256 digest: //p' "$work/presenter.cert")
+cert_b=$(sed -n 's/^Signer #1 certificate SHA-256 digest: //p' "$work/prior.cert")
 [[ ${#cert_a} == 64 && $cert_a == "$cert_b" ]]
 printf 'QA public certificate SHA-256 %s\n' "$cert_a" > "$OUT/qa-public-cert.txt"
 report "SIGNER_QA_SHA256:$cert_a"
 rm -f -- "$work/private/qa.p12"
 grep -Fq "package: name='com.trackingracing'" "$work/candidate.badging"
-grep -Fq "versionName='0.1.3-r16-interno'" "$work/candidate.badging"
-grep -Fq "package: name='com.vexo.qa.pixels'" "$work/presenter.badging"
+grep -Fq "versionCode='5' versionName='0.1.3-r18-interno'" "$work/candidate.badging"
+grep -Fq "package: name='com.trackingracing' versionCode='4'" "$work/prior.badging"
 grep -E '^(package:|sdkVersion:|targetSdkVersion:)' "$work/candidate.badging" | sed 's/^/AURORA_APK: /'
 "$bt/aapt" dump permissions "$work/candidate.apk" > "$OUT/candidate-permissions.txt"
-grep -Fq 'android.permission.SYSTEM_ALERT_WINDOW' "$OUT/candidate-permissions.txt"
-grep -Fq 'android.permission.FOREGROUND_SERVICE_MEDIA_PROJECTION' "$OUT/candidate-permissions.txt"
-! grep -q 'BIND_ACCESSIBILITY_SERVICE' "$OUT/candidate-permissions.txt" || exit 1
-(cd "$work" && sha256sum candidate.apk presenter.apk) > "$OUT/signed-source-apks.sha256"
+! grep -Eq 'SYSTEM_ALERT_WINDOW|FOREGROUND_SERVICE_MEDIA_PROJECTION|BIND_ACCESSIBILITY_SERVICE|ACCESS_(COARSE|FINE|BACKGROUND)_LOCATION|BLUETOOTH' "$OUT/candidate-permissions.txt" || exit 1
+python3 - "$work/candidate.apk" <<'PYAPK'
+import sys, zipfile, re
+with zipfile.ZipFile(sys.argv[1]) as apk:
+    paths=apk.namelist()
+    for part in ('index.html','central.html','turno.js','turno-ui.js','veiculo.html','product-flags.js'):
+        assert 'assets/aurora/'+part in paths, part
+    forbidden=re.compile(r'^assets/(?:lab99|simulador99|aurora/(?:overlay-r12|referencias-99|leaflet/|assets/vexo-ocr-))')
+    assert not any(forbidden.match(path) for path in paths)
+    assert b'99Pop' not in apk.read('assets/aurora/index.html')
+print('R18_APK_MANUAL_ONLY: PASS')
+PYAPK
+(cd "$work" && sha256sum candidate.apk prior.apk) > "$OUT/signed-source-apks.sha256"
 report SIGN_TEMP_OK
 
 stage=REAL_UI
 device shell wm size 720x1280
 device shell wm density 240
-unset VEXO_PRODUCT_ONLY
 export ADB="$adb" SERIAL="$serial" PKG=com.trackingracing
 export VEXO_R12_DRIVER="$GITHUB_WORKSPACE/qa/driver.py"
-# Runner side keeps raw ADB logs and captures ephemeral. The next workflow step retains only
-# PNGs passing the narrow evidence validator, regardless of this wrapper's exit status.
+export VEXO_R18_CANDIDATE="$work/candidate.apk" VEXO_R18_PRIOR="$work/prior.apk"
 driver_rc=0
-bash qa/run-local.sh "$work/candidate.apk" "$work/presenter.apk" > "$work/driver.log" 2>&1 || driver_rc=$?
+PYTHONDONTWRITEBYTECODE=1 timeout 480s python3 -u qa/r18_turno_flow.py > "$work/driver.log" 2>&1 || driver_rc=$?
 report "DRIVER_EXIT:$driver_rc"
-sed -nE 's/^LIVE:([a-zA-Z0-9_-]{1,64}):([A-Z_]{1,32})([ ].*)?$/R17_STEP: \1 \2/p' "$work/driver.log" | tail -85
-if [[ -s $OUT/local-ocr.log ]]; then
-  sed -nE 's/^.*VexoLocalOcr[[:space:]]*:[[:space:]]+(witness=[a-z_]{1,30} card=[0-9]{1,18}-[0-9]{1,6} t=[0-9]{1,18}( cap=[0-9]{1,18})?)$/R17_WITNESS: \1/p' "$OUT/local-ocr.log" | tail -80
-  sed -nE 's/^.*VexoLocalOcr[[:space:]]*:[[:space:]]+(warm=(start|ready|failed) t=[0-9]{1,18}( ms=[0-9]{1,18})?)$/R17_WARM: \1/p' "$OUT/local-ocr.log" | tail -8
-  sed -nE 's/^.*VexoLocalOcr[[:space:]]*:[[:space:]]+((pixels src=(pixelcopy|web_draw)|parsed kind=(pop|negocia)|dispatched kind=offer|accepted kind=offer) cap=[0-9]{1,18} card=[0-9]{1,18}-[0-9]{1,6})$/R17_LOCAL: \1/p' "$OUT/local-ocr.log" | tail -24
-fi
-if [[ -s $OUT/vexo-r10-native-timing.txt ]]; then
-  sed -nE 's/^.*VexoR10[[:space:]]*:[[:space:]]+((ocr_inicio |ocr_fim |descartado_cena |ui_envio |limpeza_cena )[0-9a-z =_-]{1,155})$/R17_EXTERNAL: \1/p' "$OUT/vexo-r10-native-timing.txt" | tail -48
-fi
-
-# No exception reasons, UI dumps or raw data make it into remote step logs.
-python3 - "$OUT" <<'PYRESULT'
-import json, pathlib, re, sys
-out=pathlib.Path(sys.argv[1])
-for path in (out/'device-apks.sha256',):
-    if path.is_file() and path.stat().st_size < 512:
-        for line in path.read_text().splitlines():
-            if re.fullmatch(r'[a-f0-9]{64}  (com\.trackingracing|com\.vexo\.qa\.pixels)', line):
-                print('R17_INSTALLED: '+line)
-result=out/'driver-result.json'
-if result.is_file() and result.stat().st_size <= 1024*1024:
-    try:
-        obj=json.loads(result.read_text())
-        if not isinstance(obj, dict): raise ValueError()
-    except (ValueError, OSError):
-        sys.exit(0)
-    for name in ('product_real_ocr_chain', 'collection_complete', 'stop'):
-        value=obj.get(name)
-        if type(value) is bool:
-            print('R17_RESULT: '+name+'='+str(value).lower())
-    allowed={'PASS','NOT_RUN','NOT_PROVEN','INCONCLUSIVE','VISUAL_REVIEW_REQUIRED','FAIL_OTHER_SCENE'}
-    if isinstance(obj.get('primary_chain'), str) and obj['primary_chain'] in allowed:
-        print('R17_RESULT: external_chain='+obj['primary_chain'])
-    states=obj.get('product_stages')
-    allowed|={'OBSERVED_AND_ACCEPTED','NOT_OBSERVED','PENDING','INCONCLUSIVE','ATTEMPTED'}
-    if isinstance(states,dict):
-        for name in ('launcher','first_terms','welcome_and_example','direct_entry','optional_plan','reopen','central_navigation','local_ocr','local_card_1_metrics','local_card_1_native','local_next_card','local_card_2_native','local_prewarm','local_cleanup','external_attempt'):
-            state=states.get(name)
-            if isinstance(state,str) and state in allowed:
-                print('R17_RESULT: '+name+'='+state)
-    states=obj.get('variants')
-    if isinstance(states,dict):
-        for name in ('A','B','N'):
-            state=states.get(name)
-            if isinstance(state,str) and state in allowed:
-                print('R17_RESULT: '+name+'='+state)
+sed -nE 's/^LIVE:([a-zA-Z0-9_-]{1,64}):([A-Z_]{1,32})([ ].*)?$/R18_STEP: \1 \2/p' "$work/driver.log" | tail -100
+python3 - "$OUT/driver-result.json" <<'PYRESULT'
+from pathlib import Path
+import sys, json
+p=Path(sys.argv[1]); allowed={'PASS','NOT_RUN','INCONCLUSIVE','OBSERVED_AND_ACCEPTED'}
+if p.is_file():
+    data=json.loads(p.read_text()).get('product_stages',{})
+    for key in ('first_terms','prior_settings','upgrade','draft','turno_reopen','closure_draft','manual_totals','saved_reopen'):
+        if data.get(key) in allowed: print('R18_RESULT: '+key+'='+data[key])
 PYRESULT
 (( driver_rc == 0 )) || exit "$driver_rc"
 test -s "$OUT/driver-result.json"
