@@ -86,7 +86,7 @@ inject=r'''
             }
         }
 
-        @JavascriptInterface fun appVersion(): String = BuildConfig.VERSION_NAME
+        @JavascriptInterface fun appVersion(): String = runCatching { packageManager.getPackageInfo(packageName, 0).versionName.orEmpty() }.getOrDefault("")
 
 '''
 kt=one(kt,'    private inner class Bridge {\n','    private inner class Bridge {\n'+inject,"keep R19 finance and privacy bridge")
