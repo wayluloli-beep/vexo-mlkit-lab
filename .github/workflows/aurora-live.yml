@@ -1,28 +1,40 @@
-name: Vexo R19 downloadable private test APK
+name: Vexo R20 review full OCR product
 'on':
   create:
+  push:
+    branches:
+      - vexo-r20-ocr-full
 permissions:
   contents: read
 jobs:
-  apk:
-    if: ${{ github.repository == 'wayluloli-beep/vexo-mlkit-lab' && github.event.ref_type == 'branch' && github.event.ref == 'vexo-r19-apk-download' && github.event.repository.private == true && github.run_attempt == '1' }}
-    permissions:
-      contents: write
+  inspect:
+    if: ${{ github.repository == 'wayluloli-beep/vexo-mlkit-lab' && github.ref == 'refs/heads/vexo-r20-ocr-full' && github.event.repository.private == true }}
     runs-on: ubuntu-26.04
-    timeout-minutes: 20
+    timeout-minutes: 15
     steps:
-      - name: Checkout the internal delivery branch
-        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
         with:
-          ref: ${{ github.sha }}
           persist-credentials: false
-          fetch-depth: 1
-      - name: Build and verify the signed side-by-side APK
+      - name: Inspect original OCR shell and R19 navigation
         shell: bash
-        run: bash qa/r19/build-internal-apk.sh
-      - name: Save the verified APK as a file only on this private branch
-        timeout-minutes: 4
-        shell: bash
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: PYTHONDONTWRITEBYTECODE=1 python3 qa/r19/retain-internal-apk.py
+        run: |
+          set -euo pipefail
+          work=$(mktemp -d)
+          bash qa/r19/materialize.sh "$work"
+          src="$work/src/aurora"
+          echo 'VEXO_R20_MANIFEST'
+          cat "$src/app/src/main/AndroidManifest.xml"
+          echo 'VEXO_R20_NATIVE_REFERENCES'
+          grep -nE 'startExternal|warmLocalRecognizer|tick|Simulador99Activity|ScreenCaptureService|showCentral|loadUrl|openCentral|central.html|index.html|launchCentral|setContentView' "$src/app/src/main/java/com/trackingracing/AuroraActivity.kt" | head -110
+          echo 'VEXO_R20_CENTRAL_JS'
+          cat "$src/app/src/main/assets/aurora/central.js"
+          echo 'VEXO_R20_INDEX_TOP'
+          head -c 7000 "$src/app/src/main/assets/aurora/index.html"
+          echo
+          echo 'VEXO_R20_CENTRAL_CSS'
+          head -c 3800 "$src/app/src/main/assets/aurora/central.css"
+          echo
+          echo 'VEXO_R20_MAIN_NATIVE_FILES'
+          find "$src/app/src/main/java/com/trackingracing" -maxdepth 1 -type f -printf '%f\n' | sort
+          echo 'VEXO_R20_BUILD_GRADLE'
+          cat "$src/app/build.gradle.kts"
