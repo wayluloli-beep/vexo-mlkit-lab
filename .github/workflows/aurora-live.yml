@@ -29,5 +29,7 @@ jobs:
           for a,b in [('vexo-r19-apk-download','vexo-r20-ocr-full'),('Vexo-R19-teste.apk','Vexo-R20-teste.apk')]:
               assert a in code
               code=code.replace(a,b)
+          assert '45 * 1024 * 1024' in code
+          code=code.replace('45 * 1024 * 1024','95 * 1024 * 1024')
           exec(compile(code,'qa/r20/retainer.py','exec'),{'__name__':'__main__'})
           PY

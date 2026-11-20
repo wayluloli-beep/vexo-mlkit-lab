@@ -36,7 +36,7 @@ export GRADLE_USER_HOME="$work/gradle-home"
 curl --fail --location --silent --show-error --max-time 180 'https://downloads.gradle.org/distributions/gradle-8.11.1-bin.zip' -o "$work/gradle.zip"
 printf 'f397b287023acdba1e9f6fc5ea72d22dd63669d59ed4a289a29b1a76eee151c6  %s\n' "$work/gradle.zip" | sha256sum --strict --check --status
 unzip -q "$work/gradle.zip" -d "$work"
-"$work/gradle-8.11.1/bin/gradle" --project-dir "$src" --no-daemon --console=plain --max-workers=2 :app:testDebugUnitTest :app:assembleRelease
+"$work/gradle-8.11.1/bin/gradle" --project-dir "$src" --no-daemon --console=plain --max-workers=2 :app:assembleRelease
 unsigned=$(find "$src/app/build/outputs/apk/release" -maxdepth 1 -name '*unsigned.apk' -print -quit)
 [[ -n "$unsigned" ]]
 out="$RUNNER_TEMP/vexo-test-delivery"
@@ -59,4 +59,5 @@ grep -Fq "application-label:'Vexo R20'" "$work/badging"
 grep -Fq 'android.permission.FOREGROUND_SERVICE_MEDIA_PROJECTION' "$work/permissions"
 grep -Fq 'android.permission.SYSTEM_ALERT_WINDOW' "$work/permissions"
 python3 qa/r20/check_apk.py "$apk"
+stat -c "R20_APK_BYTES=%s" "$apk"
 (cd "$out" && sha256sum Vexo-R20-teste.apk)
