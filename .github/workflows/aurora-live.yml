@@ -1,32 +1,38 @@
-name: Vexo R21 Aura neural voice Kotlin integration
+name: Vexo R21 Aura Sync neural voice preview
 'on':
   push:
     branches: [vexo-r21-aura-sync-voice]
 permissions:
   contents: read
 jobs:
-  compile:
-    runs-on: ubuntu-26.04
-    timeout-minutes: 19
+  build:
+    if: ${{ github.repository == 'wayluloli-beep/vexo-mlkit-lab' && github.event.repository.private == true && !contains(github.event.head_commit.message, '[skip ci]') }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 35
+    permissions:
+      contents: write
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
         with:
           persist-credentials: false
-      - name: Verify native voice integration (no model download)
-        shell: bash
+          fetch-depth: 1
+      - name: Synthesize 20 licensed Kokoro pt-BR clips and build signed Android APK
+        run: bash qa/r21/build.sh
+      - name: Publish private test APK
+        timeout-minutes: 5
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
-          set -euo pipefail
-          export JAVA_HOME="$JAVA_HOME_17_X64"
-          export PATH="$JAVA_HOME/bin:$PATH"
-          work=$(mktemp -d)
-          bash qa/r19/materialize.sh "$work"
-          src="$work/src/aurora"
-          python3 qa/r20/upgrade.py "$src"
-          python3 qa/r20/vx_icon.py "$src"
-          python3 qa/r21/apply.py "$src"
-          python3 qa/r21/check.py "$src"
-          for js in "$src/app/src/main/assets/aurora/"*.js; do node --check "$js"; done
-          curl --fail --location --silent --show-error --max-time 180 https://downloads.gradle.org/distributions/gradle-8.11.1-bin.zip -o "$work/gradle.zip"
-          printf 'f397b287023acdba1e9f6fc5ea72d22dd63669d59ed4a289a29b1a76eee151c6  %s\n' "$work/gradle.zip" | sha256sum --strict --check --status
-          unzip -q "$work/gradle.zip" -d "$work"
-          "$work/gradle-8.11.1/bin/gradle" --project-dir "$src" --no-daemon --console=plain --max-workers=2 :app:compileDebugKotlin
+          python3 - <<'PY'
+          from pathlib import Path
+          code=Path('qa/r20/publish_release.py').read_text()
+          changes=[('vexo-r20-ocr-full','vexo-r21-aura-sync-voice'),
+                   ('Vexo-R20-teste.apk','Vexo-R21-Aura-Sync.apk'),
+                   ('vexo-r20-test-','vexo-r21-aura-test-'),
+                   ('Vexo R20','Vexo R21'),
+                   ('R20','R21')]
+          for a,b in changes:
+              if a not in code: raise SystemExit("R21 publish pattern absent: "+a)
+              code=code.replace(a,b)
+          exec(compile(code,"qa/r21/publish_release.py","exec"),{"__name__":"__main__"})
+          PY
