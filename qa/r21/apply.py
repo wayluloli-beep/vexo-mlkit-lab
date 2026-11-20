@@ -59,14 +59,14 @@ for a,b in repl.items():
     h=h.replace(a,b)
 setting='''<section id="aura-voice-settings" aria-labelledby="aura-voice-title">
 <h2 id="aura-voice-title">Voz da Aura</h2>
-<p class="detail">Voz neural feminina em português brasileiro. Funciona no próprio aparelho, sem usar a voz padrão do Android. O primeiro uso prepara o modelo local.</p>
+<p class="detail">Voz neural feminina em português brasileiro. Funciona no próprio aparelho, sem usar a voz padrão do Android. Os áudios vêm junto com o aplicativo e funcionam sem internet.</p>
 <label for="aura-voice-enabled"><input type="checkbox" id="aura-voice-enabled"> Permitir avisos falados da Aura</label>
 <button type="button" id="aura-voice-preview" class="outline">Ouvir Aura</button>
 <p id="aura-voice-status" role="status" aria-live="polite"></p>
 </section>
 '''
 marker='<section id="ajuda" hidden aria-labelledby="h-ajuda">'
-h=one(h,marker,setting+marker,"voice settings")
+h=one(h,"</section>\n"+marker,setting+"</section>\n"+marker,"voice settings inside Configurações")
 # User-visible copy only, not internal code symbols/diagnostics.
 if 'OCR' in h:
     raise SystemExit("R21 has technical OCR labels visible in central.html")
