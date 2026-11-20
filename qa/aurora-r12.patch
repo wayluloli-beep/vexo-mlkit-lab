@@ -1,0 +1,379 @@
+--- a/app/src/main/java/com/trackingracing/ScreenCaptureService.kt
++++ b/app/src/main/java/com/trackingracing/ScreenCaptureService.kt
+@@ -79,6 +79,7 @@
+         private const val INTERVALO_PAINEL_MS = 300L
+         private const val TEMPO_TAG = "VexoR10"
+         private const val AQUER_TAG = "VexoR11"
++        private const val FILA_TAG = "VexoR12"
+         private const val LEITURAS_ESTAVEIS = 2
+         private const val TAG = "VexoOCR"
+         // Registro restrito à main, como os callbacks do serviço e o botão da Activity.
+@@ -107,6 +108,9 @@
+     private val conclusaoAurora = AuroraFinalizacao()
+     private val ordemQuadros = OrdemQuadrosPainel<PainelOcrFlutuante>()
+     private val frescorPainel = FrescorCenaPainel()
++    private data class QuadroPendente(val bitmap: Bitmap, val painel: PainelOcrFlutuante,
++                                      val geometria: QuadroPainel, val cena: FrescorCenaPainel.Bilhete)
++    private val filaPainel = SlotCenaOcr<QuadroPendente>()
+     @Volatile private var exportadorLab: Lab99Exportador? = null
+     private val ui = Handler(Looper.getMainLooper())
+     private val tintaPainel = Paint().apply { color = Color.BLACK }
+@@ -281,6 +285,7 @@
+     private fun solicitarParada() {
+         if (finalizando) return
+         finalizando = true
++        descartarItemFila(filaPainel.fechar(),"parada")
+         stopSelf()
+     }
+ 
+@@ -294,7 +299,10 @@
+     private fun lerUmaVez() {
+         if (modoPainel) {
+             ui.post { painel?.visibilidadeExterna(!CapturaEstado.telaPropriaVisivel) }
+-            if (CapturaEstado.telaPropriaVisivel) return
++            if (CapturaEstado.telaPropriaVisivel) {
++                descartarItemFila(filaPainel.retirar(),"pausa")
++                return
++            }
+         }
+         val leitor = imageReader ?: return
+         val imagem: Image? = try {
+@@ -307,11 +315,18 @@
+         val quadro = painelAtual?.quadro
+         val instanteImagem = SystemClock.elapsedRealtime()
+         var bilheteCena:FrescorCenaPainel.Bilhete? = null
++        var reservar = false
+         val bitmap = try {
+             if (modoPainel) {
+                 if (finalizando || painelAtual==null || quadro==null ||
+-                    !quadro.podeLer(imagem.width,imagem.height,instanteImagem)) return
+-                val amostraCena=amostrarCena(imagem,quadro.caixa ?: return) ?: return
++                    !quadro.podeLer(imagem.width,imagem.height,instanteImagem)) {
++                    descartarItemFila(filaPainel.retirar(),"geometria")
++                    return
++                }
++                val amostraCena=amostrarCena(imagem,quadro.caixa ?: return) ?: run {
++                    descartarItemFila(filaPainel.retirar(),"sem_amostra")
++                    return
++                }
+                 val estado=frescorPainel.observar(amostraCena,imagem.timestamp,instanteImagem)
+                 bilheteCena=estado.bilhete
+                 if (estado.motivo=="mudanca_suspeita" || estado.limpar) {
+@@ -324,8 +339,22 @@
+                         Log.i(TEMPO_TAG,"limpeza_cena t="+SystemClock.elapsedRealtime())
+                     }
+                 }
+-                // While the recognizer is busy, only the compact sampling above is needed.
+-                if (ocupado || bilheteCena==null) return
++                val bilheteEstavel=bilheteCena
++                val epocaPendente=filaPainel.epocaPendente()
++                if (epocaPendente!=null && estado.motivo!="duplicado" &&
++                    (bilheteEstavel==null || bilheteEstavel.epoca!=epocaPendente)) {
++                    descartarItemFila(filaPainel.retirar(),"outra_cena")
++                }
++                if (bilheteEstavel==null) return
++                if (ocupado) {
++                    // Only the first frame of a newly confirmed, non-flat scene is worth copying.
++                    if (!estado.limpar || !filaPainel.aceitaCopia(bilheteEstavel.epoca)) return
++                    if (!SlotCenaOcr.temEstrutura(amostraCena)) {
++                        reportarDescarteFila(bilheteEstavel.epoca,"sem_estrutura")
++                        return
++                    }
++                    reservar = true
++                }
+             }
+             imagemParaBitmap(imagem)
+         } finally {
+@@ -333,6 +362,86 @@
+         }
+         val cena=bilheteCena
+         if (modoPainel && (quadro == null || !protegerFrameDoPainel(bitmap,quadro))) {
++            bitmap.recycle()
++            return
++        }
++        if (reservar && painelAtual!=null && quadro!=null && cena!=null) {
++            val pendente=QuadroPendente(bitmap,painelAtual,quadro,cena)
++            val motivo=motivoInvalido(pendente)
++            if (motivo!=null) {
++                bitmap.recycle()
++                reportarDescarteFila(cena.epoca,motivo)
++                return
++            }
++            val entrada=filaPainel.guardar(cena.epoca,pendente)
++            if (!entrada.aceita) {
++                bitmap.recycle()
++                reportarDescarteFila(cena.epoca,"slot_rejeitou")
++            } else {
++                descartarItemFila(entrada.substituido,"substituido")
++                Log.i(FILA_TAG,"fila_guardou epoca="+cena.epoca+" cap="+cena.capturadoEm+
++                    " t="+SystemClock.elapsedRealtime())
++            }
++            return
++        }
++        submeterParaOcr(bitmap,painelAtual,quadro,cena)
++    }
++
++    private fun motivoInvalido(pendente:QuadroPendente):String? {
++        if (finalizando) return "parada"
++        if (!modoPainel || CapturaEstado.telaPropriaVisivel) return "pausa"
++        if (painel!==pendente.painel || pendente.painel.quadro.versao!=pendente.geometria.versao)
++            return "geometria"
++        if (!frescorPainel.valido(pendente.cena,SystemClock.elapsedRealtime())) return "sem_frescor"
++        return null
++    }
++
++    private fun reportarDescarteFila(epoca:Long,motivo:String) {
++        Log.i(FILA_TAG,"fila_descartou epoca="+epoca+" motivo="+motivo+
++            " t="+SystemClock.elapsedRealtime())
++    }
++
++    private fun descartarItemFila(item:SlotCenaOcr.Item<QuadroPendente>?,motivo:String) {
++        if (item==null) return
++        item.quadro.bitmap.recycle()
++        reportarDescarteFila(item.epoca,motivo)
++    }
++
++    /** Only invoked on the capture handler so neither drain nor poll can start a second OCR. */
++    private fun drenarFilaPainel() {
++        if (ocupado) return
++        val item=filaPainel.retirar() ?: return
++        val q=item.quadro
++        val motivo=motivoInvalido(q)
++        if (motivo!=null) {
++            descartarItemFila(item,motivo)
++            return
++        }
++        Log.i(FILA_TAG,"fila_drenou epoca="+q.cena.epoca+" cap="+q.cena.capturadoEm+
++            " t="+SystemClock.elapsedRealtime())
++        submeterParaOcr(q.bitmap,q.painel,q.geometria,q.cena)
++    }
++
++    private fun concluirUsoReconhecedor() {
++        if (!modoPainel) {
++            ocupado=false
++            return
++        }
++        val handler=handlerLeitura
++        if (finalizando || handler==null || !handler.post {
++                ocupado=false
++                drenarFilaPainel()
++            }) {
++            ocupado=false
++            descartarItemFila(filaPainel.fechar(),"parada")
++        }
++    }
++
++    /** Receives an owned bitmap, already masked for the external balloon. */
++    private fun submeterParaOcr(bitmap:Bitmap,painelAtual:PainelOcrFlutuante?,
++                               quadro:QuadroPainel?,cena:FrescorCenaPainel.Bilhete?) {
++        if (modoPainel && (painelAtual==null || quadro==null || cena==null ||
++                motivoInvalido(QuadroPendente(bitmap,painelAtual,quadro,cena))!=null)) {
+             bitmap.recycle()
+             return
+         }
+@@ -358,7 +467,7 @@
+             return
+         }
+         // Rastreamento visual continua mesmo enquanto o OCR está ocupado.
+-        val capturadoEm = if (modoPainel) instanteImagem else SystemClock.elapsedRealtime()
++        val capturadoEm = cena?.capturadoEm ?: SystemClock.elapsedRealtime()
+         if (!modoPainel) detectorDeCard.observar(bitmap, capturadoEm)
+         if (ocupado || finalizando) {
+             bitmap.recycle()
+@@ -374,7 +483,14 @@
+         val bitmapOCR=if(cena==null) bitmap else runCatching { usarFaixaCompacta(bitmap) }.getOrDefault(bitmap)
+         if(cena!=null && bilhete!=null) Log.i(AQUER_TAG,"ocr_pixels seq="+bilhete.numero+
+             " w="+bitmapOCR.width+" h="+bitmapOCR.height+" original_h="+bitmap.height)
+-        reconhecedor.process(InputImage.fromBitmap(bitmapOCR, 0))
++        val task=try { reconhecedor.process(InputImage.fromBitmap(bitmapOCR, 0)) }
++        catch (_:RuntimeException) {
++            if (bitmapOCR!==bitmap) bitmapOCR.recycle()
++            bitmap.recycle()
++            concluirUsoReconhecedor()
++            return
++        }
++        task
+             .addOnSuccessListener { resultado ->
+                 if (bilhete!=null) Log.i(TEMPO_TAG,"ocr_fim seq="+bilhete.numero+
+                     " ms="+(SystemClock.elapsedRealtime()-inicioOCR)+" t="+SystemClock.elapsedRealtime())
+@@ -455,13 +571,16 @@
+             }
+             .addOnCompleteListener {
+                 if(bitmapOCR!==bitmap) bitmapOCR.recycle()
+-                ocupado = false
+-                val dados = amostra
+-                val entregue = if (dados != null && gravador != null && sessaoGravada != null &&
+-                    sessaoGravada === gravador.atual && !finalizando)
+-                    gravador.registrar(sessaoGravada, bitmap, dados)
+-                else false
+-                if (!entregue) bitmap.recycle()
++                var entregue=false
++                try {
++                    val dados = amostra
++                    if (dados != null && gravador != null && sessaoGravada != null &&
++                        sessaoGravada === gravador.atual && !finalizando)
++                        entregue=gravador.registrar(sessaoGravada, bitmap, dados)
++                } finally {
++                    if (!entregue) bitmap.recycle()
++                    concluirUsoReconhecedor()
++                }
+             }
+     }
+ 
+@@ -483,12 +602,12 @@
+                 if (tarefa.isSuccessful) Log.i(AQUER_TAG,
+                     "prewarm_fim ms="+(SystemClock.elapsedRealtime()-inicio))
+                 else Log.i(AQUER_TAG,"prewarm_erro ms="+(SystemClock.elapsedRealtime()-inicio))
+-                ocupado=false
++                concluirUsoReconhecedor()
+             }
+         } catch (_:RuntimeException) {
+             teste.recycle()
+             Log.i(AQUER_TAG,"prewarm_erro ms="+(SystemClock.elapsedRealtime()-inicio))
+-            ocupado=false
++            concluirUsoReconhecedor()
+         }
+     }
+ 
+@@ -562,6 +681,7 @@
+             display.surface=novo.surface
+             imageReader=novo
+             frescorPainel.reiniciar()
++            descartarItemFila(filaPainel.retirar(),"redimensionamento")
+             dimensoesCaptura=w to h
+             antigo?.close()
+         }.onFailure { novo.close() }
+@@ -884,6 +1004,7 @@
+ 
+     override fun onDestroy() {
+         finalizando = true
++        descartarItemFila(filaPainel.fechar(),"parada")
+         if (instanciaParaParada?.get() === this) instanciaParaParada = null
+         exportadorLab?.fechar()
+         exportadorLab = null
+--- /dev/null
++++ b/app/src/main/java/com/trackingracing/SlotCenaOcr.kt
+@@ -0,0 +1,52 @@
++package com.trackingracing
++
++/** One owned frame, reserved by the capture thread; stop may close it from UI. */
++internal class SlotCenaOcr<T : Any> {
++    data class Item<T>(val epoca: Long, val quadro: T)
++    data class Entrada<T>(val aceita: Boolean, val substituido: Item<T>?)
++    private var item: Item<T>? = null
++    private var ultimaEpocaCopiada: Long? = null
++    private var fechado = false
++
++    @Synchronized fun aceitaCopia(epoca: Long): Boolean =
++        !fechado && (ultimaEpocaCopiada?.let { epoca > it } ?: true)
++
++    /** The caller keeps the new item on rejection and releases every detached item. */
++    @Synchronized fun guardar(epoca: Long, quadro: T): Entrada<T> {
++        if (!aceitaCopia(epoca)) return Entrada(false, null)
++        val anterior = item
++        item = Item(epoca, quadro)
++        ultimaEpocaCopiada = epoca
++        return Entrada(true, anterior)
++    }
++
++    @Synchronized fun epocaPendente(): Long? = item?.epoca
++
++    @Synchronized fun retirar(): Item<T>? = item.also { item = null }
++
++    @Synchronized fun fechar(): Item<T>? {
++        fechado = true
++        return item.also { item = null }
++    }
++
++    companion object {
++        /** Excludes visibly flat frames from the reserve, not an offer classifier. */
++        fun temEstrutura(amostra: IntArray): Boolean {
++            val faixas = IntArray(16)
++            var validos = 0
++            for (rgb in amostra) {
++                if (rgb < 0) continue
++                val r = rgb shr 16 and 255
++                val g = rgb shr 8 and 255
++                val b = rgb and 255
++                faixas[(r * 54 + g * 183 + b * 19) shr 12]++
++                validos++
++            }
++            if (validos == 0 || validos * 3 < amostra.size) return false
++            val minimo = maxOf(4, (validos + 99) / 100)
++            val baixa = faixas.indexOfFirst { it >= minimo }
++            val alta = faixas.indexOfLast { it >= minimo }
++            return baixa >= 0 && alta - baixa >= 2
++        }
++    }
++}
+--- /dev/null
++++ b/app/src/test/java/com/trackingracing/SlotCenaOcrTest.kt
+@@ -0,0 +1,68 @@
++package com.trackingracing
++
++import org.junit.Assert.*
++import org.junit.Test
++
++class SlotCenaOcrTest {
++    @Test fun primeiraCopiaSomenteMesmoDepoisDeDrenar() {
++        val s=SlotCenaOcr<String>()
++        assertTrue(s.aceitaCopia(5))
++        assertTrue(s.guardar(5,"A").aceita)
++        assertFalse(s.aceitaCopia(5))
++        assertFalse(s.guardar(5,"duplicata").aceita)
++        assertEquals("A",s.retirar()?.quadro)
++        assertNull(s.retirar())
++        assertFalse(s.aceitaCopia(5))
++        assertFalse(s.aceitaCopia(3))
++        assertTrue(s.aceitaCopia(6))
++    }
++
++    @Test fun novaEpocaSubstituiApenasUmItem() {
++        val s=SlotCenaOcr<String>()
++        assertTrue(s.guardar(10,"A").aceita)
++        val novo=s.guardar(12,"B")
++        assertTrue(novo.aceita)
++        assertEquals(SlotCenaOcr.Item(10L,"A"),novo.substituido)
++        assertEquals(12L,s.epocaPendente())
++        assertEquals(SlotCenaOcr.Item(12L,"B"),s.retirar())
++        assertNull(s.retirar())
++    }
++
++    @Test fun pararEntregaRecursoUmaVezEBloqueiaCopiaConcorrente() {
++        val s=SlotCenaOcr<String>()
++        assertTrue(s.guardar(1,"A").aceita)
++        assertTrue(s.aceitaCopia(2))
++        assertEquals("A",s.fechar()?.quadro)
++        assertFalse(s.guardar(2,"B").aceita)
++        assertFalse(s.aceitaCopia(3))
++        assertNull(s.retirar())
++        assertNull(s.fechar())
++    }
++
++    @Test fun pausaRetiraSemReabrirEpocaAntiga() {
++        val s=SlotCenaOcr<String>()
++        assertTrue(s.guardar(2,"A").aceita)
++        assertEquals("A",s.retirar()?.quadro)
++        assertFalse(s.guardar(2,"A").aceita)
++        assertTrue(s.guardar(3,"B").aceita)
++    }
++
++    @Test fun fundoUniformeOuRuidoEsparsoNaoRecebemReserva() {
++        val neutro=IntArray(1152){0xff4444}
++        assertFalse(SlotCenaOcr.temEstrutura(neutro))
++        neutro[2]=0x000000
++        neutro[3]=0xffffff
++        assertFalse(SlotCenaOcr.temEstrutura(neutro))
++        assertFalse(SlotCenaOcr.temEstrutura(IntArray(1152){-1}))
++    }
++
++    @Test fun cenaEstruturadaComMascaraSuficientePodeReceberReserva() {
++        assertTrue(SlotCenaOcr.temEstrutura(IntArray(1152){ i ->
++            when {
++                i<400 -> -1
++                i<800 -> 0x222222
++                else -> 0xdddddd
++            }
++        }))
++    }
++}

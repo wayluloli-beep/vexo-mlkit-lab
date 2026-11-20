@@ -16,9 +16,9 @@ import zlib
 from pathlib import Path
 
 REPO = 'wayluloli-beep/vexo-mlkit-lab'
-BRANCH = 'vexo-live-aurora-r11-once'
-ROUND = 'r11'
-TAG = 'R11_RETENTION'
+BRANCH = 'vexo-live-aurora-r12-once'
+ROUND = 'r12'
+TAG = 'R12_RETENTION'
 API = '/repos/' + REPO
 LIMIT = 1536 * 1024
 VIDEO_NAME = 'vexo-fluxo.mp4'
@@ -360,7 +360,7 @@ def api_call(token, method, path, body=None):
     try:
         raw = None if body is None else json.dumps(body, separators=(',',':')).encode()
         c.request(method, path, raw, {'Authorization':'Bearer '+token, 'Accept':'application/vnd.github+json',
-                  'User-Agent':'Vexo-R11-private-QA-evidence', 'Content-Type':'application/json',
+                  'User-Agent':'Vexo-R12-private-QA-evidence', 'Content-Type':'application/json',
                   'X-GitHub-Api-Version':'2022-11-28'})
         r = c.getresponse()
         need(200 <= r.status < 300, 'GitHub API status %d (%s)' % (r.status, method))
@@ -414,7 +414,7 @@ def main(env, call=api_call):
         entries.append({'path':dest+name,'mode':'100644','type':'blob','sha':expected_blob})
     tree = api('POST', API+'/git/trees', {'base_tree':base['tree']['sha'], 'tree':entries})
     need(HEX.fullmatch(tree.get('sha','')), 'invalid new tree')
-    commit = api('POST', API+'/git/commits', {'message':'Retain R11 clean AVD evidence [skip ci]', 'tree':tree['sha'], 'parents':[sha]})
+    commit = api('POST', API+'/git/commits', {'message':'Retain R12 clean AVD evidence [skip ci]', 'tree':tree['sha'], 'parents':[sha]})
     need(HEX.fullmatch(commit.get('sha','')), 'invalid new commit')
     check_head()
     updated = api('PATCH', API+'/git/refs/heads/'+BRANCH, {'sha':commit['sha'], 'force':False})

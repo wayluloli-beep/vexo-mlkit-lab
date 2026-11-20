@@ -42,7 +42,7 @@ cleanup() {
   if (( rc != 0 )); then report "FAILED_$stage:$rc"; fi
 }
 trap cleanup EXIT
-[[ $GITHUB_REF == refs/heads/vexo-live-aurora-r11-once ]]
+[[ $GITHUB_REF == refs/heads/vexo-live-aurora-r12-once ]]
 [[ $(git rev-parse HEAD) == "$GITHUB_SHA" ]]
 [[ $(git ls-tree -r --name-only HEAD qa/payload | wc -l) == 24 ]]
 printf '%s  %s\n' '1f1e08574699aabab795687db1816a5962d033652879b21d924cfc590d50199d' "$work/payload.tar.gz" > "$work/payload-check"
@@ -73,6 +73,9 @@ report FRESHNESS_PATCH_CHECKED
 patch --quiet --batch --forward -d "$work/src/aurora" -p1 < qa/aurora-r11.patch
 (cd "$work/src/aurora" && sha256sum --strict --check "$GITHUB_WORKSPACE/qa/product-r11.sha256")
 report PREWARM_PATCH_CHECKED
+patch --quiet --batch --forward -d "$work/src/aurora" -p1 < qa/aurora-r12.patch
+(cd "$work/src/aurora" && sha256sum --strict --check "$GITHUB_WORKSPACE/qa/product-r12.sha256")
+report PENDING_NEWEST_FRAME_PATCH_CHECKED
 if command -v ffmpeg >/dev/null && command -v ffprobe >/dev/null; then report VIDEO_TOOLS_AVAILABLE; else report VIDEO_TOOLS_CONTAINER_ONLY; fi
 ui_python=$(command -v python3)
 # Save unmodified screenshots independently of any host OCR/observer.
@@ -294,7 +297,7 @@ report BOTH_INSTALLED
 stage=REAL_UI
 export ADB="$adb" SERIAL="$serial" PKG=com.trackingracing FIXTURE="$work/src/fixtures/controle-0954.png"
 record_video() {
-  local path="/sdcard/VexoR9-External-Test.mp4" partial="$OUT/recording.partial" capture
+  local path="/sdcard/VexoR12-External-Test.mp4" partial="$OUT/recording.partial" capture
   until [[ -s $OUT/record-external.ready ]]; do
     [[ ! -e $work/stop-recording ]] || return 0
     sleep .2
@@ -332,11 +335,16 @@ if [[ -s $OUT/vexo-r10-native-timing.txt ]]; then
   sed -nE 's/^.*VexoR10[[:space:]]*:[[:space:]]+((cena=|limpeza_cena |ocr_inicio |ocr_fim |ocr_erro |descartado_cena |descartado_apos_parse |falha_isolada |ui_envio )[0-9a-z =_-]{1,155})$/R10_TIMING: \1/p' "$OUT/vexo-r10-native-timing.txt" | tail -200
   sed -nE 's/^.*VexoR11[[:space:]]*:[[:space:]]+((prewarm_inicio |prewarm_fim |prewarm_erro |ocr_pixels )[0-9a-z =_-]{1,155})$/R11_TIMING: \1/p' "$OUT/vexo-r10-native-timing.txt" | tail -100
 fi
+# The R11 driver's row filter is unchanged. Fetch the R12 tag independently and export only
+# the numeric/snake-case event layouts below, never the raw logcat text.
+timeout 8s "$adb" -s "$serial" logcat -d -v monotonic -t 2500 -s VexoR12:V 2>/dev/null |
+  sed -nE 's/^.*[[:space:]]VexoR12[[:space:]]*:[[:space:]]+((fila_guardou|fila_drenou) epoca=[0-9]{1,18} cap=[0-9]{1,18} t=[0-9]{1,18}|fila_descartou epoca=[0-9]{1,18} motivo=[a-z0-9_]{1,35} t=[0-9]{1,18})$/R12_TIMING: \1/p' |
+  tail -120 | tee "$OUT/vexo-r12-native-timing-sanitized.txt" || true
 if [[ -s $OUT/driver-result.json ]]; then
   python3 -m json.tool "$OUT/driver-result.json" | sed 's/^/AURORA_RESULT: /'
   if [[ -n ${GITHUB_STEP_SUMMARY:-} ]]; then
     {
-      printf '### Vexo Aurora Android R11 aquecimento\n\nCommit `%s`, driver exit `%s`.\n\n' "$GITHUB_SHA" "$driver_rc"
+      printf '### Vexo Aurora Android R12 fila de quadros\n\nCommit `%s`, driver exit `%s`.\n\n' "$GITHUB_SHA" "$driver_rc"
       printf '```json\n'
       python3 -m json.tool "$OUT/driver-result.json"
       printf '```\n'

@@ -621,7 +621,7 @@ class Run:
 
     def collect_native_timing(self):
         try:
-            raw=self.cmd('logcat','-d','-v','monotonic','-t','2500','-s','VexoR10:V','VexoR11:V',timeout=8).decode('utf-8','replace')
+            raw=self.cmd('logcat','-d','-v','monotonic','-t','2500','-s','VexoR10:V','VexoR11:V','VexoR12:V',timeout=8).decode('utf-8','replace')
             rows=[line for line in raw.splitlines() if re.search(r'\bVexoR(?:10|11)\s*:',line) and len(line)<=500]
             self.write('vexo-r10-native-timing.txt','\n'.join(rows)+'\n' if rows else '')
             self.ev('native_timing','COLLECTED' if rows else 'UNAVAILABLE',tags=['VexoR10','VexoR11'],lines=len(rows))
