@@ -61,6 +61,7 @@ done < qa/aurora-r18-removed.txt
 patch --quiet --batch --forward -d "$work/src/aurora" -p1 < qa/aurora-r18.patch
 (cd "$work/src/aurora" && sha256sum --strict --check --status "$repo/qa/product-r18.sha256" && [[ $(find . -type f | wc -l) == $(wc -l < "$repo/qa/product-r18.sha256") ]])
 report R18_PRODUCT_CHECKED
+if [[ ${VEXO_QA_COPY_R18:-0} == 1 ]]; then cp -a "$work/src/aurora" "$work/r18-source"; fi
 dest="$work/src/aurora/app/src/main/assets/aurora"
 for path in qa/r19/assets/*; do
   [[ -f $path ]]
