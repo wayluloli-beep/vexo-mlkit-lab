@@ -1,0 +1,16 @@
+<details id="quick-value" hidden>
+  <summary>Calcular quanto sobrou</summary>
+  <p id="quick-value-help" class="detail">Faça a conta de um turno com seus valores. Nada será salvo no histórico.</p>
+  <form id="quick-value-form" aria-describedby="quick-value-help" autocomplete="off" novalidate>
+    <div class="fields">
+      <label for="quick-value-received">Quanto recebeu (R$)<input id="quick-value-received" type="text" inputmode="decimal" maxlength="14" aria-describedby="quick-value-error"></label>
+      <label for="quick-value-spent">Gastos (R$) · opcional<input id="quick-value-spent" type="text" inputmode="decimal" maxlength="14" aria-describedby="quick-value-error"></label>
+    </div>
+    <button type="submit" class="outline">Calcular sobra</button>
+    <div id="quick-value-error" class="detail" role="alert"></div>
+    <div id="quick-value-answer" tabindex="-1" hidden>
+      <p>Sobra após gastos <strong id="quick-value-amount" data-vexo-money></strong></p>
+      <p id="quick-value-note" class="detail"></p>
+    </div>
+  </form>
+</details>

@@ -1,0 +1,39 @@
+.privacy-values {
+  display: flex;
+  gap: 5px 14px;
+  align-items: center;
+  flex-wrap: wrap;
+  margin: -10px 0 14px;
+}
+
+.privacy-values .outline { margin: 0; font-size: .875rem; font-weight: 650; }
+.privacy-values label { display: inline-flex; align-items: center; gap: 8px; min-height: 44px; cursor: pointer; }
+.privacy-values input { flex: none; width: 19px; height: 19px; margin: 0; padding: 0; accent-color: var(--mint); }
+.privacy-values .privacy-status { flex-basis: 100%; margin: 0; font-size: .875rem; color: var(--soft); }
+.privacy-values .privacy-status:empty { margin-top: -5px; }
+
+/* No blur: amount nodes are excluded from both rendering and accessibility. */
+[data-vexo-values-hidden] #inicio .turno-totals dd,
+[data-vexo-values-hidden] #inicio #turno-last-values,
+[data-vexo-values-hidden] #inicio #turno-last-rates,
+[data-vexo-values-hidden] #inicio #turno-last .turno-breakdown-box,
+[data-vexo-values-hidden] #inicio #turno-history li > p,
+[data-vexo-values-hidden] #inicio #turno-history .turno-breakdown-box,
+[data-vexo-values-hidden] #inicio #turno-form [data-turn-step="3"] > .turno-breakdown-box,
+[data-vexo-values-hidden] #inicio .turno-cash-values,
+[data-vexo-values-hidden] #inicio [data-vexo-money],
+[data-vexo-values-hidden] #inicio #goal-value { display: none !important; }
+
+[data-vexo-values-hidden] #inicio .turno-totals > div::after {
+  content: "—";
+  text-align: right;
+  color: var(--soft);
+}
+
+[data-vexo-values-hidden] #inicio .goal { display: grid; justify-items: start; }
+[data-vexo-values-hidden] #inicio .goal::after {
+  content: "—";
+  grid-row: 2;
+  font-size: 1.625rem;
+  color: var(--soft);
+}

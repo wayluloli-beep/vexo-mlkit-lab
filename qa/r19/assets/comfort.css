@@ -1,0 +1,121 @@
+#comfort-settings {
+  margin-top: 24px;
+  padding-top: 13px;
+  border-top: 1px solid var(--line);
+}
+
+#comfort-settings h2 { margin-top: 0; }
+.comfort-control { margin: 12px 0 18px; }
+.comfort-control label { color: inherit; font: inherit; font-weight: 650; }
+
+#comfort-settings .comfort-check {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-height: 48px;
+  cursor: pointer;
+}
+
+#comfort-oled {
+  accent-color: var(--mint);
+  flex: none;
+  width: 20px;
+  height: 20px;
+  margin: 0;
+  padding: 0;
+}
+
+#comfort-hand {
+  display: block;
+  width: min(100%, 19rem);
+  min-height: 48px;
+  margin-top: 6px;
+  padding: 8px 12px;
+  color: inherit;
+  background: #141f28;
+  border: 1px solid #687e89;
+  border-radius: 8px;
+  font: inherit;
+}
+
+#comfort-hand:focus-visible { outline: 3px solid var(--mint); outline-offset: 3px; }
+#comfort-settings .detail { margin: 3px 0 0; }
+#comfort-status { color: #ffd29c; }
+#comfort-status:empty { margin: 0; }
+
+html[data-comfort-oled],
+html[data-comfort-oled] :is(body, nav, .goal, .turno-card, .turno-totals div, .card, .turno-breakdown-box),
+html[data-comfort-oled] :is(#veiculo-frame, #shortcut-editor, #turno-form .turno-breakdown-box) {
+  background: #000;
+}
+
+html[data-comfort-oled] {
+  --line: #516062;
+  --soft: #bfced1;
+}
+
+html[data-comfort-oled] :is(.turno-card, .goal, .turno-breakdown-box) { border-color: var(--line); }
+html[data-comfort-oled] .turno-totals div { border: 1px solid var(--line); }
+
+html[data-comfort-oled] #conteudo input:not([type="checkbox"]),
+html[data-comfort-oled] #comfort-hand,
+html[data-comfort-oled] .outline {
+  background: #101010;
+}
+
+html[data-comfort-oled] #conteudo input:not([type="checkbox"], [aria-invalid="true"]),
+html[data-comfort-oled] #comfort-hand,
+html[data-comfort-oled] .outline {
+  border-color: #687e89;
+}
+
+/* The feedback fields carry existing inline colors. */
+html[data-comfort-oled] #local-feedback :is(select, textarea) {
+  background: #101010 !important;
+  border-color: #687e89 !important;
+}
+
+html[data-comfort-oled] .outline:active,
+html[data-comfort-oled] .card:active { background: #242424; }
+
+/* Meu veículo already derives its dark surfaces from these variables. */
+html[data-theme="dark"][data-comfort-oled] {
+  --app: #000;
+  --vehicle-surface: #000;
+  --line: #516062;
+}
+
+@media (orientation: portrait) and (max-width: 520px) {
+  html[data-comfort-hand] { scroll-padding-bottom: calc(76px + env(safe-area-inset-bottom, 0px)); }
+
+  html[data-comfort-hand] :is(.shell > header, #conteudo, nav) {
+    padding-left: max(6vw, calc(12px + env(safe-area-inset-left, 0px)));
+    padding-right: max(6vw, calc(12px + env(safe-area-inset-right, 0px)));
+  }
+
+  html[data-comfort-hand] .shell > header { padding-top: calc(21px + env(safe-area-inset-top, 0px)); }
+  html[data-comfort-hand] #conteudo { padding-bottom: calc(112px + env(safe-area-inset-bottom, 0px)); }
+
+  /* Keep actions in document order. No fixed controls above the fields or keyboard. */
+  html[data-comfort-hand] #turno-action {
+    display: block;
+    margin: 16px 0 0;
+    margin-top: clamp(16px, calc(57svh - 290px), 112px);
+  }
+
+  html[data-comfort-hand] #turno-form .turno-buttons {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+
+  html[data-comfort-hand] :is(#turno-action, #turno-form .turno-buttons .solid) {
+    min-width: min(100%, 10rem);
+    min-height: 48px;
+    max-width: 100%;
+    overflow-wrap: anywhere;
+  }
+
+  html[data-comfort-hand] #turno-form .turno-buttons .solid { flex: none; }
+  html[data-comfort-hand="right"] #turno-action { margin-left: auto; }
+  html[data-comfort-hand="right"] #turno-form .turno-buttons .solid { align-self: flex-end; }
+}

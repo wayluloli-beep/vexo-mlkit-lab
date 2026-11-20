@@ -1,0 +1,74 @@
+--- a/onboarding.html
++++ b/onboarding.html
+@@ -361,5 +361,5 @@
+   "use strict";
+   const KEY = "vexo.gain-profile.v1", DRAFT = "vexo.gain-draft.v1", LIMIT = 1000000000;
+-  const profileText = ["type","car","year","trim","base","maintenance","ipva","fuel","income","goal","other"];
++  const profileText = ["type","car","year","trim","base","maintenance","ipva","rentExtras","fuel","income","goal","other"];
+   const brl = new Intl.NumberFormat("pt-BR", {style:"currency",currency:"BRL"});
+   const format = cents => brl.format(cents / 100);
+@@ -453,5 +453,5 @@
+ const FIPE="https://www.fipe.org.br/pt-br/indices/veiculos";
+ const SNAPSHOTS={"ka:2015:se":{"code":"003410-0","ref":"nov/2026","prior":"out/2026","current":34509,"previous":34683,"source":"https://historicocarro.com.br/tabela-fipe/ford/ka-1-5-se-se-plus-16v-flex-5p/2015"},"argo:2024:catalog":{"code":"001494-0","ref":"nov/2026","prior":"out/2026","current":67585,"previous":67386,"source":"https://valordafipe.com.br/tabela-fipe/carros/fiat/argo-drive-1-0-6v-flex/2024-flex"},"gol:2023:catalog":{"code":"005490-9","ref":"nov/2026","prior":"out/2026","current":54695,"previous":54401,"source":"https://www.webmotors.com.br/tabela-fipe/carros/volkswagen/gol/2023/10-12v-mpi-totalflex-4p-manual?uf=df"},"sandero:2020:catalog":{"code":"025288-3","ref":"nov/2026","prior":"out/2026","current":45976,"previous":44422,"source":"https://www.fipehistorica.com.br/fipe/renault/sandero-zen-flex-1-0-12v-5p-mec/2020-5/025288-3"},"prisma:2019:catalog":{"code":"004433-4","ref":"nov/2026","prior":"out/2026","current":59181,"previous":59279,"source":"https://placafipe.com/tabela-fipe/carros/gm---chevrolet/prisma-sed-lt-14-8v-flexpower-4p/2019-flex"}};
+-const defaults=()=>({works:null,type:null,car:"",year:"",trim:"",base:"",maintenance:"",ipva:"",fuel:"",income:"",goal:"",other:"",simDays:26,simHours:8,useExamples:true});
++const defaults=()=>({works:null,type:null,car:"",year:"",trim:"",base:"",maintenance:"",ipva:"",rentExtras:"",fuel:"",income:"",goal:"",other:"",simDays:26,simHours:8,useExamples:true});
+ const entryDisclosure=window.VexoEntryDisclosure;
+ let s=window.VexoGainPlan.restore(defaults()), page=entryDisclosure.hasAccepted()?"home":"disclosure", stack=[], busy=false, energy=0, exampleOnly=false;
+@@ -465,5 +465,5 @@
+ const joinPt=new Intl.ListFormat("pt-BR",{type:"conjunction"});
+ const numberBR=new Intl.NumberFormat("pt-BR",{minimumFractionDigits:2,maximumFractionDigits:2});
+-const moneyFields=new Set(["base","maintenance","ipva","fuel","income","goal","other","offerValue"]);
++const moneyFields=new Set(["base","maintenance","ipva","rentExtras","fuel","income","goal","other","offerValue"]);
+ function moneyText(n){return numberBR.format(n).replace(/^(\d)(\d{3},)/,"$1.$2")}
+ function moneyField(i){const n=amount(i.value);if(n!==null)i.value=moneyText(n)}
+@@ -473,4 +473,8 @@
+  else if(/^\d+,\d{1,2}$/.test(v))v=v.replace(",",".");
+  return /^\d+(\.\d{1,2})?$/.test(v)&&Number.isFinite(+v)&&+v<=10000000?+v:null;
++}
++function weeklyRent(raw){
++ const monthly=amount(raw);
++ return monthly===null?"—":br.format(monthly*12/52);
+ }
+ function icon(n){return '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">'+({arrow:'<path d="M4 12h15m-6-6 6 6-6 6"/>',back:'<path d="M20 12H5m6 6-6-6 6-6"/>',car:'<path d="m5 11 2-5h10l2 5m-14 0h14l2 3v4H3v-4zM6 18v2m12-2v2M6 14h2m8 0h2"/>',key:'<circle cx="8" cy="9" r="4"/><path d="m11 12 8 8 2-2-2-2-1 1-2-2 1-1-3-2"/>',cash:'<rect x="3" y="6" width="18" height="12" rx="3"/><path d="M3 10h18m-14 5h3"/>',spark:'<path d="M12 2c0 5-3 8-8 10 5 1 8 4 8 10 1-6 3-9 8-10-5-2-7-5-8-10Z"/>',map:'<circle cx="12" cy="12" r="9"/><path d="m16 8-2 6-6 2 2-6z"/>'}[n]||"")+"</svg>"}
+@@ -609,5 +613,5 @@
+   return s.useExamples?Number(example):null;
+  };
+- const fixedParts=type==="rent"?[get("base","aluguel",examples.base)]:type?[...(type==="finance"?[get("base","parcela",examples.finance)]:[]),get("ipva","IPVA",examples.ipva),get("maintenance","manutenção",examples.maintenance)]:[];
++ const fixedParts=type==="rent"?[get("base","aluguel",examples.base),typed?amount(s.rentExtras):null]:type?[...(type==="finance"?[get("base","parcela",examples.finance)]:[]),get("ipva","IPVA",examples.ipva),get("maintenance","manutenção",examples.maintenance)]:[];
+  const fixed=fixedParts.reduce((acc,n)=>acc+(n??0),0);
+  const fuel=get("fuel","combustível",examples.fuel),goal=get("goal","meta",examples.goal);
+@@ -682,5 +686,15 @@
+  case "type":body=wrap("",s.works?"Como você roda hoje?":"Como você pretende rodar?","",'<div class="options">'+choice("Alugado","","key","rent")+choice("Próprio quitado","","car","own")+choice("Financiado","","cash","finance")+choice("Ainda tô decidindo","","spark","unknown")+'</div>');break;
+  case "car":body=wrap("MEU VEÍCULO","Qual é o teu carro?","",form('<label class="field">Modelo do catálogo<select name="car" id="car-select"><option value="">Escolher um modelo</option>'+CATALOG.map(c=>'<option value="'+c[0]+'" '+(s.car===c[0]?"selected":"")+'>'+c[1]+'</option>').join("")+'</select></label><div class="row">'+input("year","Ano-modelo","Ex. 2015","numeric")+'<label class="field">Versão<select name="trim" id="trim-select"></select></label></div>',"Continuar",true));break;
+- case "costs":body=wrap("O QUE SAI DO BOLSO",s.type==="rent"?"Quanto custa o aluguel?":s.type==="finance"?"Quanto pesa a parcela?":"Quais custos você já conhece?","",form(s.type==="rent"?input("base","Aluguel mensal · R$","Ex. 4.500"):(s.type==="finance"?input("base","Parcela mensal · R$","Ex. 950"):"")+'<div class="row">'+input("ipva","IPVA por mês · R$","Ex. 120")+input("maintenance","Reserva mensal de manutenção · R$","Ex. 300")+'</div>'));break;
++ case "costs":
++  if(s.type==="rent"){
++   body=wrap("O QUE SAI DO BOLSO","Quanto custa o aluguel?","",form(input("base","Aluguel mensal · R$","Ex. 4.500")
++    +'<p class="micro"><strong>Equivalente semanal estimado</strong> <output id="rent-weekly" for="plano-base" aria-live="polite">'+weeklyRent(s.base)+'</output><br>Valor mensal × 12 ÷ 52. Não indica a frequência de cobrança.</p>'
++    +input("rentExtras","Custos pagos à parte por mês (opcional) · R$","0,00")
++    +'<p class="micro">Só some o que você paga fora do aluguel, como taxas ou seguro. Deixe o combustível pra próxima etapa.</p>'));
++  }else{
++   body=wrap("O QUE SAI DO BOLSO",s.type==="finance"?"Quanto pesa a parcela?":"Quais custos você já conhece?","",form((s.type==="finance"?input("base","Parcela mensal · R$","Ex. 950"):"")
++    +'<div class="row">'+input("ipva","IPVA por mês · R$","Ex. 120")+input("maintenance","Reserva mensal de manutenção · R$","Ex. 300")+'</div>'));
++  }
++  break;
+  case "fuel":body=wrap("COMBUSTÍVEL",s.works?"Quanto vai pro tanque?":"Já tem ideia do combustível?","",form(input("fuel","Combustível mensal · R$","Valor informado por você"),"Continuar",true));break;
+  case "goal":body=wrap("TEU OBJETIVO","Quanto quer levar pra casa?","Se você deixar campos em branco, o plano abre com exemplos nos valores que faltarem.",form(input("goal","Meta pessoal por mês · R$","Ex. 2.000")+(s.works?'<div class="row">'+input("income","Repasses por mês · R$ (opcional)","Ex. 7.800")+input("other","Renda extra por mês · R$ (opcional)","Ex. 500")+'</div>':input("other","Renda extra por mês · R$ (opcional)","Se quiser informar")),"Ver meu plano",true));break;
+@@ -744,5 +758,5 @@
+    b.classList.add("chosen");
+    if(page==="work"){exampleOnly=false;s.works=b.dataset.choice==="yes";window.VexoGainPlan.saveDraft(s);route("type")}
+-   else if(page==="type"){if(s.type!==b.dataset.choice)s.base=s.ipva=s.maintenance="";s.type=b.dataset.choice;window.VexoGainPlan.saveDraft(s);route(s.type==="own"||s.type==="finance"?"car":s.type==="rent"?"costs":"fuel")}
++   else if(page==="type"){if(s.type!==b.dataset.choice)s.base=s.ipva=s.maintenance=s.rentExtras="";s.type=b.dataset.choice;window.VexoGainPlan.saveDraft(s);route(s.type==="own"||s.type==="finance"?"car":s.type==="rent"?"costs":"fuel")}
+  }
+ });
+@@ -788,6 +802,8 @@
+ screen.addEventListener("input",e=>{
+  const {id,name,value,min,max}=e.target;
+- if(["car","costs","fuel","goal"].includes(page)&&["car","year","trim","base","ipva","maintenance","fuel","income","goal","other"].includes(name)){
+-  s[name]=value.slice(0,36);window.VexoGainPlan.saveDraft(s);return;
++ if(["car","costs","fuel","goal"].includes(page)&&["car","year","trim","base","ipva","maintenance","rentExtras","fuel","income","goal","other"].includes(name)){
++  s[name]=value.slice(0,36);
++  if(page==="costs"&&s.type==="rent"&&name==="base")$("rent-weekly").textContent=weeklyRent(s.base);
++  window.VexoGainPlan.saveDraft(s);return;
+  }
+  if(id!=="day-slider"&&id!=="hour-slider")return;

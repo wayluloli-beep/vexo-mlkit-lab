@@ -1,0 +1,46 @@
+name: Vexo R19 private modular checks
+'on':
+  create:
+permissions:
+  contents: read
+jobs:
+  r19-gate:
+    if: ${{ github.repository == 'wayluloli-beep/vexo-mlkit-lab' && github.event.ref_type == 'branch' && github.event.ref == 'vexo-product-r19-modular' && github.event.repository.private == true }}
+    runs-on: ubuntu-26.04
+    timeout-minutes: 30
+    steps:
+      - name: Checkout exact R19 candidate
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+          fetch-depth: 1
+      - name: Rebuild the checked manual edition and test WebView code
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir "${RUNNER_TEMP}/vexo-r19-source"
+          bash qa/r19/materialize.sh "${RUNNER_TEMP}/vexo-r19-source"
+          node qa/r19/ci-manual.cjs web "${RUNNER_TEMP}/vexo-r19-source/src/aurora"
+      - name: Check Android lint and JVM tests
+        shell: bash
+        run: |
+          set -euo pipefail
+          export JAVA_HOME="${JAVA_HOME_17_X64:?}"
+          export PATH="$JAVA_HOME/bin:$PATH"
+          sdk="${ANDROID_HOME:-${ANDROID_SDK_ROOT:-}}"
+          [[ -n $sdk ]]
+          mgr="$sdk/cmdline-tools/latest/bin/sdkmanager"
+          if [[ ! -x $mgr ]]; then
+            mgr=$(find "$sdk/cmdline-tools" -type f -path '*/bin/sdkmanager' | sort -V | tail -1)
+          fi
+          [[ -x $mgr ]]
+          if [[ ! -f $sdk/platforms/android-35/android.jar || ! -x $sdk/build-tools/35.0.0/apksigner ]]; then
+            timeout 300s "$mgr" --sdk_root="$sdk" --install 'platforms;android-35' 'build-tools;35.0.0'
+          fi
+          work="${RUNNER_TEMP}/vexo-r19-source"
+          export GRADLE_USER_HOME="$work/gradle-home"
+          curl --fail --location --silent --show-error --max-time 180 'https://downloads.gradle.org/distributions/gradle-8.11.1-bin.zip' -o "$work/gradle.zip"
+          printf 'f397b287023acdba1e9f6fc5ea72d22dd63669d59ed4a289a29b1a76eee151c6  %s\n' "$work/gradle.zip" | sha256sum --strict --check --status
+          unzip -q "$work/gradle.zip" -d "$work"
+          node qa/r19/ci-manual.cjs android "$work/src/aurora" "$work/gradle-8.11.1/bin/gradle"
