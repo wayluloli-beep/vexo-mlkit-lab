@@ -5,6 +5,7 @@
 
     <application
         android:allowBackup="false"
+        android:fullBackupContent="false"
         android:dataExtractionRules="@xml/vexo_data_extraction_rules"
         android:icon="@drawable/vexo_launcher_mark"
         android:label="Vexo Aurora"

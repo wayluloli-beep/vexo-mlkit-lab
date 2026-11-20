@@ -29,3 +29,17 @@ test('manual bridge preserves the local package, WebView origin and persisted mo
   assert.doesNotMatch(activity, /MODE_WORLD|loadDataWithBaseURL/);
   assert.ok(existsSync(join(src,'app/src/test/java/com/trackingracing/VexoManualWebTest.kt')));
 });
+
+test('platform backup is disabled on both supported Android generations', () => {
+  const manifest = read(main, 'AndroidManifest.xml');
+  assert.match(manifest, /android:allowBackup="false"/);
+  assert.match(manifest, /android:fullBackupContent="false"/);
+  assert.match(manifest, /android:dataExtractionRules="@xml\/vexo_data_extraction_rules"/);
+  const rules = read(main, 'res/xml/vexo_data_extraction_rules.xml');
+  for (const section of ['cloud-backup','device-transfer']) {
+    const body = rules.split('<' + section + '>')[1]?.split('</' + section + '>')[0] || '';
+    for (const domain of ['root','sharedpref','database','device_root','device_sharedpref','device_database']) {
+      assert.ok(body.includes('<exclude domain="' + domain + '" path="."'), section + ' ' + domain);
+    }
+  }
+});
