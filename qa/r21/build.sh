@@ -16,13 +16,13 @@ swap('python3 qa/r20/check.py "$src"',
 '''python3 qa/r20/check.py "$src"
 python3 qa/r21/apply.py "$src"
 python3 qa/r21/check.py "$src"
-echo 'AURA_R21: generating 20 neural pt-BR phrases in an isolated Linux environment'
-sudo apt-get update -qq >/dev/null
-sudo apt-get install -qq -y espeak-ng ffmpeg >/dev/null
-python3 -m venv "$work/aura-voice-venv"
-"$work/aura-voice-venv/bin/pip" install --disable-pip-version-check --quiet --no-cache-dir "kokoro==0.9.4" "numpy" "soundfile"
-"$work/aura-voice-venv/bin/python" qa/r21/generate_voice.py "$src/app/src/main/assets/aurora/aura-phrases.json" "$src/app/src/main/assets/aurora/voice"
-[[ $(find "$src/app/src/main/assets/aurora/voice" -maxdepth 1 -name '*.ogg' | wc -l) == 20 ]]
+echo 'AURA_R21: reuse the 20 neural audio clips from the already verified private R21 build'
+[[ -n "${GH_TOKEN:-}" ]]
+command -v gh >/dev/null
+mkdir -p "$work/aura-verified"
+gh release download vexo-r21-aura-test-ba970986cca9-44826397620 -R wayluloli-beep/vexo-mlkit-lab -p Vexo-R21-Aura-Sync.apk -D "$work/aura-verified"
+printf 'fce92d39748c51b7dff87ae86c3b2530953c4607e5cfbf8fef48a75120a582e5  %s\\n' "$work/aura-verified/Vexo-R21-Aura-Sync.apk" | sha256sum --strict --check
+python3 qa/r21/extract_verified_clips.py "$work/aura-verified/Vexo-R21-Aura-Sync.apk" "$src/app/src/main/assets/aurora/aura-phrases.json" "$src/app/src/main/assets/aurora/voice"
 python3 - "$src" <<'PYPATCH'
 from pathlib import Path
 import sys
