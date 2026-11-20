@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """One already-running dedicated API 35 AVD. No build, install, grants, remote, or injected data."""
-import concurrent.futures, datetime, json, os, re, shutil, struct, subprocess, sys, time, unicodedata
+import concurrent.futures, datetime, hashlib, json, os, re, shutil, struct, subprocess, sys, time, unicodedata
 from pathlib import Path
 from xml.etree import ElementTree as ET
 
@@ -326,7 +326,7 @@ class Run:
     def __init__(self):
         self.adb=os.environ['ADB'];self.serial=os.environ['SERIAL'];self.pkg=os.environ['PKG'];self.out=Path(os.environ['OUT']);self.out.mkdir(parents=True,exist_ok=True)
         if self.serial!='emulator-5554' or self.pkg!='com.trackingracing':raise Failure('unrecognized dedicated target or package')
-        self.start=time.monotonic();self.st='preflight';self.seq=0;self.granted=False;self.stop_ok=False;self.primary=False;self.results={};self.errs=[];self.last_xml=None
+        self.start=time.monotonic();self.st='preflight';self.seq=0;self.granted=False;self.stop_ok=False;self.primary=False;self.results={};self.errs=[];self.last_xml=None;self.reviews={}
     def ev(self,stage,result,**kw):
         msg={'elapsed_s':round(time.monotonic()-self.start,2),'utc':datetime.datetime.now(datetime.timezone.utc).isoformat(),'stage':stage,'status':result,**kw}
         with (self.out/'driver-events.jsonl').open('a') as f:f.write(json.dumps(msg,ensure_ascii=False)+'\n')
@@ -365,7 +365,9 @@ class Run:
         raise Failure(stage+': '+why)
     def act(self,k,point,what):
         # The only taps entered by the driver come from the immediately preceding parsed UI tree.
-        self.sh('input','tap',*point);self.ev(what,'TAP',xml=k+'.xml',point=point);time.sleep(.35)
+        self.sh('input','tap',*point);ack=time.monotonic()
+        self.ev(what,'TAP',xml=k+'.xml',point=point,tap_ack_s=round(ack-self.start,3));time.sleep(.35)
+        return ack
     def swipes(self,r,k,pkg):
         choices=sorted((v for n in r.iter('node') if n.get('package')==pkg and n.get('scrollable')=='true' and (v:=bounds(n.get('bounds')))),key=lambda x:(x[2]-x[0])*(x[3]-x[1]),reverse=True)
         if not choices:return False
@@ -502,7 +504,11 @@ class Run:
         self.app_button('external_entry')
         self.st='app_disclosure'
         r,k,xy=self.observe('disclosure',lambda r:coords(r,self.pkg,['Continuar']) if 'ativar ocr externo' in norm(alltext(r,self.pkg)) else None)
-        self.shot('disclosure-visible');self.act(k,xy,'disclosure_continue')
+        p=self.shot('disclosure-visible')
+        copy=norm(alltext(r,self.pkg))
+        self.ev('app_disclosure','OBSERVED',xml=k+'.xml',png=p.name,
+                newer_storage_copy_visible='salvar texto e imagens' in copy and 'antes de voce exportar' in copy)
+        self.act(k,xy,'disclosure_continue')
         self.st='system_overlay';self.settings();self.st='system_projection'
         p,k=self.confirm_system_projection()
         self.st='active_projection_service'
@@ -518,7 +524,7 @@ class Run:
     def scene(self,scene):
         label={'A':'Mostrar cena A','B':'Mostrar cena B','N':'Retirar cartão','D':'Mostrar cena de controle D'}[scene]
         r,k,xy=self.observe('select-'+scene,lambda r:coords(r,SOURCE,[label]),16)
-        self.act(k,xy,'show_'+scene);self.shot('scene-'+scene+'-edge')
+        return self.act(k,xy,'show_'+scene),k
     def crop_text(self,pic,frame):
         if not frame:return ''
         l,t,r,b=frame;dst=pic.with_suffix('.crop.png')
@@ -537,31 +543,64 @@ class Run:
             q=subprocess.run([tess,str(dst),'stdout','-l','eng','--psm','6'],capture_output=True,text=True,timeout=6)
             self.write(dst.name+'.txt',q.stdout);return q.stdout
         except (OSError,ValueError,subprocess.SubprocessError):return ''
-    def probe(self,scene,seconds):
-        end=time.monotonic()+seconds;seen=False;err='';diag={'owner_2038_seen':False,'frame':None,'external_foreground':False,'xml_has_owner_text':False,'crop_has_ocr_text':False}
-        while time.monotonic()<end:
-            try:
-                r,k=self.xml('paint-'+scene,True)
-            except Failure as e:
-                if 'ANR' in str(e):raise
-                err=str(e);r=None;self.seq+=1;k=f'{self.seq:03}-paint-{scene}'
-            wm=self.sh('dumpsys','window','windows');act=self.sh('dumpsys','activity','activities')
-            self.write(k+'-windows.txt',wm);self.write(k+'-resumed.txt','\n'.join(l for l in act.splitlines() if 'ResumedActivity' in l or 'mResumedActivity' in l))
-            has,frame=overlay_window(wm,self.pkg,True,getattr(self,'uid',None))
-            pic=self.shot(k);seen|=has;diag.update(owner_2038_seen=seen,frame=frame,external_foreground=foreground_fixture(wm,act),screenshot=pic.name)
-            if has and foreground_fixture(wm,act):
-                txt=overlay_text(r,self.pkg,frame)
-                self.write(k+'-overlay-xml-text.txt',txt);diag['xml_has_owner_text']|=bool(txt.strip())
-                if metric(scene,txt):
-                    print('LIVE:overlay_'+scene+':WITNESS:'+json.dumps({'scene':scene,'owner':self.pkg,'uid_expected':getattr(self,'uid',None),'type':2038,'foreground':SOURCE,'via':'window-bounded UI XML','frame':frame,'observed':measurements(scene,txt),'xml':k+'.xml','screenshot':pic.name}),flush=True)
-                    self.ev('overlay_'+scene,'PASS',via='UiAutomator owner + exact metrics + visible WM overlay',xml=k+'.xml',png=pic.name,frame=frame);return True
-                txt=self.crop_text(pic,frame);diag['crop_has_ocr_text']|=bool(txt.strip())
-                if metric(scene,txt):
-                    print('LIVE:overlay_'+scene+':WITNESS:'+json.dumps({'scene':scene,'owner':self.pkg,'uid_expected':getattr(self,'uid',None),'type':2038,'foreground':SOURCE,'via':'cropped real screen OCR','frame':frame,'observed':measurements(scene,txt),'screenshot':pic.name}),flush=True)
-                    self.ev('overlay_'+scene,'PASS',via='WM rect cropped from screen + OCR',png=pic.name,frame=frame);return True
-            time.sleep(.4)
-        print('LIVE:overlay_'+scene+':TIMEOUT_DIAGNOSTIC:'+json.dumps(diag),flush=True)
-        raise Failure('no populated matching owner-bound balloon; window_seen='+str(seen)+' '+err)
+    def capture_scene_review(self,scene,tap_ack,k):
+        """Bracket the original ADB screenshot with ownership/focus from the real system."""
+        def state(phase):
+            wm=self.sh('dumpsys','window','windows',timeout=5)
+            act=self.sh('dumpsys','activity','activities',timeout=5)
+            self.write(f'scene-{scene}-{phase}-windows.txt',wm)
+            self.write(f'scene-{scene}-{phase}-resumed.txt','\n'.join(
+                l for l in act.splitlines() if re.search(r'resumedActivity',l,re.I)))
+            has,frame=overlay_window(wm,self.pkg,True,self.uid)
+            digest_readable=bool(re.search(r'(?im)^\s*Window #\d+ Window\{',wm))
+            return digest_readable and foreground_fixture(wm,act),has,frame
+
+        before=state('before')
+        # This is the sampling time, not ML Kit latency, time-to-updated-overlay or proof of accuracy.
+        time.sleep(max(0,6.2-(time.monotonic()-tap_ack)))
+        shot_start=time.monotonic()
+        pic=self.shot('scene-'+scene+'-review')
+        shot_finish=time.monotonic()
+        after=state('after')
+        raw=pic.read_bytes()
+        if len(raw)<24 or raw[8:16]!=b'\x00\x00\x00\x0dIHDR':
+            raise Failure('invalid PNG header for scene screenshot')
+        screen=struct.unpack_from('>II',raw,16)
+        visible=bool(before[1] and after[1] and before[2] and before[2]==after[2]
+                     and before[2][2]<=screen[0] and before[2][3]<=screen[1])
+        external=before[0] and after[0]
+        no_overlay=not before[1] and not after[1]
+        ready=bool(external and (visible or (scene=='N' and no_overlay)))
+        info={
+            'scene':scene,'screenshot':pic.name,'sha256':hashlib.sha256(raw).hexdigest(),
+            'tap_xml':k+'.xml','tap_ack_s':round(tap_ack-self.start,3),
+            'tap_to_screenshot_start_s':round(shot_start-tap_ack,3),
+            'tap_to_screenshot_end_s':round(shot_finish-tap_ack,3),
+            'foreground':SOURCE if external else None,'structural_ready':ready,
+            'owner':self.pkg if visible else None,'owner_2038_visible':visible,
+            'type':2038 if visible else None,'uid_expected':self.uid,'screen':list(screen),
+            'overlay_frame':list(before[2]) if visible else None,
+            'overlay_absent_both_dumps':no_overlay,
+            'ocr_pixels_status':'REVIEW_REQUIRED' if ready else 'UNVERIFIED'
+        }
+        self.reviews[scene]=info
+        print('LIVE:scene_'+scene+':REVIEW_CAPTURE:'+json.dumps(info),flush=True)
+        self.ev('scene_'+scene,'STRUCTURAL_READY' if ready else 'INCONCLUSIVE',**info)
+        return info
+
+    def analyze_scene_review(self,scene,info):
+        # Run the optional observer after stopping the real capture. It cannot short-circuit B or N.
+        if not info['structural_ready'] or not info['overlay_frame'] or not shutil.which('tesseract'):
+            return None
+        pic=self.out/info['screenshot']
+        result=measurements(scene,self.crop_text(pic,info['overlay_frame']))
+        if result is not None:
+            print('LIVE:overlay_'+scene+':WITNESS:'+json.dumps(
+                {'scene':scene,'owner':self.pkg,'type':2038,'foreground':SOURCE,
+                 'via':'cropped real screen OCR','frame':info['overlay_frame'],
+                 'observed':result,'screenshot':pic.name}),flush=True)
+            self.ev('overlay_'+scene,'PASS',observed=result,png=pic.name)
+        return result
     def stop(self):
         self.st='stop_real'
         before=self.sh('dumpsys','media_projection');before_svc=self.sh('dumpsys','activity','services',self.pkg)
@@ -580,6 +619,7 @@ class Run:
             time.sleep(.6)
         raise Failure('stop not established: empty current projection + no FGS/service/window + external foreground required')
     def run(self):
+        recording=False
         try:
             self.st='preflight'
             if self.cmd('get-state').strip()!=b'device' or self.sh('getprop','sys.boot_completed').strip()!='1':raise Failure('dedicated AVD not ready')
@@ -591,12 +631,16 @@ class Run:
             self.uid=int(um[1]) if um else None
             proj=self.sh('dumpsys','media_projection');self.write('baseline-projection.txt',proj)
             if projection_state(proj,self.pkg) is not False:raise Failure('baseline projection not verifiably empty')
-            self.ev('preflight','PASS');self.consent();self.st='fixture_A';self.source();self.scene('A');self.probe('A',52)
-            self.primary=True;self.results['A']='PASS'
-            for scene in ('B','N'):
-                if time.monotonic()-self.start>215:self.results[scene]='SKIPPED_TO_RESERVE_STOP';continue
-                try:self.st='fixture_'+scene;self.scene(scene);self.probe(scene,19);self.results[scene]='PASS'
-                except Exception as e:self.results[scene]='INCONCLUSIVE';self.ev('optional_'+scene,'INCONCLUSIVE',reason=str(e)[:300])
+            self.ev('preflight','PASS');self.consent();self.st='open_external_fixture';self.source()
+            self.write('record-external.ready','ready\n');recording=True;time.sleep(1.3)
+            for scene in ('A','B','N'):
+                try:
+                    self.st='fixture_'+scene;ack,xml=self.scene(scene)
+                    self.capture_scene_review(scene,ack,xml)
+                except Exception as e:
+                    self.errs.append((self.st,str(e)));self.ev(self.st,'INCONCLUSIVE',reason=str(e)[:300])
+                    try:self.shot('failure-'+self.st)
+                    except Exception:pass
         except Exception as e:
             self.errs.append((self.st,str(e)));self.ev(self.st,'FAIL_OR_INCONCLUSIVE',reason=str(e)[:450])
             try:
@@ -608,8 +652,22 @@ class Run:
             if self.granted:
                 try:self.stop()
                 except Exception as e:self.errs.append(('stop',str(e)));self.ev('stop','INCONCLUSIVE',reason=str(e)[:450])
-            passed=self.primary and self.stop_ok
-            out={'primary_chain':'PASS' if passed else 'NOT_PROVEN','A':self.primary,'stop':self.stop_ok,'variants':self.results,'errors':self.errs,'gallery':'NOT_RUN','stop_extent':'Observed Android service, current projection and window removal on external foreground; not internal history persistence.'}
-            self.write('driver-result.json',json.dumps(out,ensure_ascii=False,indent=2));self.ev('driver',out['primary_chain'])
-        return 0 if passed else 1
+            if recording:self.write('record-external.done','done\n')
+        for scene in ('A','B','N'):
+            info=self.reviews.get(scene)
+            if not info or not info['structural_ready']:
+                self.results[scene]='INCONCLUSIVE' if recording else 'NOT_RUN'
+                continue
+            try:found=self.analyze_scene_review(scene,info)
+            except Exception as e:
+                found=None;self.ev('optional_text_'+scene,'UNAVAILABLE',reason=str(e)[:200])
+            self.results[scene]='PASS' if found is not None else 'VISUAL_REVIEW_REQUIRED'
+        self.primary=self.results['A']=='PASS'
+        collected=self.stop_ok and all(self.results[s] in ('PASS','VISUAL_REVIEW_REQUIRED') for s in ('A','B','N'))
+        chain=('PASS' if all(self.results[s]=='PASS' for s in ('A','B','N')) else 'VISUAL_REVIEW_REQUIRED') if collected else 'NOT_PROVEN'
+        out={'primary_chain':chain,'collection_complete':collected,'A':self.primary,
+             'stop':self.stop_ok,'variants':self.results,'scene_reviews':self.reviews,
+             'errors':self.errs,'gallery':'NOT_RUN','stop_extent':'Observed Android service, current projection and window removal on external foreground; not internal history persistence.'}
+        self.write('driver-result.json',json.dumps(out,ensure_ascii=False,indent=2));self.ev('driver',chain)
+        return 0 if collected else 1
 if __name__=='__main__':sys.exit(Run().run())

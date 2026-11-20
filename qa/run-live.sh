@@ -16,7 +16,7 @@ stop_recording() {
   if [[ -n $record_pid ]]; then
     touch "$work/stop-recording"
     timeout 6s "$adb" -s "$serial" shell pkill -2 -x screenrecord >/dev/null 2>&1 || true
-    for _ in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15; do
+    for _ in {1..21}; do
       kill -0 "$record_pid" 2>/dev/null || break
       sleep 1
     done
@@ -43,7 +43,7 @@ cleanup() {
   if (( rc != 0 )); then report "FAILED_$stage:$rc"; fi
 }
 trap cleanup EXIT
-[[ $GITHUB_REF == refs/heads/vexo-live-aurora-r8-once ]]
+[[ $GITHUB_REF == refs/heads/vexo-live-aurora-r9-once ]]
 [[ $(git rev-parse HEAD) == "$GITHUB_SHA" ]]
 [[ $(git ls-tree -r --name-only HEAD qa/payload | wc -l) == 24 ]]
 printf '%s  %s\n' '1f1e08574699aabab795687db1816a5962d033652879b21d924cfc590d50199d' "$work/payload.tar.gz" > "$work/payload-check"
@@ -65,24 +65,15 @@ PY
 (cd "$work/src" && sha256sum --strict --check --status "$GITHUB_WORKSPACE/qa/qa-source.sha256")
 report "SOURCE_OK:$GITHUB_SHA"
 
-stage=OBSERVATION_TOOLS
-# Check the full host crop/OCR path on synthetic calibration pixels before Android boot or Gradle.
+stage=PRODUCT
+python3 qa/apply-checked-product.py "$work/src/aurora"
+report PRODUCT_OVERLAY_CHECKED
 ui_python=$(command -v python3)
-if ! "$ui_python" qa/pixel-preflight.py --driver qa/driver.py; then
-  {
-    timeout 70s sudo -n apt-get -qq update &&
-    timeout 70s sudo -n apt-get -qq install -y --no-install-recommends tesseract-ocr tesseract-ocr-eng python3-pil
-  } > "$work/observation-tools.log" 2>&1 || true
-  if [[ -x /usr/bin/python3 ]] && /usr/bin/python3 qa/pixel-preflight.py --driver qa/driver.py; then
-    ui_python=/usr/bin/python3
-    report OVERLAY_PIXEL_WITNESS_CALIBRATED
-  else
-    grep -Ei 'Unable to locate package|Failed to fetch|^E:|sudo:' "$work/observation-tools.log" |
-      sed -E 's#(https?://)[^/@[:space:]]+:[^/@[:space:]]+@#\1[redacted]@#g' | tail -6 || true
-    report OVERLAY_PIXEL_WITNESS_OPTIONAL_UNAVAILABLE
-  fi
+# Save unmodified screenshots independently of any host OCR/observer.
+if command -v tesseract >/dev/null; then
+  "$ui_python" qa/pixel-preflight.py --driver qa/driver.py || true
 else
-  report OVERLAY_PIXEL_WITNESS_CALIBRATED
+  report PIXEL_OBSERVER_UNAVAILABLE_VISUAL_EVIDENCE_REQUIRED
 fi
 
 stage=KVM_DEVICE
@@ -297,15 +288,31 @@ report BOTH_INSTALLED
 stage=REAL_UI
 export ADB="$adb" SERIAL="$serial" PKG=com.trackingracing FIXTURE="$work/src/fixtures/controle-0954.png"
 record_video() {
-  local i path episode
-  for i in 01 02 03 04; do
-    [[ ! -e $work/stop-recording ]] || break
-    path="/sdcard/VexoQaReplay-$i.mp4"
-    episode="$OUT/eclipse-$i.mp4"
-    timeout 140s "$adb" -s "$serial" shell screenrecord --size 540x960 --bit-rate 700000 --time-limit 120 "$path"       >/dev/null 2>&1 || true
-    timeout 15s "$adb" -s "$serial" pull "$path" "$episode" >/dev/null 2>&1 || true
-    timeout 5s "$adb" -s "$serial" shell rm -f "$path" >/dev/null 2>&1 || true
+  local path="/sdcard/VexoR9-External-Test.mp4" partial="$OUT/recording.partial" capture
+  until [[ -s $OUT/record-external.ready ]]; do
+    [[ ! -e $work/stop-recording ]] || return 0
+    sleep .2
   done
+  [[ ! -e $work/stop-recording ]] || return 0
+  report SCREENRECORD_START
+  timeout 82s "$adb" -s "$serial" shell screenrecord --size 540x960 --bit-rate 340000 --time-limit 70 "$path"     > "$OUT/screenrecord-status.txt" 2>&1 &
+  capture=$!
+  while kill -0 "$capture" 2>/dev/null; do
+    if [[ -s $OUT/record-external.done || -e $work/stop-recording ]]; then
+      timeout 6s "$adb" -s "$serial" shell pkill -2 -x screenrecord >/dev/null 2>&1 || true
+      break
+    fi
+    sleep .3
+  done
+  wait "$capture" || true
+  if timeout 12s "$adb" -s "$serial" pull "$path" "$partial" >/dev/null 2>&1 && [[ -s $partial ]]; then
+    mv "$partial" "$OUT/vexo-fluxo.mp4"
+    report "SCREENRECORD_PULLED_BYTES:$(stat -c %s "$OUT/vexo-fluxo.mp4")"
+  else
+    report SCREENRECORD_NOT_RECOVERED
+    rm -f -- "$partial"
+  fi
+  timeout 4s "$adb" -s "$serial" shell rm -f "$path" >/dev/null 2>&1 || true
 }
 record_video &
 record_pid=$!
@@ -319,7 +326,7 @@ if [[ -s $OUT/driver-result.json ]]; then
   python3 -m json.tool "$OUT/driver-result.json" | sed 's/^/AURORA_RESULT: /'
   if [[ -n ${GITHUB_STEP_SUMMARY:-} ]]; then
     {
-      printf '### Vexo Aurora Android QA\n\nCommit `%s`, driver exit `%s`.\n\n' "$GITHUB_SHA" "$driver_rc"
+      printf '### Vexo Aurora Android R9 integrado\n\nCommit `%s`, driver exit `%s`.\n\n' "$GITHUB_SHA" "$driver_rc"
       printf '```json\n'
       python3 -m json.tool "$OUT/driver-result.json"
       printf '```\n'
