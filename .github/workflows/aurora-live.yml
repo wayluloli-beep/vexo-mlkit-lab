@@ -1,0 +1,28 @@
+name: Vexo Aurora live Android QA once
+'on':
+  create:
+permissions:
+  contents: read
+jobs:
+  live-android:
+    if: ${{ github.event.ref_type == 'branch' && github.event.ref == 'vexo-live-aurora-qa-once' && github.run_attempt == '1' && github.event.repository.private == true }}
+    runs-on: ubuntu-26.04
+    timeout-minutes: 32
+    steps:
+      - name: Checkout isolated QA revision
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 1
+          persist-credentials: false
+      - name: Boot accelerated Android and exercise real capture and overlay
+        shell: bash
+        run: bash qa/run-live.sh
+      - name: Retain private QA evidence only
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: Vexo-Aurora-QA-evidencias
+          path: ${{ runner.temp }}/vexo-live-evidence/
+          if-no-files-found: warn
+          retention-days: 7
