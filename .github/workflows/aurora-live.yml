@@ -1,30 +1,33 @@
-name: Vexo R20 native bridge inspection
+name: Vexo R20 full OCR and daytime home
 'on':
   push:
     branches: [vexo-r20-ocr-full]
 permissions:
   contents: read
 jobs:
-  inspect:
-    if: ${{ github.repository == 'wayluloli-beep/vexo-mlkit-lab' && github.ref == 'refs/heads/vexo-r20-ocr-full' && github.event.repository.private == true }}
+  build:
     runs-on: ubuntu-26.04
-    timeout-minutes: 10
+    timeout-minutes: 25
+    permissions:
+      contents: write
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
         with:
           persist-credentials: false
-      - name: Native bridge and onboarding inspection
+          fetch-depth: 1
+      - name: Build and test full OCR Vexo R20
         shell: bash
+        run: bash qa/r20/build.sh
+      - name: Save verified APK on private R20 branch
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
-          set -euo pipefail
-          work=$(mktemp -d)
-          bash qa/r19/materialize.sh "$work" >/dev/null
-          src="$work/src/aurora"
-          echo 'NATIVE_PART_1'
-          sed -n '1,240p' "$src/app/src/main/java/com/trackingracing/AuroraActivity.kt"
-          echo 'NATIVE_PART_2'
-          sed -n '280,350p' "$src/app/src/main/java/com/trackingracing/AuroraActivity.kt"
-          echo 'NATIVE_PART_3'
-          sed -n '420,465p' "$src/app/src/main/java/com/trackingracing/AuroraActivity.kt"
-          echo 'ONBOARDING_ENTRY'
-          grep -nE 'central.html|vexo.entry.sequence.x4|vexo.entry.disclosure.v1|location.replace' "$src/app/src/main/assets/aurora/onboarding.html" | head -40
+          python3 - <<'PY'
+          from pathlib import Path
+          code=Path('qa/r19/retain-internal-apk.py').read_text()
+          for a,b in [('vexo-r19-apk-download','vexo-r20-ocr-full'),('Vexo-R19-teste.apk','Vexo-R20-teste.apk')]:
+              assert a in code
+              code=code.replace(a,b)
+          exec(compile(code,'qa/r20/retainer.py','exec'),{'__name__':'__main__'})
+          PY
