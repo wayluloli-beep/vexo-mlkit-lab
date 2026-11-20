@@ -1,13 +1,13 @@
-name: Vexo R4 masked Pop replay once
+name: Vexo R5 masked Pop replay once
 'on':
   create:
 permissions:
   contents: read
 jobs:
   replay:
-    if: ${{ github.event.ref_type == 'branch' && github.event.ref == 'vexo-r4-masked-replay-once' && github.run_attempt == '1' && github.event.repository.private == true }}
+    if: ${{ github.event.ref_type == 'branch' && github.event.ref == 'vexo-r5-gradle-replay-once' && github.run_attempt == '1' && github.event.repository.private == true }}
     runs-on: ubuntu-26.04
-    timeout-minutes: 20
+    timeout-minutes: 27
     steps:
       - name: Checkout one exact revision
         # actions/checkout v4.2.2
@@ -24,7 +24,7 @@ jobs:
           set -euo pipefail
           umask 077
           stage=SOURCE
-          report() { printf 'R4:%s\n' "$1"; }
+          report() { printf 'R5:%s\n' "$1"; }
           work=$(mktemp -d "$RUNNER_TEMP/vexo-s13.XXXXXXXX")
           emulator_pid=''
           adb=''
@@ -33,7 +33,7 @@ jobs:
             if [[ -n $emulator_pid ]]; then kill "$emulator_pid" 2>/dev/null || true; fi
             if [[ -n $adb ]]; then timeout 10s "$adb" kill-server >/dev/null 2>&1 || true; fi
             for mark in "$work/kvm" "$work/sdk-status" "$work/build-status" "$work/emulator-status"; do
-              if [[ -s $mark ]]; then sed -E 's/^[[:space:]:]+//' "$mark" | head -10 || true; fi
+              if [[ -s $mark ]]; then sed -E 's/^[[:space:]:]+//' "$mark" | tail -16 || true; fi
             done
             rm -rf -- "$work"
             if (( rc != 0 )); then report "FAILED_$stage"; fi
@@ -41,7 +41,7 @@ jobs:
           trap cleanup EXIT
 
           [[ $(git rev-parse HEAD) == "$GITHUB_SHA" ]]
-          [[ $GITHUB_REF == refs/heads/vexo-r4-masked-replay-once ]]
+          [[ $GITHUB_REF == refs/heads/vexo-r5-gradle-replay-once ]]
           printf '%s\n' \
             'd2ca09500edb86a02e0eccaa9d449161312cb84d31ca6e1bc73aa91272d5d919  ci/s13-v2.sha256' \
             'a9d033c99e69e4c8b9d4a2488a93c3b7c81d4587fbbe5d32bcbd3384111d62e5  ci/verify-manifest.py' \
@@ -211,7 +211,7 @@ jobs:
           git archive HEAD -- app gradle.properties settings.gradle.kts | tar -xf - -C "$work/project"
           (cd "$work/project" && sha256sum --strict --check --status "$GITHUB_WORKSPACE/ci/s13-v2.sha256")
           keytool -genkeypair -noprompt -storetype JKS -keyalg RSA -keysize 2048 -validity 2 \
-            -dname 'CN=Disposable Vexo R4 Replay' -alias androiddebugkey -keystore "$work/private/debug.keystore" \
+            -dname 'CN=Disposable Vexo R5 Replay' -alias androiddebugkey -keystore "$work/private/debug.keystore" \
             -storepass android -keypass android > "$work/sign.log" 2>&1
           python3 - "$work/project/app/build.gradle.kts" <<'PY'
           import sys
@@ -236,15 +236,41 @@ jobs:
           ''')
           PY
           gradle=("$work/gradle-8.11.1/bin/gradle" --project-dir "$work/project" --no-daemon --console=plain --max-workers=2)
-          stage=BUILD
-          timeout 180s "${gradle[@]}" --dry-run :app:assembleDebug :app:assembleDebugAndroidTest > "$work/graph.log" 2>&1
+          gradle_phase() {
+            local stage_name=$1 duration=$2 logfile=$3 rc
+            shift 3
+            report "GRADLE_START:$stage_name"
+            timeout "$duration" "${gradle[@]}" --info \
+              -Dorg.gradle.internal.http.connectionTimeout=20000 \
+              -Dorg.gradle.internal.http.socketTimeout=45000 "$@" > "$logfile" 2>&1 || {
+                rc=$?
+                report "GRADLE_COMMAND_EXIT:$stage_name:$rc"
+                grep -Ei 'Could not resolve|Could not GET|Could not HEAD|could not download|(^e:)|timeout|timed out|connection reset|failed to transform|BUILD FAILED' "$logfile" |
+                  sed -E 's#(https?://)[^/@[:space:]]+:[^/@[:space:]]+@#\1[redacted]@#g' |
+                  grep -Eiv 'password|authorization|bearer|token' | tail -12 > "$work/build-status" || true
+                if [[ ! -s $work/build-status ]]; then
+                  grep -Ei 'Downloading|Evaluat|Resolving|Configure project|Settings evaluated|Starting Build|^Found locally available' "$logfile" |
+                    sed -E 's#(https?://)[^/@[:space:]]+:[^/@[:space:]]+@#\1[redacted]@#g' |
+                    grep -Eiv 'password|authorization|bearer|token' | tail -8 > "$work/build-status" || true
+                fi
+                [[ -s $work/build-status ]] || printf 'No diagnostic from Gradle (exit %s).\n' "$rc" > "$work/build-status"
+                return "$rc"
+              }
+            report "GRADLE_COMMAND_EXIT:$stage_name:0"
+          }
+          gradle_deadline=$((SECONDS+900))
+          report GRADLE_TOTAL_BUDGET_900S
+          stage=BUILD_PLAN
+          gradle_phase PLAN 900s "$work/graph.log" --dry-run :app:assembleDebug :app:assembleDebugAndroidTest
           grep -Fxq ':app:assembleDebugAndroidTest SKIPPED' "$work/graph.log"
           grep -Fxq ':app:assembleDebug SKIPPED' "$work/graph.log"
           ! grep -Eiq '^:[^ ]*(connected|release|install|device|adb|upload|publish|signingreport)' "$work/graph.log" || exit 1
-          timeout 540s "${gradle[@]}" :app:assembleDebug :app:assembleDebugAndroidTest > "$work/build.log" 2>&1 || {
-            grep -Ei '^e:|^Execution failed|^   > |^> Could not|^> Task .+ FAILED|^BUILD FAILED' "$work/build.log" | tail -10 > "$work/build-status" || true
-            exit 1
-          }
+
+          stage=BUILD_APKS
+          gradle_remaining=$((gradle_deadline-SECONDS))
+          (( gradle_remaining > 0 ))
+          report "GRADLE_ASSEMBLE_BUDGET:${gradle_remaining}s"
+          gradle_phase ASSEMBLE "${gradle_remaining}s" "$work/build.log" :app:assembleDebug :app:assembleDebugAndroidTest
           rm -f -- "$work/private/debug.keystore"
           mapfile -t targets < <(find "$work/project/app/build/outputs/apk/debug" -maxdepth 1 -type f -name '*.apk')
           mapfile -t tests < <(find "$work/project/app/build/outputs/apk/androidTest/debug" -maxdepth 1 -type f -name '*.apk')
@@ -322,10 +348,10 @@ jobs:
               row = [line[len(prefix):] for line in lines if line.startswith(prefix)]
               if len(row) == 1 and re.fullmatch(regex, row[0]):
                   values[key] = row[0]
-                  print(f"R4:REPLAY_{key}={row[0]}")
+                  print(f"R5:REPLAY_{key}={row[0]}")
           codes = [line for line in lines if re.fullmatch(r"INSTRUMENTATION_CODE: -?[0-9]+", line)]
           if len(codes) == 1:
-              print("R4:" + codes[0])
+              print("R5:" + codes[0])
           expected = "price,pickup_min,pickup_km,trip_min,trip_km,rating,trip_count"
           assert sys.argv[2] == "0" and codes == ["INSTRUMENTATION_CODE: -1"], "run did not report success"
           assert lines.count("INSTRUMENTATION_RESULT: result=S13 replay matched S05 metrics") == 1
