@@ -12,6 +12,7 @@ import com.google.firebase.appcheck.FirebaseAppCheck
 import com.google.firebase.appcheck.playintegrity.PlayIntegrityAppCheckProviderFactory
 import org.json.JSONObject
 import java.io.File
+import java.io.ByteArrayOutputStream
 import java.net.URL
 import java.util.concurrent.Executors
 import java.util.concurrent.atomic.AtomicInteger
@@ -141,7 +142,15 @@ class AuraGoogleVoice(
             if(conn.responseCode!=200 || !conn.contentType.orEmpty().startsWith("audio/mpeg"))return null
             if(conn.contentLength>900000)return null
             conn.inputStream.use { stream ->
-                val bytes=stream.readNBytes(900001)
+                val output=ByteArrayOutputStream()
+                val block=ByteArray(8192)
+                while (true) {
+                    val count=stream.read(block)
+                    if (count<0) break
+                    if (output.size()+count>900000) return null
+                    output.write(block,0,count)
+                }
+                val bytes=output.toByteArray()
                 if(bytes.size !in 256..900000)return null
                 return bytes
             }
