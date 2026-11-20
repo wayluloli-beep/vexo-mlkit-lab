@@ -1,20 +1,33 @@
-name: Vexo Android 16 private privacy recheck
+name: Vexo R19 private installable APK
 'on':
   create:
 permissions:
   contents: read
 jobs:
-  journey:
-    if: ${{ github.repository == 'wayluloli-beep/vexo-mlkit-lab' && github.event.ref_type == 'branch' && github.event.ref == 'vexo-product-r19-privacy-recheck' && github.event.repository.private == true }}
+  test-apk:
+    if: ${{ github.repository == 'wayluloli-beep/vexo-mlkit-lab' && github.event.ref_type == 'branch' && github.event.ref == 'vexo-r19-apk-teste' && github.event.repository.private == true }}
     runs-on: ubuntu-26.04
-    timeout-minutes: 27
+    timeout-minutes: 20
     steps:
-      - name: Checkout test revision
+      - name: Checkout test APK revision
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
         with:
           ref: ${{ github.sha }}
           persist-credentials: false
           fetch-depth: 1
-      - name: Run the focused offline privacy restart check
+      - name: Build and verify the signed side-by-side APK
         shell: bash
-        run: bash qa/r19/run-webview-smoke.sh
+        run: bash qa/r19/build-internal-apk.sh
+      - name: Attach the APK to this private workflow
+        id: apk
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
+        with:
+          path: ${{ runner.temp }}/vexo-test-delivery/Vexo-R19-teste.apk
+          if-no-files-found: error
+          archive: false
+          retention-days: 14
+      - name: Record the authenticated download URL
+        shell: bash
+        env:
+          ARTIFACT_URL: ${{ steps.apk.outputs.artifact-url }}
+        run: printf 'VEXO_APK_DOWNLOAD=%s\n' "$ARTIFACT_URL"
