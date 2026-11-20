@@ -44,15 +44,22 @@ def coords(root,pkg,names=(),rid=None,checked=None):
         if rect:found[a]=rect
     if len(found)!=1:return None
     l,t,r,b=next(iter(found.values()));return ((l+r)//2,(t+b)//2)
-def overlay_window(s,pkg,visible):
-    sections=re.split(r'(?m)(?=^\s*Window #\d+ Window\{)',s)
-    for w in sections:
+def overlay_window(s,pkg,visible,uid=None):
+    for w in re.split(r'(?m)(?=^[ \t]*Window #\d+ Window\{)',s):
         if not re.match(r'\s*Window #\d+ Window\{',w):continue
-        if not re.search(r'(?<![\w.])'+re.escape(pkg)+r'(?![\w.])',w):continue
+        line=w.splitlines()[0];m=re.search(r'(?m)^\s*(?:mOwnerUid=[^\n]*?\s+)?package=([\w.]+)|\bmOwnerUid=\d+[^\n]*?\bpackage=([\w.]+)',w)
+        if not m:m=re.search(r'\bpackage=([\w.]+)\s+(?:appop=|perm=|mOwnerUid=)',w)
+        # Some releases write metadata as a standalone package=... next to mAttrs.
+        if not m:m=re.search(r'(?m)(?:^|[ \t])package=([\w.]+)(?=[ \t\n]|$)',w)
+        owner=next((x for x in m.groups() if x),None) if m else None
+        u=re.search(r'\bmOwnerUid=(\d+)',w);actual=int(u[1]) if u else None
+        if owner is not None and owner!=pkg:continue
+        if uid is not None and actual is not None and int(uid)!=actual:continue
+        if owner!=pkg and not (uid is not None and actual==int(uid) and re.search(r'\bu\d+\s+'+re.escape(pkg)+r'(?=[}/\s])',line)):continue
         if not re.search(r'(?:ty(?:pe)?\s*[=:]\s*(?:APPLICATION_OVERLAY|2038)\b|TYPE_APPLICATION_OVERLAY)',w,re.I):continue
-        if visible and (not re.search(r'mHasSurface\s*=\s*true',w,re.I) or not re.search(r'isVisible\s*=\s*true|isOnScreen\s*=\s*true|mViewVisibility\s*=\s*0x0\b|mDrawState\s*=\s*HAS_DRAWN',w,re.I) or re.search(r'mViewVisibility\s*=\s*0x[48]\b',w)):continue
-        m=re.search(r'(?:\bmFrame|\bframe)\s*=\s*(\[-?\d+,-?\d+\]\[-?\d+,-?\d+\])',w)
-        return True,bounds(m[1]) if m else None
+        if visible and (not re.search(r'mHasSurface\s*=\s*true',w,re.I) or not re.search(r'isVisible\s*=\s*true|isOnScreen\s*=\s*true|mViewVisibility\s*=\s*0x0\b|mDrawState\s*=\s*HAS_DRAWN',w,re.I) or re.search(r'mViewVisibility\s*=\s*0x[48]\b|\b(?:isVisible|isOnScreen)\s*=\s*false',w,re.I)):continue
+        f=re.search(r'(?:\bmFrame|\bframe)\s*=\s*(\[-?\d+,-?\d+\]\[-?\d+,-?\d+\])',w)
+        return True,bounds(f[1]) if f else None
     return False,None
 def projection_state(s,pkg):
     m=re.search(r'(?im)^\s*Media Projection\s*:\s*(.*)',s)
@@ -60,20 +67,31 @@ def projection_state(s,pkg):
     v=m[1].strip()
     if v.lower()=='null' or v.lower()=='none':return False
     return True if re.search(r'(?<![\w.])'+re.escape(pkg)+r'(?![\w.])',v) else None
+def services_readable(s):
+    return bool(re.search(r'(?im)^\s*ACTIVITY MANAGER SERVICES\b',s)) and not re.search(r'permission denial|exception|error:|can.t find service',s,re.I)
 def foreground_service(s,pkg):
-    sections=re.split(r'(?m)(?=^\s*\* ServiceRecord\{)',s)
-    return any(re.search(r'ServiceRecord\{[^\n]*\b'+re.escape(pkg)+r'/[^}\s]*ScreenCaptureService',b) and re.search(r'isForeground\s*=\s*true|foregroundId\s*=\s*[1-9]\d*',b) for b in sections)
+    for b in re.split(r'(?m)(?=^[ \t]*\* ServiceRecord\{)',s):
+        if re.search(r'ServiceRecord\{[^\n]*\b'+re.escape(pkg)+r'/[^}\s]*ScreenCaptureService',b):
+            if re.search(r'\b(?:mIsForeground|isForeground)\s*=\s*false',b,re.I):continue
+            if re.search(r'\b(?:mIsForeground|isForeground)\s*=\s*true|foregroundId\s*=\s*[1-9]\d*',b,re.I):return True
+    return False
 def service_exists(s,pkg):return bool(re.search(r'(?m)^\s*\* ServiceRecord\{[^\n]*\b'+re.escape(pkg)+r'/[^}\s]*ScreenCaptureService',s))
-def metric(scene,text):
-    t=norm(text);t=re.sub(r'(?<=\d)[.,](?=\d)', '.', t)
-    # Require discriminating live values (absent from A/B pixel artwork) inside the verified overlay.
-    marker='ocr real' in t or 'maximizar historico de corridas' in t
-    if not marker:return False
-    if scene=='N':return 'aguardando leitura' in t and not any(x in t for x in ('56.46','63.00','57.24'))
-    a,b,dur,dist={'A':('1.53','56.46','39m','24.0km'),'B':('2.93','63.00','12m','4.3km'),'D':('2.58','57.24','10m','3.7km')}[scene]
-    num=lambda n: bool(re.search(r'(?<!\d)'+re.escape(n)+r'(?!\d)',t))
-    compact=re.sub(r'\s+','',t)
-    return num(a) and num(b) and (('/km' in compact and '/hr' in compact) or (dur in compact and dist in compact))
+def measurements(scene,text):
+    t=re.sub(r'(?<=\d)[.,](?=\d)','.',norm(text))
+    if 'ocr real' not in t and 'maximizar historico de corridas' not in t:return None
+    # Neighboring rendered spans or an OCR line form a number+unit pair. Do not accept a bag of numbers and units.
+    unit=lambda token:re.findall(r'(?<![\w.])(\d+(?:\.\d+)?)\s*/\s*'+token+r'\b',t)
+    km,hr=unit('km'),unit('hr')
+    if scene=='N':
+        if not ('aguardando leitura' in t and not km and not hr and not re.search(r'\d\s*%\s*lucro|\d\s*★',t)):return None
+        if not all(re.search(r'[—–−-]\s*'+x,t) for x in (r'/\s*km\b',r'/\s*hr\b',r'★',r'lucro\b')):return None
+        return {'rows':'four blank placeholders','state':'Aguardando leitura'}
+    a,b,dur,dist={'A':('1.53','56.46','39','24.0'),'B':('2.93','63.00','12','4.3'),'D':('2.58','57.24','10','3.7')}[scene]
+    if not km or not hr or set(km)!={a} or set(hr)!={b}:return None
+    foot=re.findall(r'(?<!\d)(\d+)\s*m\s*[•·| -]?\s*(\d+(?:\.\d+)?)\s*km\b',t)
+    if foot and any(v!=(dur,dist) for v in foot):return None
+    return {'value_per_km':km[0],'value_per_hr':hr[0],'footer':(foot[0] if foot else 'not exposed')}
+def metric(scene,text):return measurements(scene,text) is not None
 def parse_dump(raw):
     s=raw.decode('utf-8','replace')
     m=re.search(r'<(displays|hierarchy|windows)\b',s)
@@ -82,7 +100,140 @@ def parse_dump(raw):
     if j<0:raise ValueError('incomplete hierarchy')
     return ET.fromstring(s[m.start():j+len(end)])
 def foreground_fixture(w,a):
-    return bool(re.search(r'(?im)^.*(?:mCurrentFocus|mFocusedApp)\s*=.*com\.vexo\.qa\.pixels/',w) or re.search(r'(?im)^.*(?:mResumedActivity|topResumedActivity|ResumedActivity)\s*[:=].*com\.vexo\.qa\.pixels/',a))
+    focus=re.search(r'(?im)^\s*mCurrentFocus\s*=([^\n]*)',w)
+    fw=bool(re.search(r'\bu\d+\s+com\.vexo\.qa\.pixels/',focus[1])) if focus else None
+    if fw is False:return False
+    resumed=bool(re.search(r'(?im)^.*(?:mResumedActivity|topResumedActivity|ResumedActivity)\s*[:=].*com\.vexo\.qa\.pixels/',a))
+    return fw is True or (fw is None and resumed)
+def overlay_op(raw):
+    s=raw.lower()
+    if not s.strip() or re.search(r'permission denial|unknown operation|\berror\b|exception',s):return 'unknown'
+    values=re.findall(r'(?:system_alert_window|system:alert_window)\s*:\s*(allow(?:ed)?|default|ignore|deny|errored|foreground)\b',s)
+    if values:
+        vals={('allow' if v=='allowed' else v) for v in values if v!='default'}
+        return next(iter(vals)) if len(vals)==1 else ('default' if not vals else 'unknown')
+    m=re.search(r'default mode\s*:\s*(default|allow|ignore|deny)\b',s)
+    return m[1] if m else ('default' if 'no operations' in s else 'unknown')
+
+def settings_activity(s,pkg):
+    # Only bind the current resumed ActivityRecord, never its caller or earlier Intent.
+    match=re.search(r'(?im)^.*?(?:topResumedActivity|mResumedActivity|ResumedActivity)\s*[:=]\s*ActivityRecord\{([\da-f]+)\s+u\d+\s+([\w.$]+/[\w.$]+)',s)
+    if not match:return {}
+    token,component=match.groups();top=component.split('/')[0];attrs={'settings':top==SETTINGS,'component':component,'target':False,'detail':False}
+    if top!=SETTINGS:return attrs
+    block=re.search(r'(?ims)^\s*\*?\s*Hist\s*#\d+\s*:\s*ActivityRecord\{'+re.escape(token)+r'\b.*?(?=^\s*\*?\s*Hist\s*#\d+\s*:|^\s*\* Task\{|\Z)',s)
+    intents=[line for line in (block[0].splitlines() if block else []) if re.match(r'^\s*(?:Intent\s*\{|intent\s*=\s*Intent\s*\{)',line,re.I)]
+    direct=bool(intents and re.search(r'\bdat=package:'+re.escape(pkg)+r'(?=[\s}])',intents[0]))
+    # Android 11+: list activity receives package: but ignores it. Never let that authorize a switch.
+    list_activity=bool(re.search(r'\$(?:OverlaySettingsActivity|ManageApplicationsActivity)\b',component))
+    attrs.update(target=direct and not list_activity,detail=bool(re.search(r'AppDrawOverlay|DrawOverlayDetails',component,re.I)),list_activity=list_activity)
+    return attrs
+
+def perm_words(text):
+    t=norm(text)
+    return bool(re.search(r'(?:display|draw(?:ing)?|appear)(?:\s+\w+){0,5}\s+(?:over|on top)|on top of other apps|sobrepo|sobre otr[oa]s|sobre outr[oa]s|exibir sobre|aparecer sobre',t))
+def change_label(text):
+    t=norm(text)
+    return perm_words(t) and bool(re.search(r'\b(?:allow(?:ing)?|permit(?:ir)?|enable|autorizar|pode|permitir)\b',t))
+def overlay_control(root,pkg,activity,lineage,op):
+    """No writes. Pair the localized overlay preference and the identified app before producing a single coordinate."""
+    def res(action,why,**data):return {'action':action,'reason':why,**data}
+    parents={c:p for p in root.iter() for c in p}
+    def own(n):return n.get('package')==SETTINGS or (n.get('package')=='android' and any(p.get('package')==SETTINGS for p in ancestors(n)))
+    def ancestors(n):
+        while (n:=parents.get(n)) is not None:yield n
+    def usable(n):return all(x.get('enabled')!='false' and x.get('visible-to-user')!='false' and x.get('password')!='true' for x in (n,*ancestors(n)))
+    def label(n):return ' '.join(vals(n))
+    def role(n):
+        return (n.get('checkable')=='true' or bool(re.search(r'switch|toggle|checkbox|compoundbutton',n.get('class','')+' '+n.get('resource-id',''),re.I)))
+    def xy(n):
+        q=bounds(n.get('bounds'));return ((q[0]+q[2])//2,(q[1]+q[3])//2) if q else None
+    def clickable(n):
+        for a in (n,*ancestors(n)):
+            if a.tag!='node' or not own(a) or not usable(a):return None
+            if a.get('clickable')=='true' and xy(a):return a
+        return None
+    ns=[n for n in root.iter('node') if own(n)]
+    text=' '.join(norm(label(n)) for n in ns)
+    if not ns or activity.get('settings') is False:return res('wait','not_settings_foreground')
+    if any(v in text for v in ('restricted setting','setting is restricted','this feature has been turned off','configuracao restrita','for your security, this setting')):return res('blocked','os_restriction')
+    if not perm_words(text):return res('wait','no_overlay_permission_title')
+    target_name=norm(LABEL)
+    owners=[n for n in ns if norm(n.get('text','')) in (target_name,norm(pkg)) or norm(n.get('content-desc',''))==target_name]
+    header_names=[norm(label(n)) for n in ns if re.search(r'/(?:entity_header_title|app_name|app_title)$',n.get('resource-id','')) and label(n)]
+    if header_names and not any(target_name in v or norm(pkg) in v for v in header_names):return res('wait','different_app_header')
+    explicit=[n for n in ns if any(change_label(v) for v in vals(n))]
+    row_candidates=[]
+    for n in owners:
+        btn=clickable(n)
+        if btn is not None and any(re.search(r'listview|recyclerview',a.get('class',''),re.I) or a.get('scrollable')=='true' for a in ancestors(btn)):
+            row_candidates.append(btn)
+    row_candidates=list(dict.fromkeys(row_candidates))
+    if not explicit and row_candidates and not activity.get('detail'):
+        if len(row_candidates)!=1:return res('wait','ambiguous_app_rows')
+        return res('app','verified_settings_list_row',xy=xy(row_candidates[0]))
+    if not explicit and not (activity.get('detail') or (owners and not row_candidates and header_names)):
+        # Non-scrollable list on a very small installation. Exact app row + generic title only permits opening navigation.
+        plain=list(dict.fromkeys(x for n in owners if (x:=clickable(n)) is not None))
+        if len(plain)==1 and not activity.get('target'):return res('app','single_app_item',xy=xy(plain[0]))
+        return res('scroll' if not owners else 'wait','list_or_transition')
+    prior=bool(lineage and explicit and activity.get('settings') is True and not row_candidates and not activity.get('list_activity'))
+    identity='tree_app' if (owners or any(target_name in x for x in header_names)) else ('top_target_intent' if activity.get('target') else ('verified_list_to_named_detail' if prior else ''))
+    if not identity:return res('wait','app_identity_not_bound')
+    # Prefer the nearest permission row; do not pick random toggles in a list or other controls.
+    targets=[]
+    for n in explicit:
+        if not usable(n):continue
+        wrapper=clickable(n)
+        if wrapper is None:continue
+        # MainSwitchBar/Compose row can itself be a button or expose a Switch child without an ID.
+        switches=[c for c in wrapper.iter('node') if own(c) and role(c)]
+        if any(not usable(c) for c in switches):return res('blocked','disabled_switch')
+        real=[c for c in switches if c.get('checkable')=='true']
+        if not real:real=[c for c in switches if re.search(r'switch|checkbox|compoundbutton',c.get('class',''),re.I)]
+        if len(real)>1 and any(x not in list(y.iter()) and y not in list(x.iter()) for x in real for y in real):return res('wait','multiple_widgets_in_row')
+        indicator=real[-1] if real else None
+        button=clickable(indicator) if indicator is not None else wrapper
+        if button is not None:targets.append((button,indicator))
+    if not targets and explicit and not any(usable(n) for n in explicit):return res('blocked','disabled_named_preference')
+    if not targets:
+        # Text/indicator can be siblings in a non-clickable layout. Only an unambiguous app-specific details screen is allowed.
+        raw=[n for n in ns if role(n) and usable(n) and (n.get('checkable')=='true' or re.search(r'(?:Switch|CheckBox|CompoundButton)$',n.get('class',''),re.I))]
+        real=[n for n in raw if not any(c in raw for c in list(n.iter())[1:])]
+        if len(real)==1 and (explicit or activity.get('detail') or header_names):
+            button=clickable(real[0])
+            if button is not None:targets=[(button,real[0])]
+    if not targets:return res('wait','no_label_bound_actionable_toggle')
+    unique={id(t):t for t,_ in targets}
+    if len(unique)!=1:return res('wait','ambiguous_named_permission_rows')
+    button,indicator=next(((b,n) for b,n in targets if n is not None),targets[0])
+    # Only a real checkable semantic carries reliable checked=false; UIAutomator emits false for every TextView.
+    if indicator is not None and indicator.get('checkable')=='true' and indicator.get('checked') in ('true','false'):
+        state='on' if indicator.get('checked')=='true' else 'off';source='xml'
+    else:
+        state='on' if op=='allow' else ('off' if op in ('default','deny','ignore','errored') else 'unknown');source='appop'
+    return res('switch','identified_permission_row',identity=identity,source=source,state=state,xy=xy(button))
+
+def distilled_settings(root,activity,op,d):
+    summary=[];pkgs=set();roles=[]
+    for n in root.iter('node'):
+        p=n.get('package','')
+        if re.fullmatch(r'[A-Za-z0-9_.]{1,90}',p):pkgs.add(p)
+        if p not in (SETTINGS,'android') or n.get('password')=='true':continue
+        ts=vals(n);interesting=any(perm_words(v) or norm(LABEL) in norm(v) or 'restricted setting' in norm(v) or norm(v) in ('allowed','not allowed','on','off','allow','not permitted') for v in ts)
+        role=n.get('checkable')=='true' or bool(re.search(r'switch|toggle|checkbox|compound',n.get('class','')+' '+n.get('resource-id',''),re.I))
+        if not (interesting or role):continue
+        # Keep only the known app name, system permission/role labels and widget structure, not arbitrary app lists or UI payloads.
+        shown=[]
+        for v in ts:
+            if norm(LABEL) in norm(v):shown.append(LABEL)
+            elif perm_words(v) or 'restricted setting' in norm(v) or norm(v) in ('allowed','not allowed','on','off','allow','not permitted'):
+                shown.append(re.sub(r'[^\w /.,():+-]',' ',v)[:80])
+        row={'t':shown,'id':n.get('resource-id','')[-65:],'cl':n.get('class','').split('.')[-1][:28],'flags':''.join(c if n.get(k)=='true' else '-' for k,c in [('clickable','C'),('checkable','K'),('checked','Y'),('enabled','E')]),'box':n.get('bounds','')[:36]}
+        if role:roles.append(row)
+        elif len(summary)<5:summary.append(row)
+    return {'packages':sorted(pkgs)[:8],'activity':activity.get('component','unknown'),'intent_target':activity.get('target',False),'detail_activity':activity.get('detail',False),'op':op,'decision':d,'nodes':(roles[:5]+summary)[:10]}
+
 class Failure(Exception):pass
 
 class Run:
@@ -149,37 +300,83 @@ class Run:
             t=norm(alltext(r,p))
             if 'vexo aurora' in t and any(v in t for v in ('screen','record','cast','share','tela','compartilh')):return p
     def settings(self):
-        selected=False;changed=False;confirmed=False;backs=0;end=time.monotonic()+75
-        while time.monotonic()<end:
-            try:r,k=self.xml('overlay-settings')
-            except Failure as e:
-                if 'ANR' in str(e):raise
-                time.sleep(.4);continue
-            if self.systempkg(r):
-                if not changed or not confirmed:raise Failure('projection shown without an observed off→on Settings switch')
-                return
-            st=norm(alltext(r,SETTINGS))
-            if not st:time.sleep(.5);continue
-            has_label=norm(LABEL) in st
-            checks=[n for n in r.iter('node') if n.get('package')==SETTINGS and n.get('enabled')!='false' and n.get('checkable')=='true' and (n.get('class','').endswith('Switch') or 'switch' in n.get('resource-id','').lower() or n.get('class','').endswith('CompoundButton'))]
-            if has_label and len(checks)==1 and any(v in st for v in ('display over','appear on top','sobrepor','sobre outros','over other apps')):
-                n=checks[0]
-                if n.get('checked')=='false' and not changed:
-                    rid=n.get('resource-id');names=vals(n) or ['Allow display over other apps','Permit drawing over other apps']
-                    xy=coords(r,SETTINGS,rid=rid,checked=False) if rid else coords(r,SETTINGS,names,checked=False)
-                    if not xy:raise Failure('overlay switch not uniquely actionable')
-                    self.shot('overlay-off');self.act(k,xy,'overlay_real_switch');changed=True;continue
-                if n.get('checked')=='true':
-                    if not changed:raise Failure('overlay permission was pre-granted; clean proof unavailable')
-                    confirmed=True;self.shot('overlay-on');self.ev('overlay_permission','PASS',xml=k+'.xml');self.sh('input','keyevent','4');backs+=1;time.sleep(.45);continue
-            if confirmed:
-                if backs>=4:raise Failure('could not return from Settings')
-                self.sh('input','keyevent','4');backs+=1;time.sleep(.45);continue
-            xy=coords(r,SETTINGS,[LABEL])
-            if xy and not selected:self.act(k,xy,'settings_requester');selected=True;continue
-            if not selected and self.swipes(r,k,SETTINGS):continue
-            time.sleep(.45)
-        raise Failure('overlay permission controls did not complete')
+        selected=0;tapped=False;confirmed=False;backs=0;before='unknown';last_op='unknown'
+        last_nav=0;last_back=0;detail_scrolls=0;end=time.monotonic()+94;last=None;k='none';last_decision={}
+        def op_read():
+            try:return overlay_op(self.sh('cmd','appops','get',self.pkg,'SYSTEM_ALERT_WINDOW',timeout=5))
+            except Failure:return 'unknown'
+        def current():
+            try:
+                a=settings_activity(self.sh('dumpsys','activity','activities',timeout=6),self.pkg)
+                w=self.sh('dumpsys','window','displays',timeout=5)
+                m=re.search(r'(?m)^\s*mCurrentFocus\s*=\s*Window\{[^}\n]*?\bu\d+\s+([\w.$]+/[\w.$]+)',w)
+                if m:
+                    a['focused']=m[1]
+                    if m[1].split('/')[0]!=SETTINGS:a['settings']=False
+                    elif a.get('settings') is not True:a={'settings':True,'component':m[1],'focused':m[1]}
+                return a
+            except Failure:return {}
+        def trace(r,k,a,op,d,event='SNAPSHOT'):
+            x=distilled_settings(r,a,op,d) if r is not None else {'activity':a.get('component','unknown'),'op':op,'decision':d,'nodes':[]}
+            x.update(xml=k,selected=selected,tapped=tapped,confirmed=confirmed,focused=a.get('focused','unknown'))
+            print('LIVE:settings_diagnostics:'+event+':'+json.dumps(x,ensure_ascii=True,separators=(',',':')),flush=True)
+            with (self.out/'settings-diagnostics.jsonl').open('a') as f:f.write(json.dumps(x,ensure_ascii=False)+'\n')
+        def approve(source,op,xml):
+            nonlocal confirmed
+            if not confirmed:
+                confirmed=True
+                self.ev('overlay_permission','PASS',xml=xml+'.xml',before=before,after=op,source=source)
+                print('LIVE:overlay_permission:OBSERVED:'+json.dumps({'app':self.pkg,'source':source,'before':before,'after':op,'xml':xml+'.xml','screenshot':'overlay-after-tap.png'}),flush=True)
+        try:
+            initial=op_read()
+            self.ev('overlay_initial_op','OBSERVED',reason=initial)
+            if initial=='allow':raise Failure('pre-granted overlay permission on the named package; clean click not provable')
+            while time.monotonic()<end:
+                try:r,k=self.xml('overlay-settings')
+                except Failure as e:
+                    if 'ANR' in str(e):raise
+                    last_decision={'action':'wait','reason':'incomplete_tree'};time.sleep(.4);continue
+                last=r;a=current();op=op_read();last_op=op
+                if self.systempkg(r):
+                    if not tapped or (not confirmed and (before not in ('default','ignore','deny','errored') or op!='allow')):
+                        raise Failure('system projection visible without a verified Settings off→on transition')
+                    if not confirmed:self.shot('overlay-after-tap');approve('named_Settings_click_then_AppOps_allow_and_system_advanced',op,k)
+                    trace(r,k,a,op,{'action':'system_projection','reason':'system_requester_verified'});return
+                # Lineage is a confirmed Settings app-list tap plus a separate named permission row in a *currently* focused Settings UI.
+                d=overlay_control(r,self.pkg,a,bool(selected and a.get('settings') is True),op);last_decision=d
+                trace(r,k,a,op,d)
+                if d['action']=='blocked':raise Failure('Android restricted/disabled overlay preference: '+d['reason'])
+                if confirmed:
+                    if a.get('settings') is False or not any(n.get('package')==SETTINGS for n in r.iter('node')):time.sleep(.4);continue
+                    if backs>=4:raise Failure('could not return from verified Settings')
+                    if time.monotonic()-last_back<1.5:time.sleep(.3);continue
+                    self.sh('input','keyevent','4');backs+=1;last_back=time.monotonic();time.sleep(.55);continue
+                if d['action']=='switch':
+                    if not tapped:
+                        if d['state']=='on' or op=='allow':raise Failure('unexpected already-enabled switch; not a clean permission test')
+                        if d['state']!='off' or op not in ('default','deny','ignore','errored'):
+                            time.sleep(.35);continue
+                        before=op;self.shot('overlay-off')
+                        self.act(k,d['xy'],'overlay_real_switch');tapped=True
+                        print('LIVE:overlay_real_switch:TARGET:'+json.dumps({'owner':SETTINGS,'app':self.pkg,'source':d['source'],'identity':d['identity'],'opBefore':before,'xml':k+'.xml','screenshot':'overlay-off.png','point':d['xy']}),flush=True)
+                        continue
+                    if d['state']=='on' and op=='allow':
+                        self.shot('overlay-after-tap');approve(d['source']+'_on_and_AppOps_allow',op,k);continue
+                    # May still be animating: never issue a second toggle.
+                    time.sleep(.4);continue
+                if tapped:
+                    if op=='allow' and d['action']=='app' and a.get('settings') is True:
+                        self.shot('overlay-after-tap');approve('named_Settings_click_then_AppOps_allow_and_list',op,k)
+                    time.sleep(.4);continue
+                if d['action']=='app' and (selected==0 or selected==1 and time.monotonic()-last_nav>8 and d['reason']=='verified_settings_list_row'):
+                    self.act(k,d['xy'],'settings_requester');selected+=1;last_nav=time.monotonic();continue
+                if d['action']=='scroll' and not selected and self.swipes(r,k,SETTINGS):continue
+                if selected and not tapped and a.get('settings') is True and d['action'] in ('wait','scroll') and detail_scrolls<2 and time.monotonic()-last_nav>4 and self.swipes(r,k,SETTINGS):
+                    detail_scrolls+=1;continue
+                time.sleep(.4)
+            raise Failure('overlay not completed; last='+last_decision.get('reason','no tree')+' before='+before+' after='+last_op+' taps='+str(int(tapped)))
+        except Exception:
+            trace(last,k,current(),op_read(),last_decision,'FAILURE_LAST_TREE');raise
     def consent(self):
         self.st='open_app';self.sh('am','start','-n',self.pkg+'/com.trackingracing.AuroraActivity')
         self.app_button('external_entry')
@@ -201,7 +398,8 @@ class Run:
             proj=self.sh('dumpsys','media_projection');svc=self.sh('dumpsys','activity','services',self.pkg)
             self.write('active-projection.txt',proj);self.write('active-services.txt',svc)
             if projection_state(proj,self.pkg) is True and foreground_service(svc,self.pkg):
-                self.ev('projection_and_fgs','PASS',owner=self.pkg);return
+                self.ev('projection_and_fgs','PASS',owner=self.pkg)
+                print('LIVE:projection_and_fgs:OBSERVED:'+json.dumps({'owner':self.pkg,'projection_current':True,'foreground_service':'ScreenCaptureService','system_prompt_package':p,'consent_xml':k+'.xml','source':'native system prompt + current Android dumps'}),flush=True);return
             time.sleep(.6)
         raise Failure('no currently owned projection plus active foreground service')
     def source(self):self.sh('am','start','-n',SOURCE+'/.PresenterActivity');time.sleep(.5)
@@ -228,7 +426,7 @@ class Run:
             self.write(dst.name+'.txt',q.stdout);return q.stdout
         except (OSError,ValueError,subprocess.SubprocessError):return ''
     def probe(self,scene,seconds):
-        end=time.monotonic()+seconds;seen=False;err=''
+        end=time.monotonic()+seconds;seen=False;err='';diag={'owner_2038_seen':False,'frame':None,'external_foreground':False,'xml_has_owner_text':False,'crop_has_ocr_text':False}
         while time.monotonic()<end:
             try:
                 r,k=self.xml('paint-'+scene,True)
@@ -237,17 +435,20 @@ class Run:
                 err=str(e);r=None;self.seq+=1;k=f'{self.seq:03}-paint-{scene}'
             wm=self.sh('dumpsys','window','windows');act=self.sh('dumpsys','activity','activities')
             self.write(k+'-windows.txt',wm);self.write(k+'-resumed.txt','\n'.join(l for l in act.splitlines() if 'ResumedActivity' in l or 'mResumedActivity' in l))
-            has,frame=overlay_window(wm,self.pkg,True)
-            pic=self.shot(k);seen|=has
+            has,frame=overlay_window(wm,self.pkg,True,getattr(self,'uid',None))
+            pic=self.shot(k);seen|=has;diag.update(owner_2038_seen=seen,frame=frame,external_foreground=foreground_fixture(wm,act),screenshot=pic.name)
             if has and foreground_fixture(wm,act):
                 txt=overlay_text(r,self.pkg,frame)
-                self.write(k+'-overlay-xml-text.txt',txt)
+                self.write(k+'-overlay-xml-text.txt',txt);diag['xml_has_owner_text']|=bool(txt.strip())
                 if metric(scene,txt):
+                    print('LIVE:overlay_'+scene+':WITNESS:'+json.dumps({'scene':scene,'owner':self.pkg,'uid_expected':getattr(self,'uid',None),'type':2038,'foreground':SOURCE,'via':'window-bounded UI XML','frame':frame,'observed':measurements(scene,txt),'xml':k+'.xml','screenshot':pic.name}),flush=True)
                     self.ev('overlay_'+scene,'PASS',via='UiAutomator owner + exact metrics + visible WM overlay',xml=k+'.xml',png=pic.name,frame=frame);return True
-                txt=self.crop_text(pic,frame)
+                txt=self.crop_text(pic,frame);diag['crop_has_ocr_text']|=bool(txt.strip())
                 if metric(scene,txt):
+                    print('LIVE:overlay_'+scene+':WITNESS:'+json.dumps({'scene':scene,'owner':self.pkg,'uid_expected':getattr(self,'uid',None),'type':2038,'foreground':SOURCE,'via':'cropped real screen OCR','frame':frame,'observed':measurements(scene,txt),'screenshot':pic.name}),flush=True)
                     self.ev('overlay_'+scene,'PASS',via='WM rect cropped from screen + OCR',png=pic.name,frame=frame);return True
             time.sleep(.4)
+        print('LIVE:overlay_'+scene+':TIMEOUT_DIAGNOSTIC:'+json.dumps(diag),flush=True)
         raise Failure('no populated matching owner-bound balloon; window_seen='+str(seen)+' '+err)
     def stop(self):
         self.st='stop_real'
@@ -261,8 +462,9 @@ class Run:
         for i in range(8):
             wm=self.sh('dumpsys','window','windows');svc=self.sh('dumpsys','activity','services',self.pkg);proj=self.sh('dumpsys','media_projection');act=self.sh('dumpsys','activity','activities')
             self.write('stop-windows.txt',wm);self.write('stop-services.txt',svc);self.write('stop-projection.txt',proj)
-            if (projection_state(proj,self.pkg) is False and not service_exists(svc,self.pkg) and not overlay_window(wm,self.pkg,False)[0] and foreground_fixture(wm,act)):
-                self.shot('stop-external-confirmed');self.stop_ok=True;self.ev('stop','PASS');return
+            if (projection_state(proj,self.pkg) is False and services_readable(svc) and not service_exists(svc,self.pkg) and re.search(r'(?im)^\s*Window #\d+ Window\{',wm) and not overlay_window(wm,self.pkg,False,getattr(self,'uid',None))[0] and foreground_fixture(wm,act)):
+                self.shot('stop-external-confirmed');self.stop_ok=True;self.ev('stop','PASS')
+                print('LIVE:stop:OBSERVED:'+json.dumps({'owner':self.pkg,'foreground':SOURCE,'current_projection':False,'service_record':False,'owner_2038_present':False,'active_before_action':True,'screenshot':'stop-external-confirmed.png'}),flush=True);return
             time.sleep(.6)
         raise Failure('stop not established: empty current projection + no FGS/service/window + external foreground required')
     def run(self):
@@ -272,6 +474,9 @@ class Run:
             if self.sh('getprop','ro.build.version.sdk').strip()!='35':raise Failure('wrong Android API')
             for p in [self.pkg,SOURCE]:
                 if 'package:' not in self.sh('pm','path',p):raise Failure('missing installed '+p)
+            uid_out=self.sh('cmd','package','list','packages','-U',self.pkg)
+            um=re.search(r'(?m)^package:'+re.escape(self.pkg)+r'\s+uid:(\d+)\b',uid_out)
+            self.uid=int(um[1]) if um else None
             proj=self.sh('dumpsys','media_projection');self.write('baseline-projection.txt',proj)
             if projection_state(proj,self.pkg) is not False:raise Failure('baseline projection not verifiably empty')
             self.ev('preflight','PASS');self.consent();self.st='fixture_A';self.source();self.scene('A');self.probe('A',52)

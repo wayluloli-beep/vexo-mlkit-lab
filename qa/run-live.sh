@@ -43,7 +43,7 @@ cleanup() {
   if (( rc != 0 )); then report "FAILED_$stage:$rc"; fi
 }
 trap cleanup EXIT
-[[ $GITHUB_REF == refs/heads/vexo-live-aurora-qa-once ]]
+[[ $GITHUB_REF == refs/heads/vexo-live-aurora-retry-once ]]
 [[ $(git rev-parse HEAD) == "$GITHUB_SHA" ]]
 [[ $(git ls-tree -r --name-only HEAD qa/payload | wc -l) == 24 ]]
 printf '%s  %s\n' '1f1e08574699aabab795687db1816a5962d033652879b21d924cfc590d50199d' "$work/payload.tar.gz" > "$work/payload-check"
@@ -249,10 +249,12 @@ cert_a=$(sed -n 's/^Signer #1 certificate SHA-256 digest: //p' "$work/candidate.
 cert_b=$(sed -n 's/^Signer #1 certificate SHA-256 digest: //p' "$work/presenter.cert")
 [[ ${#cert_a} == 64 && $cert_a == "$cert_b" ]]
 printf 'QA public certificate SHA-256 %s\n' "$cert_a" > "$OUT/qa-public-cert.txt"
+report "SIGNER_QA_SHA256:$cert_a"
 rm -f -- "$work/private/qa.p12"
 grep -Fq "package: name='com.trackingracing'" "$work/candidate.badging"
 grep -Fq "versionName='0.1.3'" "$work/candidate.badging"
 grep -Fq "package: name='com.vexo.qa.pixels'" "$work/presenter.badging"
+grep -E '^(package:|sdkVersion:|targetSdkVersion:)' "$work/candidate.badging" | sed 's/^/AURORA_APK: /'
 "$bt/aapt" dump permissions "$work/candidate.apk" > "$OUT/candidate-permissions.txt"
 grep -Fq 'android.permission.SYSTEM_ALERT_WINDOW' "$OUT/candidate-permissions.txt"
 grep -Fq 'android.permission.FOREGROUND_SERVICE_MEDIA_PROJECTION' "$OUT/candidate-permissions.txt"
@@ -267,6 +269,7 @@ for role in candidate presenter; do
 done
 device shell dumpsys webviewupdate | grep -E 'Current WebView package|Valid package' > "$OUT/webview.txt" || true
 device shell getprop ro.build.fingerprint > "$OUT/android-fingerprint.txt"
+sed 's/^/AURORA_DEVICE: /' "$OUT/android-fingerprint.txt"
 device shell wm size 720x1280
 device shell wm density 240
 report BOTH_INSTALLED
@@ -302,6 +305,17 @@ driver_rc=${PIPESTATUS[0]}
 set -e
 stop_recording
 report "DRIVER_EXIT:$driver_rc"
+if [[ -s $OUT/driver-result.json ]]; then
+  python3 -m json.tool "$OUT/driver-result.json" | sed 's/^/AURORA_RESULT: /'
+  if [[ -n ${GITHUB_STEP_SUMMARY:-} ]]; then
+    {
+      printf '### Vexo Aurora Android QA\n\nCommit `%s`, driver exit `%s`.\n\n' "$GITHUB_SHA" "$driver_rc"
+      printf '```json\n'
+      python3 -m json.tool "$OUT/driver-result.json"
+      printf '```\n'
+    } >> "$GITHUB_STEP_SUMMARY"
+  fi
+fi
 (( driver_rc == 0 )) || exit "$driver_rc"
 test -s "$OUT/driver-result.json"
 stage=COMPLETE
