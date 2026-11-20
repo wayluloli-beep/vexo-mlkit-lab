@@ -1,0 +1,4 @@
+<resources>
+    <item name="replay_start" type="id" />
+    <item name="replay_output" type="id" />
+</resources>

@@ -1,0 +1,31 @@
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools">
+
+    <!-- Bundled model. Remove CCT/DataTransport capabilities added by transitive AARs. -->
+    <uses-permission android:name="android.permission.INTERNET" tools:node="remove" />
+    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" tools:node="remove" />
+
+    <!-- This replay does not use the ContextCompat legacy non-exported receiver fallback. -->
+    <permission android:name="${applicationId}.DYNAMIC_RECEIVER_NOT_EXPORTED_PERMISSION"
+        tools:node="remove" />
+    <uses-permission android:name="${applicationId}.DYNAMIC_RECEIVER_NOT_EXPORTED_PERMISSION"
+        tools:node="remove" />
+
+    <application android:allowBackup="false"
+        android:label="Aurora · Replay diagnóstico"
+        android:usesCleartextTraffic="false">
+        <activity android:name=".ReplayActivity"
+            android:exported="false"
+            android:theme="@android:style/Theme.Material.Light.NoActionBar" />
+
+        <!-- No EmojiCompat or ProcessLifecycle is used. ML Kit initializes via its own provider. -->
+        <provider android:name="androidx.startup.InitializationProvider" tools:node="remove" />
+        <activity android:name="com.google.android.gms.common.api.GoogleApiActivity" tools:node="remove" />
+        <service android:name="com.google.android.datatransport.runtime.backends.TransportBackendDiscovery"
+            tools:node="remove" />
+        <service android:name="com.google.android.datatransport.runtime.scheduling.jobscheduling.JobInfoSchedulerService"
+            tools:node="remove" />
+        <receiver android:name="com.google.android.datatransport.runtime.scheduling.jobscheduling.AlarmManagerSchedulerBroadcastReceiver"
+            tools:node="remove" />
+    </application>
+</manifest>
