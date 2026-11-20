@@ -18,9 +18,9 @@ gradle=root/"app/build.gradle.kts"
 g=gradle.read_text()
 g=one(g,'    implementation("com.google.mlkit:text-recognition:16.0.1")',
 '''    implementation("com.google.mlkit:text-recognition:16.0.1")
-    implementation("com.google.mediapipe:tasks-audio:1.1.1")''',"TTS dependency")
+    // Neural speech is pre-generated and bundled as audio assets.''',"TTS dependency")
 g=one(g,'androidResources { noCompress += "mp4" }',
-'''androidResources { noCompress += listOf("mp4", "litertlm") }''',"uncompressed neural voice model")
+'''androidResources { noCompress += listOf("mp4", "ogg") }''',"uncompressed neural voice model")
 g=one(g,'versionName = "0.1.3-r20-ocr-full"','versionName = "0.1.3-r21-aura-voice"',"version")
 gradle.write_text(g)
 
