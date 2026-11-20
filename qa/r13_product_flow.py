@@ -25,7 +25,7 @@ def launcher_component(raw, pkg):
     return rows[0] if len(rows) == 1 else None
 
 
-def click_of(root, pkg, *names, bottom=False, allow_detail=False):
+def click_of(root, pkg, *names, bottom=False, allow_detail=False, allow_checked=False):
     parents = {child: node for node in root.iter() for child in node}
     wanted = {norm(x) for x in names}
     choices = set()
@@ -38,8 +38,9 @@ def click_of(root, pkg, *names, bottom=False, allow_detail=False):
             continue
         while node is not None and node.get('package') == pkg and node.get('enabled') != 'false':
             attrs = node.attrib
-            if attrs.get('clickable') == 'true' or attrs.get('class') in (
-                    'android.widget.Spinner', 'android.widget.CheckBox', 'android.widget.RadioButton'):
+            if (attrs.get('clickable') == 'true' or attrs.get('class') in
+                    ('android.widget.Spinner', 'android.widget.CheckBox', 'android.widget.RadioButton') or
+                    (allow_checked and attrs.get('class') == 'android.widget.CheckedTextView')):
                 m = re.fullmatch(r'\[(\d+),(\d+)\]\[(\d+),(\d+)\]', attrs.get('bounds', ''))
                 if m:
                     l, t, r, b = map(int, m.groups())
@@ -51,6 +52,17 @@ def click_of(root, pkg, *names, bottom=False, allow_detail=False):
         y = max(point[1] for point in choices)
         choices = {point for point in choices if point[1] == y}
     return next(iter(choices)) if len(choices) == 1 else None
+
+
+def select_popup_choice(root, pkg, label, companion_labels):
+    known={norm(value) for value in companion_labels}|{norm(label)}
+    for owner in (pkg,'android','com.android.systemui'):
+        names={norm(node.get(k,'')) for node in root.iter('node') if node.get('package')==owner
+               and node.get('visible-to-user')!='false' for k in ('text','content-desc')}
+        if known.issubset(names):
+            found=click_of(root,owner,label,allow_checked=True)
+            if found:return found
+    return None
 
 
 def local_metrics(text):
@@ -125,6 +137,11 @@ def product_driver(r12):
             self.product_stages = dict.fromkeys(('launcher', 'first_terms', 'welcome_and_example',
                                                  'central_navigation', 'local_ocr'), 'NOT_RUN')
 
+        def cmd(self,*args,timeout=9,check=True):
+            if self.serial=='emulator-5556' and os.environ.get('VEXO_LOCAL_RECOVERY')=='1' and args and args[0]=='exec-out':
+                timeout=max(timeout,35)
+            return super().cmd(*args,timeout=timeout,check=check)
+
         def content(self, root):
             return norm(r12.alltext(root, self.pkg))
 
@@ -176,23 +193,29 @@ def product_driver(r12):
             return root,key
 
         def tap_select(self, stage, control, value):
+            known={
+                'Quais ofertas testar':('Pop e Negocia','Somente Negocia'),
+                'Tempo da oferta na tela':('Tempo de referência','Curto · 4 segundos')
+            }[control]
             root,key,_ = self.product_observe(stage,lambda r: norm(control) in self.content(r))
-            options = []
-            for node in root.iter('node'):
-                if node.get('package') == self.pkg and node.get('class') == 'android.widget.Spinner':
-                    frame = r12.bounds(node.get('bounds'))
-                    if frame: options.append((frame,node))
-            if not options:
-                # WebView may express the associated label and selected value on the clickable element.
-                self.tap(stage+'-open',control)
+            direct=click_of(root,self.pkg,control,allow_detail=True)
+            if direct:
+                self.act(key,direct,stage+'-open')
             else:
-                index = {'Quais ofertas testar': 0, 'Tempo da oferta na tela': 1}[control]
-                ordered = sorted(options,key=lambda row: (row[0][1],row[0][0]))
-                if len(ordered) < 3:
-                    raise r12.Failure(stage+': could not establish ordered three-control WebView settings group')
-                l,t,r,b = ordered[index][0]
+                options=[]
+                for node in root.iter('node'):
+                    if node.get('package')==self.pkg and node.get('class')=='android.widget.Spinner':
+                        frame=r12.bounds(node.get('bounds'))
+                        if frame:options.append(frame)
+                index={'Quais ofertas testar':0,'Tempo da oferta na tela':1}[control]
+                ordered=sorted(options,key=lambda row:(row[1],row[0]))
+                if len(ordered)<=index:
+                    raise r12.Failure(stage+': intended WebView select not exposed by its label or visible Spinner group')
+                l,t,r,b=ordered[index]
                 self.act(key,((l+r)//2,(t+b)//2),stage+'-open')
-            self.tap(stage+'-choose',value)
+            root,key,point=self.product_observe(stage+'-choose',lambda r:select_popup_choice(r,self.pkg,value,known))
+            self.shot(stage+'-choices')
+            self.act(key,point,stage+'-choose')
 
         def no_projection(self, label):
             proj = self.sh('dumpsys','media_projection',timeout=18)
@@ -205,6 +228,10 @@ def product_driver(r12):
 
         @contextmanager
         def clip(self, name, seconds=180):
+            if os.environ.get('VEXO_SKIP_HOST_CLIP')=='1':
+                self.ev(name,'CLIP_NOT_RUN',reason='local software renderer SystemUI recovery')
+                yield
+                return
             dest = '/sdcard/VexoQa-'+name+'.mp4'
             err = (self.out/(name+'-screenrecord.txt')).open('wb')
             base = [self.adb,'-s',self.serial]
@@ -233,7 +260,32 @@ def product_driver(r12):
                     err.close()
                     self.cmd('shell','rm','-f',dest,timeout=10,check=False)
 
+        def restore_local_systemui(self):
+            self.st='local-systemui-recovery'
+            for n in range(1,4):
+                raw=self.cmd('exec-out','uiautomator','dump','--compressed','/dev/tty',timeout=45)
+                view=r12.parse_dump(raw)
+                label='local-systemui-check-%d'%n
+                self.write(label+'.xml',raw)
+                if "system ui isn't responding" not in norm(r12.alltext(view,'android')):
+                    if any('aerr_' in node.get('resource-id','') for node in view.iter('node')):
+                        raise r12.Failure('unexpected Android ANR in disposable emulator')
+                    self.shot('local-systemui-recovered')
+                    self.ev(self.st,'PASS',xml=label+'.xml')
+                    return
+                # Repair only the known emulator's system error. Never dismiss a Vexo or consent dialog here.
+                if n != 1:
+                    raise r12.Failure('software AVD SystemUI ANR recurred after a single native recovery')
+                action=click_of(view,'android','android:id/aerr_close')
+                if action is None:
+                    raise r12.Failure('SystemUI ANR close control not separately confirmed by Android')
+                self.act(label,action,'local-close-stalled-systemui')
+                time.sleep(12)
+            raise r12.Failure('software AVD SystemUI healthy state not observed')
+
         def launcher(self):
+            if os.environ.get('VEXO_LOCAL_RECOVERY')=='1':
+                self.restore_local_systemui()
             self.st='native-launcher'
             raw=self.sh('cmd','package','resolve-activity','--brief','-a','android.intent.action.MAIN',
                         '-c','android.intent.category.LAUNCHER',self.pkg,timeout=20)
@@ -324,10 +376,8 @@ def product_driver(r12):
 
         def local(self):
             self.tap('local-open-training','Treino OCR')
-            self.tap('local-open-training-options','Ajustar treino')
-            self.tap_select('local-pop-only','Quais ofertas testar','Somente Pop')
-            self.tap_select('local-pace-long','Tempo da oferta na tela','Longo · 12 segundos')
-            self.tap('local-save-options','Concluir')
+            self.state('local-training-sheet','Ajustar treino','Iniciar treino')
+            self.ev('local-training-default','OBSERVED')
             self.no_projection('local-before')
             self.cmd('logcat','-c',timeout=14)
             root,key,_ = self.product_observe('local-before-ui',lambda root: click_of(root,self.pkg,'Iniciar treino'))

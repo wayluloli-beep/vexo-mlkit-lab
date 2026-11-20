@@ -5,7 +5,7 @@ permissions:
   contents: read
 jobs:
   live-android:
-    if: ${{ github.repository == 'wayluloli-beep/vexo-mlkit-lab' && github.event.ref_type == 'branch' && github.event.ref == 'vexo-product-r13-retry-once' && github.run_attempt == '1' && github.event.repository.private == true }}
+    if: ${{ github.repository == 'wayluloli-beep/vexo-mlkit-lab' && github.event.ref_type == 'branch' && github.event.ref == 'vexo-product-r13-direct-once' && github.run_attempt == '1' && github.event.repository.private == true }}
     permissions:
       contents: write
     runs-on: ubuntu-26.04
@@ -22,7 +22,7 @@ jobs:
         shell: bash
         run: bash qa/run-live.sh
       - name: Keep validated synthetic Android prints on this private QA branch
-        if: ${{ always() && github.repository == 'wayluloli-beep/vexo-mlkit-lab' && github.event.repository.private == true && github.run_attempt == '1' && github.ref == 'refs/heads/vexo-product-r13-retry-once' }}
+        if: ${{ always() && github.repository == 'wayluloli-beep/vexo-mlkit-lab' && github.event.repository.private == true && github.run_attempt == '1' && github.ref == 'refs/heads/vexo-product-r13-direct-once' }}
         timeout-minutes: 5
         shell: bash
         env:
