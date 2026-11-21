@@ -1,0 +1,62 @@
+name: Frankenstein Meu Veiculo - base legada R22 (comparativo)
+on:
+  push:
+    branches:
+      - feature/frankenstein-meu-veiculo-20261121
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  baseline-vehicle-android:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Validate legacy vehicle extractor syntax
+        run: node --check qa/extract-vehicle.cjs
+      - name: Reconstruct verified R19 and R20-R22 layers
+        shell: bash
+        run: |
+          set -euo pipefail
+          export JAVA_HOME="${JAVA_HOME_17_X64}"
+          export PATH="$JAVA_HOME/bin:$PATH"
+          mkdir -p "$RUNNER_TEMP/frankenstein-src"
+          bash qa/r19/materialize.sh "$RUNNER_TEMP/frankenstein-src"
+          src="$RUNNER_TEMP/frankenstein-src/src/aurora"
+          test -s "$src/app/src/main/assets/aurora/veiculo.html"
+          grep -Fq 'vexo.meu-veiculo.selecao.v1' "$src/app/src/main/assets/aurora/veiculo.html"
+          python3 qa/r20/upgrade.py "$src"
+          python3 qa/r20/vx_icon.py "$src"
+          python3 qa/r21/apply.py "$src"
+          python3 qa/r21/check.py "$src"
+          python3 qa/r22/apply.py "$src"
+          python3 qa/r22/check.py "$src"
+          for file in "$src/app/src/main/assets/aurora/"*.js; do node --check "$file"; done
+          echo "ANDROID_SOURCE=$src" >> "$GITHUB_ENV"
+      - name: Install pinned Gradle
+        shell: bash
+        run: |
+          set -euo pipefail
+          curl -fsSL --retry 3 --max-time 180 https://downloads.gradle.org/distributions/gradle-8.11.1-bin.zip -o "$RUNNER_TEMP/gradle.zip"
+          echo "f397b287023acdba1e9f6fc5ea72d22dd63669d59ed4a289a29b1a76eee151c6  $RUNNER_TEMP/gradle.zip" | sha256sum --check --status
+          unzip -q "$RUNNER_TEMP/gradle.zip" -d "$RUNNER_TEMP"
+      - name: Build comparative Android APK (NOT Vexo 1.8)
+        shell: bash
+        run: |
+          set -euo pipefail
+          export JAVA_HOME="${JAVA_HOME_17_X64}"
+          export PATH="$JAVA_HOME/bin:$PATH"
+          export GRADLE_USER_HOME="$RUNNER_TEMP/gradle-home"
+          "$RUNNER_TEMP/gradle-8.11.1/bin/gradle" --project-dir "$ANDROID_SOURCE" --no-daemon --console=plain --max-workers=2 :app:assembleDebug
+          find "$ANDROID_SOURCE/app/build/outputs/apk/debug" -maxdepth 1 -name '*.apk' -exec sha256sum {} \;
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Vexo-R22-Veiculo-Comparativo-NAO-1_8
+          path: ${{ env.ANDROID_SOURCE }}/app/build/outputs/apk/debug/*.apk
+          if-no-files-found: error
+          retention-days: 7
