@@ -1,4 +1,4 @@
-name: Aura Gemini - teste de conexão real
+name: Aura Gemini - regressao de latencia
 on:
   push:
     branches: [test/vexo-aura-gemini-20261125]
@@ -7,13 +7,31 @@ permissions:
 jobs:
   smoke:
     runs-on: ubuntu-latest
-    timeout-minutes: 3
+    timeout-minutes: 4
     steps:
-      - name: Verificar proxy e uma pergunta sem dados pessoais
+      - name: Testar revisao implantada e tres consultas reais
         run: |
           set -euo pipefail
           BASE=https://vexo-aura-flash-bridge-xs69.onrender.com
-          curl --fail --silent --show-error --max-time 90 "$BASE/health" -o /tmp/aura-health.json
-          node -e 'const a=require("/tmp/aura-health.json"); console.log("Proxy: "+a.status+"; credencial configurada: "+Boolean(a.keyConfigured));if(a.status!=="ok"||!a.keyConfigured)process.exit(1)'
-          curl --fail --silent --show-error --max-time 35 -H 'Content-Type: application/json' -d '{"question":"Oi","previous":"","history":[]}' "$BASE/aura" -o /tmp/aura-reply.json
-          node -e 'const a=require("/tmp/aura-reply.json");const b=JSON.parse(a.text);if(b.intent!=="saudacao")throw Error("Contrato inesperado");console.log("Gemini respondeu conforme contrato: "+b.intent)'
+          for i in $(seq 1 8); do
+            if curl --fail --silent --show-error --max-time 25 "$BASE/health" -o /tmp/aura-health.json && node -e 'const a=require("/tmp/aura-health.json"); console.log("Revision:",a.revision,"model:",a.model);if(a.revision!=="aura-latency-r2"||!a.keyConfigured||a.status!=="ok")process.exit(1)'; then break; fi
+            sleep 4
+          done
+          node -e 'if(require("/tmp/aura-health.json").revision!=="aura-latency-r2")process.exit(1)'
+          node --input-type=module <<'JS'
+          const base='https://vexo-aura-flash-bridge-xs69.onrender.com';
+          const cases=[['Oi','saudacao',''],['Quanto desembolsei hoje?','despesas',''],['E nos últimos 15?','ganhos','Quanto ganhei hoje?']];
+          let passed=0;
+          for(const [question,intent,previous] of cases){
+            const t=Date.now();
+            try{
+              const r=await fetch(base+'/aura',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({question,previous,history:[]}),signal:AbortSignal.timeout(22000)});
+              const data=await r.json();if(!r.ok)throw Error('HTTP '+r.status+' '+data.error);
+              const answer=JSON.parse(data.text);
+              if(answer.intent!==intent||(previous&&answer.period!=='quinze'))throw Error('Contrato: '+answer.intent+' '+answer.period);
+              passed++;console.log('PASS',intent,Date.now()-t,'ms');
+            }catch(e){console.log('FAIL',intent,Date.now()-t,'ms',e.message)}
+          }
+          console.log('RESULT',passed,'/ 3');
+          if(passed!==3)process.exitCode=1;
+          JS
