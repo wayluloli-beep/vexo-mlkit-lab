@@ -1,0 +1,129 @@
+name: VEXO Web Android - Aura Sync
+on:
+  push:
+    branches: [build/vexo-aura-sync-web-20261125]
+  workflow_dispatch:
+permissions:
+  contents: write
+jobs:
+  apk:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - name: Testes do motor
+        run: |
+          node vexo-web-pwa/test-stress.cjs
+          node vexo-web-pwa/test-integration.cjs
+          node vexo-web-pwa/test-aura.cjs
+      - name: Compilar APK Android independente
+        shell: bash
+        run: |
+          set -euo pipefail
+          SDK="${ANDROID_HOME:-$ANDROID_SDK_ROOT}"
+          BT="$SDK/build-tools/35.0.0"
+          PLATFORM="$SDK/platforms/android-35/android.jar"
+          if [[ ! -x "$BT/aapt2" || ! -f "$PLATFORM" ]]; then
+            SM=$(find "$SDK/cmdline-tools" -type f -path '*/bin/sdkmanager' | sort -V | tail -1)
+            "$SM" --install "platforms;android-35" "build-tools;35.0.0"
+          fi
+          mkdir -p build/webapk/{assets,classes,dex}
+          for f in index.html mobile-original.html driver.html fuel.html finance.html data.js settings.js responsive.css chart.umd.min.js aura.html aura-core.js aura.js; do
+            cp "vexo-web-pwa/$f" build/webapk/assets/
+          done
+          cd build/webapk
+          cat > AndroidManifest.xml <<'EOF'
+          <manifest xmlns:android="http://schemas.android.com/apk/res/android" package="com.vexo.webintegridade.aura" android:versionCode="1" android:versionName="1.1-aura">
+            <uses-sdk android:minSdkVersion="23" android:targetSdkVersion="34"/>
+            <uses-permission android:name="android.permission.INTERNET"/>
+            <queries><intent><action android:name="android.intent.action.TTS_SERVICE"/></intent><intent><action android:name="android.speech.action.RECOGNIZE_SPEECH"/></intent></queries>
+            <application android:label="VEXO Aura" android:theme="@android:style/Theme.Material.NoActionBar" android:usesCleartextTraffic="false" android:allowBackup="false">
+              <activity android:name=".MainActivity" android:exported="true">
+                <intent-filter><action android:name="android.intent.action.MAIN"/><category android:name="android.intent.category.LAUNCHER"/></intent-filter>
+              </activity>
+            </application>
+          </manifest>
+          EOF
+          cat > MainActivity.java <<'EOF'
+          package com.vexo.webintegridade.aura;
+          import android.app.Activity;
+          import android.os.Bundle;
+          import android.content.Intent;
+          import android.speech.RecognizerIntent;
+          import android.speech.tts.TextToSpeech;
+          import android.widget.Toast;
+          import org.json.JSONObject;
+          import android.webkit.*;
+          import android.net.Uri;
+          import android.graphics.Color;
+          import java.io.*;
+          import java.util.*;
+          public class MainActivity extends Activity {
+            private WebView web;
+            private TextToSpeech tts;
+            private boolean ttsReady=false;
+            private boolean listening=false;
+            private static final String HOST="vexo.local";
+            private static final Set<String> FILES=new HashSet<>(Arrays.asList("index.html","mobile-original.html","driver.html","fuel.html","finance.html","data.js","settings.js","responsive.css","chart.umd.min.js","aura.html","aura-core.js","aura.js"));
+            @Override public void onCreate(Bundle state) {
+              super.onCreate(state);
+              getWindow().setStatusBarColor(Color.rgb(8,11,18));
+              getWindow().setNavigationBarColor(Color.rgb(8,11,18));
+              web=new WebView(this);
+              web.setBackgroundColor(Color.rgb(8,11,18));
+              setContentView(web);
+              WebSettings s=web.getSettings();
+              s.setJavaScriptEnabled(true);
+              s.setDomStorageEnabled(true);
+              s.setAllowFileAccess(false);
+              s.setAllowContentAccess(false);
+              s.setMixedContentMode(WebSettings.MIXED_CONTENT_NEVER_ALLOW);
+              web.setWebChromeClient(new WebChromeClient());
+              tts=new TextToSpeech(this,status->{if(status==TextToSpeech.SUCCESS){int l=tts.setLanguage(new Locale("pt","BR"));ttsReady=l>=0;}});
+              web.addJavascriptInterface(new VoiceBridge(),"VexoVoice");
+              web.setWebViewClient(new WebViewClient(){
+                @Override public boolean shouldOverrideUrlLoading(WebView v,WebResourceRequest r){return !HOST.equals(r.getUrl().getHost())||!"https".equals(r.getUrl().getScheme());}
+                @Override public WebResourceResponse shouldInterceptRequest(WebView v,WebResourceRequest request){
+                  Uri u=request.getUrl();
+                  if(!HOST.equals(u.getHost())){
+                    if("https".equals(u.getScheme())&&(u.getHost().equals("vexo-aura-flash-bridge-xs69.onrender.com")||u.getHost().equals("fonts.googleapis.com")||u.getHost().equals("fonts.gstatic.com")))return null;
+                    return new WebResourceResponse("text/plain","UTF-8",403,"Forbidden",Collections.emptyMap(),new ByteArrayInputStream(new byte[0]));
+                  }
+                  String p=u.getPath();
+                  String n=(p==null||p.equals("/"))?"index.html":p.substring(1);
+                  if(!FILES.contains(n))return new WebResourceResponse("text/plain","UTF-8",404,"Not Found",Collections.emptyMap(),new ByteArrayInputStream(new byte[0]));
+                  String mime=n.endsWith(".html")?"text/html":n.endsWith(".css")?"text/css":"application/javascript";
+                  try{return new WebResourceResponse(mime,"UTF-8",getAssets().open(n));}catch(IOException e){return new WebResourceResponse("text/plain","UTF-8",404,"Not Found",Collections.emptyMap(),new ByteArrayInputStream(new byte[0]));}
+                }
+              });
+              web.loadUrl("https://"+HOST+"/index.html");
+            }
+            public class VoiceBridge{
+              @JavascriptInterface public void speak(String text){runOnUiThread(()->{if(ttsReady&&text!=null&&text.length()<=2500)tts.speak(text,TextToSpeech.QUEUE_FLUSH,null,"aura");else Toast.makeText(MainActivity.this,"Voz em português indisponível",Toast.LENGTH_SHORT).show();});}
+              @JavascriptInterface public void stop(){runOnUiThread(()->{if(tts!=null)tts.stop();});}
+              @JavascriptInterface public void listen(){runOnUiThread(()->{if(listening)return;try{if(tts!=null)tts.stop();Intent i=new Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH);i.putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL,RecognizerIntent.LANGUAGE_MODEL_FREE_FORM);i.putExtra(RecognizerIntent.EXTRA_LANGUAGE,"pt-BR");i.putExtra(RecognizerIntent.EXTRA_MAX_RESULTS,1);listening=true;startActivityForResult(i,42);}catch(Exception e){listening=false;Toast.makeText(MainActivity.this,"Reconhecimento de voz indisponível",Toast.LENGTH_SHORT).show();}});}
+            }
+            @Override protected void onActivityResult(int request,int result,Intent data){super.onActivityResult(request,result,data);if(request!=42)return;listening=false;ArrayList<String> words=result==RESULT_OK&&data!=null?data.getStringArrayListExtra(RecognizerIntent.EXTRA_RESULTS):null;if(words!=null&&!words.isEmpty()){String q=JSONObject.quote(words.get(0));web.evaluateJavascript("(function(){var f=document.getElementById('aura');if(f&&f.contentWindow.vexoAuraRecognized)f.contentWindow.vexoAuraRecognized("+q+");})();",null);}}
+            @Override protected void onDestroy(){if(tts!=null){tts.stop();tts.shutdown();}if(web!=null){web.removeJavascriptInterface("VexoVoice");web.destroy();}super.onDestroy();}
+            @Override public void onBackPressed(){if(web.canGoBack())web.goBack();else super.onBackPressed();}
+          }
+          EOF
+          "$BT/aapt2" link -I "$PLATFORM" --manifest AndroidManifest.xml -A assets -o unsigned.apk
+          javac -source 8 -target 8 -bootclasspath "$PLATFORM" -d classes MainActivity.java
+          "$BT/d8" --lib "$PLATFORM" --min-api 23 --output dex $(find classes -name '*.class')
+          zip -q -j unsigned.apk dex/classes.dex
+          "$BT/zipalign" -f 4 unsigned.apk aligned.apk
+          keytool -genkeypair -keystore debug.jks -storepass android -keypass android -alias androiddebugkey -keyalg RSA -keysize 2048 -validity 10000 -dname 'CN=VEXO Web Test'
+          "$BT/apksigner" sign --ks debug.jks --ks-pass pass:android --key-pass pass:android --out VEXO-Aura-Sync.apk aligned.apk
+          "$BT/apksigner" verify --verbose VEXO-Aura-Sync.apk
+          "$BT/aapt2" dump badging VEXO-Aura-Sync.apk
+          for f in assets/*; do unzip -p VEXO-Aura-Sync.apk "$f" | cmp "$f" -; done
+          unzip -t VEXO-Aura-Sync.apk
+      - name: Disponibilizar APK em release privada
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create vexo-aura-sync-20261125 build/webapk/VEXO-Aura-Sync.apk --target "$GITHUB_SHA" --title 'VEXO Aura Sync 1.1 - teste' --notes 'APK independente com os quatro painéis originais, Aura Sync, voz Android e dados locais. Assinatura de teste verificada.' --prerelease
