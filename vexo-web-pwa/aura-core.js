@@ -75,8 +75,40 @@ const recordFields={
 const recordKeys=Object.keys(recordFields);
 const numericKeys=recordKeys.filter(k=>['money','km','seconds','number'].includes(recordFields[k].type));
 const fieldDefault=['dia','inicio','fim','plataforma','valor','km','duracao'];
+
+function validDay(v){if(typeof v!=='string'||!/^\d{4}-\d{2}-\d{2}$/.test(v))return false;const t=Date.parse(v+'T00:00:00Z');return Number.isFinite(t)&&new Date(t).toISOString().slice(0,10)===v;}
+function recordOptions(i){const r={direction:i.direction==='desc'?'desc':'asc',source:['real','simulated'].includes(i.source)?i.source:'all'};if(validDay(i.from)&&validDay(i.to)&&i.from<=i.to){r.from=i.from;r.to=i.to;}if(i.clock&&Number.isInteger(i.clock.start)&&Number.isInteger(i.clock.end)&&i.clock.start>=0&&i.clock.start<=1440&&i.clock.end>=-1&&i.clock.end<1440)r.clock={start:i.clock.start,end:i.clock.end};if(i.threshold&&['valor','km','duracao'].includes(i.threshold.field)&&['gt','lt','gte','lte'].includes(i.threshold.op)&&Number.isFinite(i.threshold.value)&&i.threshold.value>=0)r.threshold={field:i.threshold.field,op:i.threshold.op,value:i.threshold.value};if(Number.isInteger(i.ordinal)&&i.ordinal>0&&i.ordinal<=100000)r.ordinal=i.ordinal;return r;}
+function historyExtensions(t,prior,period,platform,now){
+ const old=prior?.intent==='registros'?prior.record:null;
+ const subject=/corrid|viagem|historico|registro/.test(t);
+ const refer=/\b(?:dela|dele|dessa|desse|daquela|daquele|essa corrida|esta corrida)\b/.test(t);
+ const fields=[];if(/valor|preco|quanto cust|quanto ganh/.test(t))fields.push('valor');if(/horario|que horas|inicio|fim|quando/.test(t))fields.push('dia','inicio','fim');if(/endereco|origem|destino|de onde|para onde/.test(t))fields.push('origem','destino');if(/duracao|tempo/.test(t))fields.push('duracao');if(/\bkm\b|distancia/.test(t))fields.push('km');if(/nota|avaliacao/.test(t))fields.push('nota');if(/lucro|margem/.test(t))fields.push('resultado');
+ if(refer&&old&&(['first','last','max','min'].includes(old.operation)||old.ordinal))return {intent:'registros',period:prior.period,platform:prior.platform,record:{...old,fields:fields.length?fields:old.fields,offset:0}};
+ if(!subject&&!old)return null;
+ const dates=[...t.matchAll(/\b(\d{1,2})\/(\d{1,2})(?:\/(\d{4}))?\b/g)].slice(0,2).map(m=>String(m[3]||now.getFullYear())+'-'+m[2].padStart(2,'0')+'-'+m[1].padStart(2,'0'));
+ if(dates.some(x=>!validDay(x))||dates.length===2&&dates[0]>dates[1])return {intent:'esclarecer',period,reply:'Essa data ou intervalo é inválido. Use dia/mês/ano.'};
+ const time=t.match(/\b(?:entre|das|de)\s+(\d{1,2})(?:[:h](\d{2}))?\s*h?\s*(?:e|as|ate)\s+(\d{1,2})(?:[:h](\d{2}))?\s*h?\b/);
+ let clock=null;if(time){if(Number(time[1])>23||Number(time[3])>23||Number(time[2]||0)>59||Number(time[4]||0)>59)return {intent:'esclarecer',period,reply:'Esse horário é inválido. Use 00:00 a 23:59.'};clock={start:Number(time[1])*60+Number(time[2]||0),end:Number(time[3])*60+Number(time[4]||0)};}
+ else if(/\b(?:de manha|pela manha)\b/.test(t))clock={start:360,end:719};else if(/\b(?:a tarde|de tarde|pela tarde)\b/.test(t))clock={start:720,end:1079};else if(/\b(?:a noite|de noite|pela noite)\b/.test(t))clock={start:1080,end:1439};
+ const th=t.match(/\b(acima de|mais de|maior que|abaixo de|menos de|menor que|pelo menos|no maximo)\s*(r\$\s*)?(\d+(?:[.,]\d+)?)\s*(reais|km|quilometros|minutos|horas)?\b/);
+ let threshold=null;if(th&&(th[2]||th[4])){const unit=th[4]||'reais';threshold={field:/km|quilometros/.test(unit)?'km':/minutos|horas/.test(unit)?'duracao':'valor',op:/acima|mais|maior/.test(th[1])?'gt':/abaixo|menos|menor/.test(th[1])?'lt':th[1]==='pelo menos'?'gte':'lte',value:Number(th[3].replace(',','.'))*(unit==='horas'?3600:unit==='minutos'?60:1)};}
+ const source=/\b(?:reais|real|sem simulac)\b/.test(t)&&!/r\$\s*\d|\d\s*reais/.test(t)?'real':/\b(?:simulad[ao]s?|simulacoes)\b/.test(t)?'simulated':null;
+ const nth=t.match(/\b(?:corrida|viagem)\s*(?:numero|n[ºo.]?)?\s*(\d+)\b/);
+ const lastN=t.match(/\bultim[ao]s?\s+(\d+)\s+(?:corridas|viagens)\b/),firstN=t.match(/\bprimeir[ao]s?\s+(\d+)\s+(?:corridas|viagens)\b/);
+ if(!dates.length&&!clock&&!threshold&&!source&&!nth&&!lastN&&!firstN)return null;
+ if(!subject&&!old)return null;
+ const q=parseRecords(t,prior,period,platform)||{intent:'registros',period,platform,record:{operation:'list',fields:fields.length?fields:fieldDefault}};
+ const r={...q.record,...(dates.length?{from:dates[0],to:dates[1]||dates[0]}:{}),...(clock?{clock}:{}),...(threshold?{threshold}:{}),...(source?{source}:{}),...(nth?{ordinal:Number(nth[1])}:{}),...(lastN?{direction:'desc',limit:Number(lastN[1])}:firstN?{direction:'asc',limit:Number(firstN[1])}:{}),offset:0};
+ if(lastN||firstN||nth)r.operation='list';
+ if(/quantas|numero de|quantidade de|total de corridas/.test(t)&&!/por dia|por horario|por plataforma|por situacao/.test(t))r.operation='count';
+ if(/soma|total de valor|quanto ganhei|faturamento total/.test(t)&&r.operation==='list'){r.operation='sum';r.metric='valor';}
+ if(/\bmedia\b/.test(t)&&r.operation==='list'){r.operation='average';r.metric=/km|distancia/.test(t)?'km':/tempo|duracao/.test(t)?'duracao':'valor';}
+ if(dates.length)q.period='total';
+ return {...q,record:r};
+}
+
 function recordPlan(input){
- if(!input||!['list','first','last','max','min','group','capabilities'].includes(input.operation))return null;
+ if(!input||!['list','first','last','max','min','group','capabilities','count','sum','average'].includes(input.operation))return null;
  const operation=input.operation,fields=Array.isArray(input.fields)?[...new Set(input.fields.filter(k=>recordKeys.includes(k)))].slice(0,8):[];
  const sort=recordKeys.includes(input.sort)?input.sort:'inicio';
  if(['max','min'].includes(operation)&&!numericKeys.includes(sort))return null;
@@ -85,7 +117,7 @@ function recordPlan(input){
  const offset=Number.isInteger(input.offset)?Math.max(0,Math.min(100000,input.offset)):0;
  const limit=Number.isInteger(input.limit)?Math.max(1,Math.min(20,input.limit)):10;
  const status=['finished','unfinished','cancel trip','all'].includes(input.status)?input.status:'finished';
- return {operation,fields:fields.length?fields:fieldDefault,sort,group,metric,offset,limit,status};
+ return {operation,fields:fields.length?fields:fieldDefault,sort,group,metric,offset,limit,status,...recordOptions(input)};
 }
 function projectRecords(raw,data,inside){
  const byId=new Map(raw.rides.map(r=>[String(r[0]),r]));
@@ -144,18 +176,26 @@ function recordValue(k,v){
 function recordAnswer(s,options){
  const q=recordPlan(options.record);if(!q)return 'Não consegui definir a consulta ao histórico.';
  let rows=s.records.filter(r=>(!options.platform||r.plataforma===options.platform)&&(q.status==='all'||r.situacao===q.status));
+ if(q.source!=='all')rows=rows.filter(r=>q.source==='simulated'?r.simulated:!r.simulated);
+ if(q.from)rows=rows.filter(r=>r.dia>=q.from&&r.dia<=q.to);
+ if(q.clock)rows=rows.filter(r=>{const h=Number(r.inicio.slice(11,13))*60+Number(r.inicio.slice(14,16)),a=q.clock.start,b=q.clock.end;return a===1440||b===-1?false:a<=b?h>=a&&h<=b:h>=a||h<=b;});
+ if(q.threshold){const {field,op,value}=q.threshold;rows=rows.filter(r=>{const x=r[field];return Number.isFinite(x)&&(op==='gt'?x>value:op==='lt'?x<value:op==='gte'?x>=value:x<=value);});}
  if(q.operation==='capabilities'){
  const fields=recordKeys.map(k=>{const count=rows.filter(r=>r[k]!=null).length;return recordFields[k].label+': '+count+'/'+rows.length+' registros';});
  return 'Posso consultar os campos abaixo, quando preenchidos no VEXO. Disponibilidade neste período:\n'+fields.join('\n')+'\nNão tenho GPS em tempo real nem acesso direto às contas Uber/99. Os horários simulados são estimados pelo gerador.';
  }
  if(!rows.length)return 'Nenhuma corrida corresponde a esses filtros no período.';
  const caveat=rows.some(r=>r.simulated)?'\nHá corridas simuladas. Seus horários são calculados pelo gerador, não medidos em viagem real.':'';
+ if(q.operation==='count')return 'Corridas que correspondem aos filtros: '+rows.length+'.'+caveat;
+ if(['sum','average'].includes(q.operation)){const vals=rows.map(r=>r[q.metric]).filter(Number.isFinite);if(!vals.length)return 'Não há valores registrados para esse indicador.';const v=vals.reduce((a,b)=>a+b,0)/(q.operation==='average'?vals.length:1);return (q.operation==='average'?'Média: ':'Total: ')+recordValue(q.metric,v)+' em '+vals.length+' registro(s).'+(vals.length<rows.length?' '+(rows.length-vals.length)+' sem esse campo.':'')+caveat;}
  if(q.operation==='group'){
  const groups=new Map();
  for(const r of rows){const key=q.group==='hora'?r.inicio.slice(11,13)+':00':r[q.group];const v=q.metric==='count'?1:r[q.metric];if(v==null)continue;groups.set(key,(groups.get(key)||0)+v);}
  const g=[...groups.entries()].sort((a,b)=>String(a[0]).localeCompare(String(b[0])));
  return 'Histórico agrupado por '+q.group+' ('+rows.length+' registros):\n'+g.slice(q.offset,q.offset+q.limit).map(([k,v])=>(q.group==='dia'?recordValue('dia',k):q.group==='situacao'?recordValue('situacao',k):k)+': '+(q.metric==='count'?v+' corrida(s)':recordValue(q.metric,v))).join('\n')+(g.length>q.offset+q.limit?'\nDiga "mais" para continuar.':'')+caveat;
  }
+ if(q.direction==='desc'&&q.operation==='list')rows=[...rows].reverse();
+ if(q.ordinal){if(q.ordinal>rows.length)return 'Não existe a corrida de número '+q.ordinal+' nessa seleção.';rows=rows.slice(q.ordinal-1,q.ordinal);}
  if(q.operation==='first')rows=rows.slice(0,1);
  if(q.operation==='last')rows=rows.slice(-1);
  if(['max','min'].includes(q.operation)){rows=rows.filter(r=>r[q.sort]!=null).sort((a,b)=>q.operation==='max'?b[q.sort]-a[q.sort]:a[q.sort]-b[q.sort]).slice(0,1);}
@@ -163,7 +203,7 @@ function recordAnswer(s,options){
  const page=rows.slice(q.offset,q.offset+q.limit);
  if(!page.length)return 'Você chegou ao fim dos registros.';
  const fields=[...new Set([...q.fields,...(['max','min'].includes(q.operation)?[q.sort]:[])])];
- const lines=page.map((r,i)=>(q.offset+i+1)+'. '+fields.map(k=>recordFields[k].label+': '+recordValue(k,r[k])).join(' · ')+(r.simulated?' (simulada)':''));
+ const lines=page.map((r,i)=>(q.ordinal||q.offset+i+1)+'. '+fields.map(k=>recordFields[k].label+': '+recordValue(k,r[k])).join(' · ')+(r.simulated?' (simulada)':''));
  return 'Histórico de corridas — '+(q.offset+1)+'–'+(q.offset+page.length)+' de '+rows.length+'\n'+lines.join('\n')+(rows.length>q.offset+q.limit?'\nDiga "mais" para continuar.':'')+caveat;
 }
 
@@ -195,7 +235,7 @@ function cleanQuery(q,previous=null){
  const record=q.intent==='registros'?recordPlan(q.record):null;if(q.intent==='registros'&&!record)return null;
  return {intent:q.intent,period,platform,compareMetric,metrics,...(record?{record}:{}),reply:typeof q.reply==='string'?q.reply.trim().slice(0,350):''};
 }
-function parse(question,previous=null){
+function parse(question,previous=null,now=new Date()){
  const t=normalize(question).replace(/\bhj\b/g,'hoje').replace(/\bvc\b/g,'voce').replace(/\bqts\b/g,'quantos');const prior=cleanQuery(previous);
  const explicit=/\bontem\b/.test(t)?'ontem':/\b(?:15|quinze)\s*(?:dias)?\b/.test(t)&&!/\b(?:r\$|reais)\b/.test(t)?'quinze':/\b(?:30|trinta)\s*(?:dias)\b/.test(t)?'trinta':/\bsemana\b|\b7 dias\b/.test(t)?'semana':/\bmes\b|mensal/.test(t)?'mes':/\bhoje\b/.test(t)?'hoje':/historico (?:todo|completo)|todo (?:o )?periodo|desde (?:o )?comeco|desde sempre/.test(t)?'total':null;
  const u=/\buber\b/.test(t),n=/\b99\b|noventa e nove/.test(t),both=u&&n,hasPlatform=u||n;
@@ -203,9 +243,10 @@ function parse(question,previous=null){
  const follow=/^(?:e\s+)?(?:na|no|pela|pelo|da|do|so|apenas)\s+(?:uber|99|noventa e nove)(?:\s+(?:hoje|ontem|nessa semana|nesse mes))?\s*\??$/.test(t);
  const other=/^(?:e\s+)?(?:a|o)\s+outr[oa](?:\s+plataforma)?\s*\??$/.test(t);
  const periodOnly=explicit&&/^(?:e\s+)?(?:nos?\s+|nas?\s+|ness[ae]\s+|nest[ae]\s+|ultim[oa]s?\s+|no\s+|na\s+|de\s+)*(?:hoje|ontem|semana|mes|15|quinze|30|trinta|7 dias|historico todo|desde sempre)(?:\s+dias)?\s*[?.!]*$/.test(t);
- if(other&&prior?.platform){return {...prior,platform:prior.platform==='Uber'?'99':'Uber',reply:''};}
- if((follow||periodOnly)&&prior&&prior.intent!=='saudacao'){return {...prior,period:explicit||prior.period,platform:follow?platform:prior.platform,reply:''};}
+ if(other&&prior?.platform){return {...prior,platform:prior.platform==='Uber'?'99':'Uber',...(prior.record?{record:{...prior.record,offset:0}}:{}),reply:''};}
+ if((follow||periodOnly)&&prior&&prior.intent!=='saudacao'){return {...prior,period:explicit||prior.period,platform:follow?platform:prior.platform,...(prior.record?{record:{...prior.record,offset:0,...(explicit?{from:undefined,to:undefined}: {})}}:{}),reply:''};}
  if(/^(oi|ola|opa|e ai|bom dia|boa tarde|boa noite)[!?. ]*$/.test(t))return cleanQuery({intent:'saudacao',period:'hoje'});
+ const extended=historyExtensions(t,prior,explicit||prior?.period||'hoje',platform,now);if(extended)return cleanQuery(extended);
  const historyQuery=parseRecords(t,prior,explicit||prior?.period||'hoje',platform);if(historyQuery)return cleanQuery(historyQuery);
  const found=new Set(catalog.filter(([,r])=>r.test(t)).map(([k])=>k));
  // Semantic precedence applies to overlapping units, not entire questions.
@@ -294,7 +335,7 @@ function looksLikeData(q){return /corrid|uber|\b99\b|combust|abastec|ganh|fatur|
 function errorLabel(e){return e?.httpStatus?'HTTP '+e.httpStatus+(e.reason?' · '+String(e.reason).slice(0,60):''):e?.name==='AbortError'?'Tempo limite':'Rede ou resposta inválida';}
 async function resolve(question,previous,{readData,interpret,now=new Date(),onPhase=()=>{}}){
  const q=String(question||'').trim().slice(0,600),prior=cleanQuery(previous);
- let query=parse(q,prior),source='Dados locais · sem consumo de API';
+ let query=parse(q,prior,now),source='Dados locais · sem consumo de API';
  if(!query.intent){
    onPhase('Consultando Gemini…');
    try{
@@ -312,9 +353,11 @@ async function resolve(question,previous,{readData,interpret,now=new Date(),onPh
    }
  }
  if(query.intent==='saudacao')return {text:answer('saudacao'),source:'Dados locais · sem consumo de API',context:prior};
+ if(query.intent==='esclarecer')return {text:query.reply||'Qual informação você quer consultar?',source:'Dados locais · sem consumo de API',context:prior};
  const bundle=await readData(),s=snapshot(bundle.finance,bundle.rates,query.period,now),reply=answer(query.intent,s,query);
  if(!reply)throw Error('Consulta não implementada');
- return {text:reply,source:source+' · '+s.from.split('-').reverse().join('/')+' a '+s.to.split('-').reverse().join('/'),context:{...query,reply:''},snapshot:s};
+ const displayFrom=query.record?.from||s.from,displayTo=query.record?.to||s.to;
+ return {text:reply,source:source+' · '+displayFrom.split('-').reverse().join('/')+' a '+displayTo.split('-').reverse().join('/'),context:{...query,reply:''},snapshot:s};
 }
 return {snapshot,parse,answer,plan,range,cleanQuery,resolve,recordPlan,catalog:keys,recordFields};
 })();
