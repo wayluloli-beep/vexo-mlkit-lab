@@ -1,4 +1,4 @@
-name: Aura v2 - teste real do contrato Gemini
+name: Aura v3 - contrato de historico
 on:
   push:
     branches: [test/vexo-aura-gemini-20261125]
@@ -6,34 +6,27 @@ permissions:
   contents: read
 jobs:
   live:
-    runs-on: ubuntu-latest
-    timeout-minutes: 5
+    runs-on: ubuntu-24.04
+    timeout-minutes: 4
     steps:
-      - name: Verificar a revisao online
-        run: |
-          curl --fail --silent --show-error --max-time 50 https://vexo-aura-flash-bridge-xs69.onrender.com/health -o /tmp/aura-health.json
-          node -e 'const a=require("/tmp/aura-health.json");console.log("Revision",a.revision,"models",a.models);if(a.revision!=="aura-query-v2"||!a.keyConfigured||a.status!=="ok")process.exit(1)'
-      - name: Conversa real e compatibilidade legada
+      - name: Verificar revisao e consultas sem dados pessoais
         run: |
           node --input-type=module <<'JS'
           const base='https://vexo-aura-flash-bridge-xs69.onrender.com';
-          const cases=[
-            {q:'Sabe me dizer se trabalhei mais na Uber ou na 99?',intent:'plataformas'},
-            {q:'E quanto tempo fiquei em viagens?',intent:'duracao'},
-            {q:'E na 99?',intent:'duracao',platform:'99',ctx:{intent:'duracao',period:'semana',platform:'todos'}},
-            {q:'Me informa o faturamento e a distância de hoje',intent:'multi',metrics:['ganhos','distancia']},
-            {q:'Quanto gastei?',intent:'despesas',legacy:true}
-          ];
+          const h=await fetch(base+'/health',{signal:AbortSignal.timeout(50000)}).then(r=>r.json());
+          console.log('Revision:',h.revision);if(h.revision!=='aura-query-v3'||!h.keyConfigured)process.exit(1);
+          const cases=[['Quais horários foram feitos as corridas?','list'],['Quais informações você tem acesso das corridas?','capabilities'],['Qual foi a corrida mais cara?','max']];
           let passed=0;
-          for(const c of cases){
-            const start=Date.now();
+          for(const [question,operation] of cases){
+            const t=Date.now();
             try{
-              const r=await fetch(base+(c.legacy?'/aura':'/aura/v2'),{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(c.legacy?{question:c.q}:{protocol:2,question:c.q,context:c.ctx||null}),signal:AbortSignal.timeout(31000)});
-              const body=await r.json();if(!r.ok)throw Error('HTTP '+r.status+' '+body.error);
-              const a=JSON.parse(body.text);
-              if(a.intent!==c.intent||(c.platform&&a.platform!==c.platform)||(c.ctx&&a.period!==c.ctx.period)||(c.metrics&&!c.metrics.every(x=>a.metrics.includes(x)))||(!c.legacy&&body.protocol!==2))throw Error('Contrato '+JSON.stringify(a));
-              console.log('PASS',c.intent,body.model,Date.now()-start,'ms');passed++;
-            }catch(e){console.log('FAIL',c.intent,Date.now()-start,'ms',e.message)}
+              const r=await fetch(base+'/aura/v3',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({question,protocol:3,context:null}),signal:AbortSignal.timeout(31000)});
+              const b=await r.json();if(!r.ok)throw Error('HTTP '+r.status+' '+b.error);
+              const p=JSON.parse(b.text);if(b.protocol!==3||p.intent!=='registros'||p.record?.operation!==operation)throw Error('Contrato '+JSON.stringify(p));
+              if(operation==='list'&&!p.record.fields.includes('inicio'))throw Error('Campo inicio ausente');
+              if(operation==='max'&&p.record.sort!=='valor')throw Error('Ordenacao incorreta');
+              passed++;console.log('PASS',operation,b.model,Date.now()-t,'ms');
+            }catch(e){console.log('FAIL',operation,e.message)}
           }
           console.log('RESULT',passed,'/',cases.length);
           if(passed!==cases.length)process.exitCode=1;
