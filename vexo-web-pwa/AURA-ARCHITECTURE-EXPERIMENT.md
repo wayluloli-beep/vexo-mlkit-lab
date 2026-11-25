@@ -1,0 +1,5 @@
+# Aura architecture experiment
+
+Not integrated into the APK. The current application is unchanged.
+
+The previous chain uses two regex routers. A broad match wins before Gemini can interpret the request; advisor results keep the old query context. The new experiment makes interpretation an upstream concern. Its read-only executor accepts typed tool plans with multiple independent steps and explicit periods/sources. Revisions reference a turn and change only named parameters. Invalid plans fail before storage reads. One snapshot per request. Tool outputs include selection evidence, stable local IDs, missing fields and simulated counts. No natural-language parser or provider has been validated against this new contract yet. Existing financial definitions are reused from AuraCore; offer calculation remains duplicated in the prototype and must be consolidated before release. The next gate is a Gemini planner that emits these plans, with an independent natural-language evaluation suite, and a truthful offline fallback. No UI changes or APK release in this branch.

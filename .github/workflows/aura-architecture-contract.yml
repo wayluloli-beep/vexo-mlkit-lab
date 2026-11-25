@@ -1,0 +1,12 @@
+name: Aura architecture contract
+on:
+  push:
+    branches: [experiment/aura-query-engine-20261125]
+permissions:
+  contents: read
+jobs:
+  contract:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - run: node vexo-web-pwa/test-aura-query-engine.cjs
