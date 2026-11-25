@@ -43,10 +43,7 @@ function localWire(question,core,now=new Date()){
  ['FUEL','FUEL_EFFICIENCY_KM_L','(?:qual (?:e )?(?:o )?meu consumo|quantos km por litro(?: meu carro faz)?)'],
  ['GOALS','GOAL_STATUS','(?:qual (?:e )?(?:a )?minha meta mensal|quanto falta para minha meta mensal)']
  ];
- const match=patterns.find(x=>new RegExp('^'+x[2]+'
-})();
-if(typeof module!=='undefined')module.exports=AuraDashboardContext;
-).test(q));
+ const match=patterns.find(x=>new RegExp('^'+x[2]+'$').test(q));
  if(!match||typeof core?.range!=='function')return null;
  const [domain,metric]=match;
  const p=['FUEL_EFFICIENCY_KM_L','GOAL_STATUS'].includes(metric)?'hoje':periodFor(q);
