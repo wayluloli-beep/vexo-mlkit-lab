@@ -1,0 +1,19 @@
+name: Aura Gemini - teste de conexão real
+on:
+  push:
+    branches: [test/vexo-aura-gemini-20261125]
+permissions:
+  contents: read
+jobs:
+  smoke:
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    steps:
+      - name: Verificar proxy e uma pergunta sem dados pessoais
+        run: |
+          set -euo pipefail
+          BASE=https://vexo-aura-flash-bridge-xs69.onrender.com
+          curl --fail --silent --show-error --max-time 90 "$BASE/health" -o /tmp/aura-health.json
+          node -e 'const a=require("/tmp/aura-health.json"); console.log("Proxy: "+a.status+"; credencial configurada: "+Boolean(a.keyConfigured));if(a.status!=="ok"||!a.keyConfigured)process.exit(1)'
+          curl --fail --silent --show-error --max-time 35 -H 'Content-Type: application/json' -d '{"question":"Oi","previous":"","history":[]}' "$BASE/aura" -o /tmp/aura-reply.json
+          node -e 'const a=require("/tmp/aura-reply.json");const b=JSON.parse(a.text);if(b.intent!=="saudacao")throw Error("Contrato inesperado");console.log("Gemini respondeu conforme contrato: "+b.intent)'
