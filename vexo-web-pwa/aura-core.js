@@ -39,22 +39,62 @@ function snapshot(raw,rate,period='hoje',now=new Date()){
  const canceled=real.filter(r=>r.status==='cancel trip').length,finished=real.filter(r=>r.status==='finished').sort((a,b)=>a.a-b.a);
  const gaps=[];for(let j=1;j<finished.length;j++){const a=finished[j-1],b=finished[j];if(a.date.slice(0,10)===b.date.slice(0,10)&&a.b!=null&&b.a>=a.b){const gap=(b.a-a.b)/60000;if(gap<=120)gaps.push(gap)}}
  const avg=gaps.length?gaps.reduce((a,b)=>a+b,0)/gaps.length:null;
- const byPlatform={Uber:0,'99':0,unknown:0};let tripKm=0,pickupKm=0,splitCount=0;
+ const byPlatform={Uber:0,'99':0,unknown:0},platformStats=Object.fromEntries(['Uber','99','unknown'].map(k=>[k,{count:0,gross:0,km:0,seconds:0}]));let tripKm=0,pickupKm=0,splitCount=0;
  const rawById=new Map(raw.rides.map(r=>[String(r[0]),r]));
- for(const r of s.r){const row=rawById.get(r.id)||[],app=String(row[8]??'').trim().toLowerCase();byPlatform[app==='uber'?'Uber':app==='99'?'99':'unknown']++;
+ for(const r of s.r){const row=rawById.get(r.id)||[],app=String(row[8]??'').trim().toLowerCase();const key=app==='uber'?'Uber':app==='99'?'99':'unknown';byPlatform[key]++;const p=platformStats[key];p.count++;p.gross+=r.revenue;p.km+=r.km;p.seconds+=r.seconds;
  if(typeof row[9]==='number'&&typeof row[10]==='number'&&Number.isFinite(row[9])&&Number.isFinite(row[10])&&row[9]>=0&&row[10]>=0&&Math.abs(row[9]+row[10]-r.km)<=.03){pickupKm+=row[9];tripKm+=row[10];splitCount++;}}
 
- return {period,from,to,byPlatform,tripKm:round(tripKm),pickupKm:round(pickupKm),splitCount,count:s.r.length,realCount:finished.length,simulated:sim,canceled,cancelRate:real.length?canceled/real.length*100:null,gap:round(avg),gapSamples:gaps.length,gross:round(s.revenue),cash:round(s.cash),afterPersonal:round(s.afterPersonal),result:round(s.result),km:round(s.km),hours:round(s.hours),grossHour:s.hours?round(s.revenue/s.hours):null,grossKm:s.km?round(s.revenue/s.km):null,paidFuel:round(s.paidFuel),opCost:round(s.opCost),personalCost:round(s.personalCost),consumption:n(rate?.eff),fuelKm:n(rate?.fuel),cycles:rate?.cycles||0,goal:period==='mes'?n(data.goals.revenue):null,reserve:round(s.reserve),coverage:s.covered.length,invalid:s.inconsistent.length};
+ return {period,from,to,byPlatform,platformStats,seconds:s.r.reduce((a,r)=>a+r.seconds,0),tripKm:round(tripKm),pickupKm:round(pickupKm),splitCount,count:s.r.length,realCount:finished.length,simulated:sim,canceled,cancelRate:real.length?canceled/real.length*100:null,gap:round(avg),gapSamples:gaps.length,gross:round(s.revenue),cash:round(s.cash),afterPersonal:round(s.afterPersonal),result:round(s.result),km:round(s.km),hours:round(s.hours),grossHour:s.hours?round(s.revenue/s.hours):null,grossKm:s.km?round(s.revenue/s.km):null,paidFuel:round(s.paidFuel),opCost:round(s.opCost),personalCost:round(s.personalCost),consumption:n(rate?.eff),fuelKm:n(rate?.fuel),cycles:rate?.cycles||0,goal:period==='mes'?n(data.goals.revenue):null,reserve:round(s.reserve),coverage:s.covered.length,invalid:s.inconsistent.length};
 }
 const normalize=q=>q.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g,'');
-function parse(q,previous){const t=normalize(q);let period=/\bontem\b/.test(t)?'ontem':/\b(15|quinze)\b/.test(t)?'quinze':/semana|\b7 dias\b/.test(t)?'semana':/mes|mensal/.test(t)?'mes':/hoje|dia de hoje/.test(t)?'hoje':null;
-let intent=/plano|sugest|estrateg|melhorar|produtiv|pouco|compensa|vale a pena|o que (fazer|faco)|como ganhar|como aumentar|como reduzir/.test(t)?'plano':/cancel/.test(t)?'cancelamentos':/espera|ocioso|ociosidade|parado/.test(t)?'espera':/consumo|km\s*\/\s*l|quilometros por litro/.test(t)?'consumo_kml':/custo.*(km|quilometro)|combustivel.*(km|quilometro)/.test(t)?'custo_km':/por hora|r\$\s*\/\s*h|ganho.*hora/.test(t)?'ganho_hora':/por km|por quilometro|r\$\s*\/\s*km/.test(t)?'ganho_km':/lucro|resultado operacional/.test(t)?'lucro':/\buber\b|\b99\b|plataforma|qual aplicativo/.test(t)&&/corrid|rod|fiz|mais|quant|plataforma|aplicativo/.test(t)?'plataformas':/\bkm\b|quilometr|distancia/.test(t)&&/quant|rod|percorr|total|distancia|quilometr/.test(t)?'distancia':/quantas corridas|numero de corridas|total de corridas/.test(t)?'corridas':/saldo|caixa|sobrou|sobrando/.test(t)?'saldo':/meta/.test(t)?'meta':/gastei|gasto|despesa|paguei|custos/.test(t)?'despesas':/ganh|fatur|receita|quanto fiz/.test(t)?'ganhos':/^(oi|ola|bom dia|boa noite|boa tarde)[!?. ]*$/.test(t)?'saudacao':null;
-if(!intent&&period&&previous?.intent)intent=previous.intent;return {intent,period:period||previous?.period||'hoje'};}
+function parse(q,previous){
+ const t=normalize(q).trim();const explicit=/\bontem\b/.test(t)?'ontem':/\b(15|quinze)\b/.test(t)?'quinze':/semana|\b7 dias\b/.test(t)?'semana':/\bmes\b|mensal/.test(t)?'mes':/\bhoje\b/.test(t)?'hoje':null;
+ const uber=/\buber\b/.test(t),noventa=/\b99\b|noventa e nove/.test(t),hasApp=uber||noventa;
+ const detail=/^(e\s+)?(detalh|explic|resume|resum|me mostra|me mostre|mais detalhes)|^(como assim|por que|porque)\??$/.test(t);
+ const metrics=[
+ ['plano',/plano|sugest|estrateg|melhorar|produtiv|compensa|vale a pena|o que (fazer|faco)|como ganhar|como aumentar|como reduzir/],
+ ['cancelamentos',/cancel/],
+ ['espera',/espera|ocioso|ociosidade|parado/],
+ ['consumo_kml',/consumo|km\s*\/\s*l|quilometros por litro/],
+ ['custo_km',/custo.*(km|quilometro)|combustivel.*(km|quilometro)/],
+ ['ganho_hora',/por hora|r\$\s*\/\s*h|ganho.*hora/],
+ ['ganho_km',/por km|por quilometro|r\$\s*\/\s*km/],
+ ['lucro',/lucro|resultado operacional/],
+ ['saldo',/saldo|caixa|sobrou|sobrando/],
+ ['meta',/meta/],
+ ['despesas',/gastei|gasto|despesa|paguei|custos|desembolsei/],
+ ['ticket',/ticket|valor medio|media por corrida|media de valor/],
+ ['duracao',/tempo|duracao|demor|horas|minutos/],
+ ['distancia',/\bkm\b|quilometr|quilometros|distancia|quanto rodei|quanto percorri/],
+ ['corridas',/quantas corridas|numero de corridas|total de corridas|quantidade de corridas/],
+ ['ganhos',/ganh|fatur|receita|quanto fiz/],
+ ['saudacao',/^(oi|ola|bom dia|boa noite|boa tarde)[!?. ]*$/]];
+ let intent=metrics.find(([k,re])=>re.test(t))?.[0]||null;
+ let platform=uber&&!noventa?'Uber':noventa&&!uber?'99':null;
+ if(hasApp||/plataforma|qual aplicativo/.test(t)){
+   const compare=uber&&noventa||/qual aplicativo|qual plataforma|compar|em qual|mais corrida/.test(t);
+   if(compare){intent=intent&&['ganhos','distancia','duracao','ganho_hora','ganho_km','ticket'].includes(intent)?'comparacao':'plataformas';}
+   else if(!intent||intent==='corridas'){intent='plataformas';}
+   else if(!['ganhos','distancia','duracao','ganho_hora','ganho_km','ticket'].includes(intent)){platform=null;}
+ }
+ if(detail&&!hasApp&&!intent)intent='detalhes';
+ if(!intent&&explicit&&previous?.intent){intent=previous.intent;platform=previous.platform||null;}
+ const compareMetric=intent==='comparacao'?(metrics.find(([k,re])=>['ganhos','distancia','duracao','ganho_hora','ganho_km','ticket'].includes(k)&&re.test(t))?.[0]||'corridas'):null;
+ return {intent,period:explicit||previous?.period||'hoje',platform,compareMetric};
+}
+function duration(seconds){if(!Number.isFinite(seconds))return 'indisponível';const m=Math.round(seconds/60);return Math.floor(m/60)+'h '+String(m%60).padStart(2,'0')+'min';}
+function platformValue(p,metric){switch(metric){case 'ganhos':return p.gross;case 'distancia':return p.km;case 'duracao':return p.seconds;case 'ganho_hora':return p.seconds?p.gross*3600/p.seconds:null;case 'ganho_km':return p.km?p.gross/p.km:null;case 'ticket':return p.count?p.gross/p.count:null;default:return p.count;}}
+function platformFormat(v,metric){if(v==null)return 'indisponível';return metric==='duracao'?duration(v):metric==='distancia'?fmt(v,2)+' km':metric==='corridas'?String(v):money(v);}
+
 function note(s){return s.simulated?' Há '+s.simulated+' registros simulados no período; valores não representam exclusivamente trabalho real.':''}
 function plan(s){const a=[];if(!s.realCount)a.push('Registre corridas reais para identificar seu desempenho; não use simulações como histórico de trabalho.');if(s.canceled>=10||(s.cancelRate!=null&&s.cancelRate>10))a.push('Revise os '+s.canceled+' cancelamentos registrados. Avalie destino, embarque e margem antes de aceitar; não aceite corridas ruins só para reduzir a taxa.');if(s.gap!=null&&s.gap>8)a.push('O intervalo médio observado foi '+fmt(s.gap)+' min. Se estiver online e parado por mais de 8 min, avalie demanda e região com segurança; não confunda pausas com espera.');else if(s.gap===null)a.push('Não há intervalos suficientes para medir espera; anote quando estiver online e aguardando ofertas.');if(s.result===null)a.push('Complete ciclos de tanque cheio e registre despesas para calcular o resultado operacional integral.');else if(s.result<0)a.push('O resultado operacional registrado é negativo. Reveja custo de combustível e despesas antes de ampliar a jornada.');if(s.fuelKm!=null)a.push('Considere '+money(s.fuelKm)+'/km de combustível '+(s.cycles?'estimado por ciclos':'estimado pelos parâmetros')+' e o custo do embarque ao avaliar uma oferta.');if(s.grossHour!=null)a.push('Seu faturamento por hora em corrida é '+money(s.grossHour)+'. Compare com a meta e com o tempo online real, incluindo pausas.');return a.slice(0,5);}
-function answer(intent,s){let out;switch(intent){
+function answer(intent,s,options={}){let out;const platform=options.platform;const metric=options.compareMetric||'corridas';if(platform&&['ganhos','distancia','duracao','ganho_hora','ganho_km','ticket'].includes(intent)){const p=s.platformStats[platform];return platform+': '+platformFormat(platformValue(p,intent),intent)+' em '+p.count+' corridas finalizadas.'+(s.byPlatform.unknown?' '+s.byPlatform.unknown+' corridas sem plataforma não entram nesse subtotal.':'')+note(s);}switch(intent){
 case 'saudacao':return 'Olá! Posso analisar suas corridas, ganhos, despesas, combustível e sugerir um plano de ação.';
-case 'plataformas':{const p=s.byPlatform;out='Corridas finalizadas: Uber '+p.Uber+' | 99 '+p['99']+'.';if(p.unknown)out+=' '+p.unknown+' sem plataforma identificada.';if(p.Uber+p['99']===0)out+=' Não há registros identificados para comparar.';else if(p.Uber===p['99'])out+=' Entre as identificadas, houve empate.';else out+=' Entre as identificadas, '+(p.Uber>p['99']?'Uber':'99')+' teve '+Math.abs(p.Uber-p['99'])+' corrida(s) a mais.';break;}
+case 'comparacao':{const p=s.platformStats;out='Uber: '+platformFormat(platformValue(p.Uber,metric),metric)+' | 99: '+platformFormat(platformValue(p['99'],metric),metric)+'.';if(p.unknown.count)out+=' '+p.unknown.count+' corridas sem plataforma não entram na comparação.';break;}
+case 'duracao':out='Tempo total registrado em corridas: '+duration(s.seconds)+'.'+(s.count?' Média por corrida: '+duration(s.seconds/s.count)+'.':'')+' Inclui os tempos registrados pelo VEXO; não equivale ao tempo online.';break;
+case 'ticket':out='Valor médio por corrida finalizada: '+money(s.count?s.gross/s.count:null)+'.';break;
+case 'detalhes':out='Resumo do período: '+s.count+' corridas finalizadas; faturamento '+money(s.gross)+'; '+fmt(s.km,2)+' km; '+duration(s.seconds)+' em corridas. Uber: '+s.byPlatform.Uber+'; 99: '+s.byPlatform['99']+'; sem plataforma: '+s.byPlatform.unknown+'. Caixa operacional: '+money(s.cash)+'.';break;
+case 'plataformas':{const p=s.byPlatform;if(platform){out=platform+': '+p[platform]+' corridas finalizadas.'+(p.unknown?' '+p.unknown+' sem plataforma identificada.':'');break;}out='Corridas finalizadas: Uber '+p.Uber+' | 99 '+p['99']+'.';if(p.unknown)out+=' '+p.unknown+' sem plataforma identificada.';if(p.Uber+p['99']===0)out+=' Não há registros identificados para comparar.';else if(p.Uber===p['99'])out+=' Entre as identificadas, houve empate.';else out+=' Entre as identificadas, '+(p.Uber>p['99']?'Uber':'99')+' teve '+Math.abs(p.Uber-p['99'])+' corrida(s) a mais.';break;}
 case 'distancia':out='Distância total registrada nas corridas finalizadas: '+fmt(s.km,2)+' km.';if(s.count&&s.splitCount===s.count)out+=' Com passageiro: '+fmt(s.tripKm,2)+' km; até o embarque: '+fmt(s.pickupKm,2)+' km.';else if(s.count)out+=' Separação entre embarque e trajeto disponível em '+s.splitCount+' de '+s.count+' corridas.';out+=' Não inclui deslocamentos fora dos registros.';break;
 case 'corridas':out='Total de corridas finalizadas: '+s.count+'.';break;
 case 'ganhos':out='Faturamento registrado: '+money(s.gross)+' em '+s.count+' corridas finalizadas.';break;
