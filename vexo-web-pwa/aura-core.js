@@ -67,19 +67,19 @@ function parse(q,previous){
  ['duracao',/tempo|duracao|demor|horas|minutos/],
  ['distancia',/\bkm\b|quilometr|quilometros|distancia|quanto rodei|quanto percorri/],
  ['corridas',/quantas corridas|numero de corridas|total de corridas|quantidade de corridas/],
- ['ganhos',/ganh|fatur|receita|quanto fiz/],
+ ['ganhos',/ganh|fatur|receita|quanto fiz|dinheiro|rendeu|rendimento/],
  ['saudacao',/^(oi|ola|bom dia|boa noite|boa tarde)[!?. ]*$/]];
  let intent=metrics.find(([k,re])=>re.test(t))?.[0]||null;
  let platform=uber&&!noventa?'Uber':noventa&&!uber?'99':null;
- if(hasApp||/plataforma|qual aplicativo/.test(t)){
-   const compare=uber&&noventa||/qual aplicativo|qual plataforma|compar|em qual|mais corrida/.test(t);
+ if(hasApp||/plataforma|qual aplicativo|qual app/.test(t)){
+   const compare=uber&&noventa||/qual aplicativo|qual plataforma|qual app|compar|em qual|mais corrida/.test(t);
    if(compare){intent=intent&&['ganhos','distancia','duracao','ganho_hora','ganho_km','ticket'].includes(intent)?'comparacao':'plataformas';}
-   else if(!intent||intent==='corridas'){intent='plataformas';}
+   else if(!intent||intent==='corridas'){intent=platform&&previous&&/^(e\s+)?(na|no|pela|pelo)\s+(uber|99|noventa e nove)\s*\??$/.test(t)&&['ganhos','distancia','duracao','ganho_hora','ganho_km','ticket'].includes(previous.intent)?previous.intent:'plataformas';}
    else if(!['ganhos','distancia','duracao','ganho_hora','ganho_km','ticket'].includes(intent)){platform=null;}
  }
  if(detail&&!hasApp&&!intent)intent='detalhes';
  if(!intent&&explicit&&previous?.intent){intent=previous.intent;platform=previous.platform||null;}
- const compareMetric=intent==='comparacao'?(metrics.find(([k,re])=>['ganhos','distancia','duracao','ganho_hora','ganho_km','ticket'].includes(k)&&re.test(t))?.[0]||'corridas'):null;
+ const compareMetric=intent==='comparacao'?(metrics.find(([k,re])=>['ganhos','distancia','duracao','ganho_hora','ganho_km','ticket'].includes(k)&&re.test(t))?.[0]||previous?.compareMetric||'corridas'):null;
  return {intent,period:explicit||previous?.period||'hoje',platform,compareMetric};
 }
 function duration(seconds){if(!Number.isFinite(seconds))return 'indisponível';const m=Math.round(seconds/60);return Math.floor(m/60)+'h '+String(m%60).padStart(2,'0')+'min';}
