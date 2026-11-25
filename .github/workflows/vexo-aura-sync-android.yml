@@ -82,14 +82,14 @@ jobs:
               s.setAllowContentAccess(false);
               s.setMixedContentMode(WebSettings.MIXED_CONTENT_NEVER_ALLOW);
               web.setWebChromeClient(new WebChromeClient());
-              tts=new TextToSpeech(this,status->{if(status==TextToSpeech.SUCCESS){int l=tts.setLanguage(new Locale("pt","BR"));ttsReady=l>=0;}});
+              tts=new TextToSpeech(this,new TextToSpeech.OnInitListener(){public void onInit(int status){if(status==TextToSpeech.SUCCESS&&tts!=null){int l=tts.setLanguage(new Locale("pt","BR"));ttsReady=l>=0;}}});
               web.addJavascriptInterface(new VoiceBridge(),"VexoVoice");
               web.setWebViewClient(new WebViewClient(){
                 @Override public boolean shouldOverrideUrlLoading(WebView v,WebResourceRequest r){return !HOST.equals(r.getUrl().getHost())||!"https".equals(r.getUrl().getScheme());}
                 @Override public WebResourceResponse shouldInterceptRequest(WebView v,WebResourceRequest request){
                   Uri u=request.getUrl();
                   if(!HOST.equals(u.getHost())){
-                    if("https".equals(u.getScheme())&&(u.getHost().equals("vexo-aura-flash-bridge-xs69.onrender.com")||u.getHost().equals("fonts.googleapis.com")||u.getHost().equals("fonts.gstatic.com")))return null;
+                    if("https".equals(u.getScheme())&&("vexo-aura-flash-bridge-xs69.onrender.com".equals(u.getHost())||"fonts.googleapis.com".equals(u.getHost())||"fonts.gstatic.com".equals(u.getHost())))return null;
                     return new WebResourceResponse("text/plain","UTF-8",403,"Forbidden",Collections.emptyMap(),new ByteArrayInputStream(new byte[0]));
                   }
                   String p=u.getPath();
@@ -102,9 +102,9 @@ jobs:
               web.loadUrl("https://"+HOST+"/index.html");
             }
             public class VoiceBridge{
-              @JavascriptInterface public void speak(String text){runOnUiThread(()->{if(ttsReady&&text!=null&&text.length()<=2500)tts.speak(text,TextToSpeech.QUEUE_FLUSH,null,"aura");else Toast.makeText(MainActivity.this,"Voz em português indisponível",Toast.LENGTH_SHORT).show();});}
-              @JavascriptInterface public void stop(){runOnUiThread(()->{if(tts!=null)tts.stop();});}
-              @JavascriptInterface public void listen(){runOnUiThread(()->{if(listening)return;try{if(tts!=null)tts.stop();Intent i=new Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH);i.putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL,RecognizerIntent.LANGUAGE_MODEL_FREE_FORM);i.putExtra(RecognizerIntent.EXTRA_LANGUAGE,"pt-BR");i.putExtra(RecognizerIntent.EXTRA_MAX_RESULTS,1);listening=true;startActivityForResult(i,42);}catch(Exception e){listening=false;Toast.makeText(MainActivity.this,"Reconhecimento de voz indisponível",Toast.LENGTH_SHORT).show();}});}
+              @JavascriptInterface public void speak(final String text){runOnUiThread(new Runnable(){public void run(){if(ttsReady&&text!=null&&text.length()<=2500)tts.speak(text,TextToSpeech.QUEUE_FLUSH,null,"aura");else Toast.makeText(MainActivity.this,"Voz em português indisponível",Toast.LENGTH_SHORT).show();}});}
+              @JavascriptInterface public void stop(){runOnUiThread(new Runnable(){public void run(){if(tts!=null)tts.stop();}});}
+              @JavascriptInterface public void listen(){runOnUiThread(new Runnable(){public void run(){if(listening)return;try{if(tts!=null)tts.stop();Intent i=new Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH);i.putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL,RecognizerIntent.LANGUAGE_MODEL_FREE_FORM);i.putExtra(RecognizerIntent.EXTRA_LANGUAGE,"pt-BR");i.putExtra(RecognizerIntent.EXTRA_MAX_RESULTS,1);listening=true;startActivityForResult(i,42);}catch(Exception e){listening=false;Toast.makeText(MainActivity.this,"Reconhecimento de voz indisponível",Toast.LENGTH_SHORT).show();}}});}
             }
             @Override protected void onActivityResult(int request,int result,Intent data){super.onActivityResult(request,result,data);if(request!=42)return;listening=false;ArrayList<String> words=result==RESULT_OK&&data!=null?data.getStringArrayListExtra(RecognizerIntent.EXTRA_RESULTS):null;if(words!=null&&!words.isEmpty()){String q=JSONObject.quote(words.get(0));web.evaluateJavascript("(function(){var f=document.getElementById('aura');if(f&&f.contentWindow.vexoAuraRecognized)f.contentWindow.vexoAuraRecognized("+q+");})();",null);}}
             @Override protected void onDestroy(){if(tts!=null){tts.stop();tts.shutdown();}if(web!=null){web.removeJavascriptInterface("VexoVoice");web.destroy();}super.onDestroy();}
