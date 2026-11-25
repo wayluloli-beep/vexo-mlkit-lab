@@ -1,0 +1,29 @@
+name: Exportar codigo VEXO Aura Sync
+on:
+  push:
+    branches: [export/vexo-aura-source-20261125]
+permissions:
+  contents: write
+jobs:
+  export:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Criar ZIP do projeto
+        run: |
+          set -euo pipefail
+          node vexo-web-pwa/test-stress.cjs
+          node vexo-web-pwa/test-integration.cjs
+          node vexo-web-pwa/test-aura.cjs
+          mkdir -p /tmp/VEXO-Aura-Sync/.github/workflows
+          cp -a vexo-web-pwa /tmp/VEXO-Aura-Sync/
+          cp .github/workflows/vexo-aura-sync-android.yml /tmp/VEXO-Aura-Sync/.github/workflows/
+          printf '%s\n' 'VEXO Aura Sync 1.1 - codigo fonte' 'Fonte do APK: a7707e355ec30674a43ed210dd7abefef26af70a' 'Para executar: cd vexo-web-pwa; node server.cjs; abra http://127.0.0.1:8765' 'Aura e dados locais: aura.html, aura.js, aura-core.js, data.js.' 'Compilacao Android: .github/workflows/vexo-aura-sync-android.yml (inclui a Activity Java).' 'Gemini usa o proxy remoto existente; credenciais e dados do usuario nao fazem parte deste pacote.' > /tmp/VEXO-Aura-Sync/LEIA-ME.txt
+          if grep -rEq 'AIza[A-Za-z0-9_-]{30,}|-----BEGIN (RSA |EC |OPENSSH )?PRIVATE KEY-----' /tmp/VEXO-Aura-Sync; then echo "Possivel segredo detectado; exportacao interrompida"; exit 1; fi
+          cd /tmp
+          zip -qr VEXO-Aura-Sync-Codigo-Fonte.zip VEXO-Aura-Sync
+          unzip -t VEXO-Aura-Sync-Codigo-Fonte.zip
+      - name: Publicar ZIP na mesma release privada
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release upload vexo-aura-sync-20261125 /tmp/VEXO-Aura-Sync-Codigo-Fonte.zip --repo "$GITHUB_REPOSITORY"
