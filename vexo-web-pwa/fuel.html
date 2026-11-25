@@ -1,0 +1,672 @@
+<!doctype html>
+<html lang="pt-BR">
+  <head><script src="data.js"></script><link rel="stylesheet" href="responsive.css">
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>VEXO — Fuel Performance</title>
+    <script src="chart.umd.min.js"></script>
+    <link
+      href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700;800;900&family=JetBrains+Mono:wght@400;600;700;800&display=swap"
+      rel="stylesheet"
+    />
+    <style>
+      :root {
+        --bg: #06080f;
+        --bg2: #0c1017;
+        --card: #111827;
+        --card-border: #1a2236;
+        --accent: #fbbf24;
+        --accent-dim: rgba(251, 191, 36, 0.12);
+        --green: #10b981;
+        --red: #ef4444;
+        --blue: #3b82f6;
+        --purple: #8b5cf6;
+        --cyan: #06b6d4;
+        --text: #f1f5f9;
+        --text-dim: #94a3b8;
+        --text-muted: #64748b;
+        --radius: 10px;
+      }
+      * {
+        margin: 0;
+        padding: 0;
+        box-sizing: border-box;
+      }
+      body {
+        background: var(--bg);
+        color: var(--text);
+        font-family: "DM Sans", sans-serif;
+        min-height: 100vh;
+      }
+      ::-webkit-scrollbar {
+        width: 5px;
+        height: 5px;
+      }
+      ::-webkit-scrollbar-track {
+        background: var(--bg2);
+      }
+      ::-webkit-scrollbar-thumb {
+        background: var(--card-border);
+        border-radius: 3px;
+      }
+      .header {
+        background: linear-gradient(135deg, #111827, var(--bg));
+        border-bottom: 1px solid var(--card-border);
+        padding: 20px 16px 14px;
+      }
+      .header-inner {
+        max-width: 960px;
+        margin: 0 auto;
+        display: flex;
+        align-items: center;
+        gap: 12px;
+      }
+      .logo {
+        width: 42px;
+        height: 42px;
+        border-radius: 10px;
+        background: linear-gradient(135deg, var(--accent), #f59e0b);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 18px;
+        font-weight: 900;
+        color: #000;
+        flex-shrink: 0;
+      }
+      .header h1 {
+        font-size: 18px;
+        font-weight: 900;
+        letter-spacing: -0.5px;
+      }
+      .header p {
+        font-size: 11px;
+        color: var(--text-muted);
+        margin-top: 2px;
+      }
+      .filters-bar {
+        background: var(--card);
+        border-bottom: 1px solid var(--card-border);
+        padding: 12px 16px;
+      }
+      .filters-inner {
+        max-width: 960px;
+        margin: 0 auto;
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        flex-wrap: wrap;
+      }
+      .filter-group {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+      }
+      .filter-group label {
+        font-size: 11px;
+        color: var(--text-muted);
+        font-weight: 600;
+        text-transform: uppercase;
+        letter-spacing: 0.8px;
+      }
+      .filter-group input[type="date"] {
+        background: var(--bg);
+        border: 1px solid var(--card-border);
+        color: var(--text);
+        padding: 6px 10px;
+        border-radius: 6px;
+        font-size: 12px;
+        font-family: "DM Sans";
+        outline: none;
+      }
+      .btn-filter {
+        background: var(--accent);
+        color: #000;
+        border: none;
+        padding: 7px 16px;
+        border-radius: 6px;
+        font-size: 12px;
+        font-weight: 700;
+        cursor: pointer;
+        font-family: "DM Sans";
+      }
+      .btn-reset {
+        background: transparent;
+        color: var(--text-muted);
+        border: 1px solid var(--card-border);
+        padding: 7px 14px;
+        border-radius: 6px;
+        font-size: 12px;
+        font-weight: 600;
+        cursor: pointer;
+        font-family: "DM Sans";
+      }
+      .tabs {
+        background: var(--bg2);
+        border-bottom: 1px solid var(--card-border);
+        padding: 0 16px;
+        overflow-x: auto;
+        white-space: nowrap;
+      }
+      .tabs-inner {
+        max-width: 960px;
+        margin: 0 auto;
+        display: flex;
+      }
+      .tab-btn {
+        background: none;
+        border: none;
+        cursor: pointer;
+        padding: 11px 14px;
+        font-size: 12px;
+        font-weight: 600;
+        color: var(--text-muted);
+        border-bottom: 2px solid transparent;
+        display: flex;
+        align-items: center;
+        gap: 5px;
+        font-family: "DM Sans";
+        transition: all 0.2s;
+        white-space: nowrap;
+      }
+      .tab-btn.active {
+        color: var(--accent);
+        border-bottom-color: var(--accent);
+      }
+      .content {
+        max-width: 960px;
+        margin: 0 auto;
+        padding: 20px 16px 60px;
+      }
+      .tab-panel {
+        display: none;
+      }
+      .tab-panel.active {
+        display: block;
+      }
+      .kpi-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
+        gap: 10px;
+        margin-bottom: 24px;
+      }
+      .kpi-card {
+        background: var(--card);
+        border: 1px solid var(--card-border);
+        border-radius: var(--radius);
+        padding: 16px 18px;
+        position: relative;
+        overflow: hidden;
+      }
+      .kpi-card .top-bar {
+        position: absolute;
+        top: 0;
+        left: 0;
+        right: 0;
+        height: 2px;
+      }
+      .kpi-card .kpi-icon {
+        position: absolute;
+        top: 10px;
+        right: 14px;
+        font-size: 20px;
+        opacity: 0.25;
+      }
+      .kpi-card .kpi-label {
+        font-size: 10px;
+        color: var(--text-muted);
+        text-transform: uppercase;
+        letter-spacing: 1px;
+        font-weight: 700;
+        margin-bottom: 6px;
+      }
+      .kpi-card .kpi-value {
+        font-size: 24px;
+        font-weight: 900;
+        font-family: "JetBrains Mono", monospace;
+      }
+      .kpi-card .kpi-sub {
+        font-size: 11px;
+        color: var(--text-dim);
+        margin-top: 4px;
+      }
+      .section-title {
+        margin: 8px 0 16px;
+      }
+      .section-title h2 {
+        font-size: 17px;
+        font-weight: 800;
+      }
+      .section-title p {
+        font-size: 11px;
+        color: var(--text-muted);
+        margin-top: 3px;
+      }
+      .chart-card {
+        background: var(--card);
+        border: 1px solid var(--card-border);
+        border-radius: var(--radius);
+        padding: 18px;
+        margin-bottom: 18px;
+      }
+      .faixa-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(210px, 1fr));
+        gap: 10px;
+        margin-bottom: 24px;
+      }
+      .faixa-card {
+        background: var(--card);
+        border: 1px solid var(--card-border);
+        border-radius: var(--radius);
+        padding: 16px;
+        border-left: 3px solid var(--accent);
+      }
+      .faixa-card h3 {
+        font-size: 13px;
+        font-weight: 700;
+        margin-bottom: 10px;
+      }
+      .faixa-stats {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 8px;
+        font-size: 11px;
+      }
+      .faixa-stats .stat-label {
+        color: var(--text-muted);
+      }
+      .faixa-stats .stat-value {
+        font-weight: 700;
+        font-family: "JetBrains Mono";
+      }
+      .hm-btn {
+        background: var(--card);
+        color: var(--text-dim);
+        border: 1px solid var(--card-border);
+        border-radius: 6px;
+        padding: 5px 14px;
+        font-size: 11px;
+        font-weight: 700;
+        cursor: pointer;
+        font-family: "DM Sans";
+      }
+      .hm-btn.active {
+        background: var(--accent);
+        color: #000;
+        border-color: var(--accent);
+      }
+      .heatmap-grid {
+        display: grid;
+        gap: 2px;
+        overflow-x: auto;
+        min-width: 500px;
+      }
+      .hm-cell {
+        border-radius: 3px;
+        padding: 5px 2px;
+        text-align: center;
+        font-size: 10px;
+        font-family: "JetBrains Mono";
+        min-height: 28px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+      }
+      .hm-label {
+        font-size: 11px;
+        color: var(--text-dim);
+        font-weight: 600;
+        display: flex;
+        align-items: center;
+      }
+      .hm-header {
+        font-size: 10px;
+        color: var(--text-muted);
+        text-align: center;
+        font-weight: 600;
+        padding: 4px 0;
+      }
+      .insight-card {
+        background: var(--card);
+        border: 1px solid var(--card-border);
+        border-radius: var(--radius);
+        padding: 16px 18px;
+        border-left: 3px solid var(--accent);
+        margin-bottom: 10px;
+      }
+      .insight-card h3 {
+        font-size: 13px;
+        font-weight: 700;
+        margin-bottom: 6px;
+        display: flex;
+        align-items: center;
+        gap: 8px;
+      }
+      .insight-card p {
+        font-size: 12px;
+        color: var(--text-dim);
+        line-height: 1.65;
+      }
+      .hero-insight {
+        background: linear-gradient(135deg, var(--accent-dim), transparent);
+        border: 1px solid rgba(251, 191, 36, 0.25);
+        border-radius: 12px;
+        padding: 20px;
+        margin-bottom: 18px;
+      }
+      .hero-insight h3 {
+        font-size: 15px;
+        font-weight: 800;
+        color: var(--accent);
+        margin-bottom: 8px;
+      }
+      .hero-insight p {
+        font-size: 13px;
+        color: var(--text);
+        line-height: 1.7;
+      }
+      .action-plan {
+        background: var(--card);
+        border: 1px solid var(--card-border);
+        border-radius: 12px;
+        padding: 20px;
+      }
+      .action-plan h3 {
+        font-size: 14px;
+        font-weight: 800;
+        margin-bottom: 14px;
+      }
+      .action-step {
+        font-size: 12px;
+        color: var(--text-dim);
+        line-height: 1.8;
+        margin-bottom: 6px;
+      }
+      .action-step strong {
+        color: var(--text);
+      }
+      .step-num {
+        color: var(--green);
+        font-weight: 800;
+      }
+      .monthly-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(210px, 1fr));
+        gap: 10px;
+        margin-bottom: 24px;
+      }
+      .month-card {
+        background: var(--card);
+        border: 1px solid var(--card-border);
+        border-radius: var(--radius);
+        padding: 18px;
+      }
+      .month-card h3 {
+        font-size: 15px;
+        font-weight: 800;
+        color: var(--accent);
+        margin-bottom: 12px;
+      }
+      .month-row {
+        display: flex;
+        justify-content: space-between;
+        font-size: 12px;
+        margin-bottom: 8px;
+      }
+      .month-row .label {
+        color: var(--text-muted);
+      }
+      .month-row .val {
+        font-weight: 700;
+        font-family: "JetBrains Mono";
+      }
+      .pct-badge {
+        font-size: 10px;
+        margin-left: 6px;
+      }
+      .pct-up {
+        color: var(--green);
+      }
+      .pct-down {
+        color: var(--red);
+      }
+      .data-table {
+        width: 100%;
+        border-collapse: collapse;
+        font-size: 12px;
+      }
+      .data-table th {
+        padding: 8px 10px;
+        text-align: left;
+        color: var(--text-muted);
+        font-weight: 600;
+        font-size: 10px;
+        text-transform: uppercase;
+        letter-spacing: 0.8px;
+        border-bottom: 1px solid var(--card-border);
+      }
+      .data-table td {
+        padding: 10px;
+        border-bottom: 1px solid rgba(30, 41, 59, 0.3);
+      }
+      .data-table .rank {
+        font-weight: 800;
+      }
+      .data-table .money {
+        color: var(--green);
+        font-weight: 700;
+        font-family: "JetBrains Mono";
+      }
+      .data-table .mono {
+        font-family: "JetBrains Mono";
+        color: var(--text-dim);
+      }
+      .data-table .bold {
+        font-weight: 600;
+        color: var(--text);
+      }
+      .filter-info {
+        font-size: 11px;
+        color: var(--accent);
+        font-weight: 600;
+        margin-left: auto;
+      }
+      @media (max-width: 600px) {
+        .kpi-grid {
+          grid-template-columns: repeat(2, 1fr);
+        }
+        .faixa-grid,
+        .monthly-grid {
+          grid-template-columns: 1fr;
+        }
+        .filters-inner {
+          flex-direction: column;
+          align-items: stretch;
+        }
+        .filter-info {
+          margin-left: 0;
+        }
+      }
+    </style>
+  </head>
+
+<body>
+<style>
+.syncbar{padding:10px 16px;display:flex;align-items:center;gap:10px;flex-wrap:wrap;background:#0c1017;font-size:11px;color:#94a3b8}.syncbar span{flex:1}
+#editFuel{margin:auto;background:#111827;color:#f1f5f9;border:1px solid #334155;border-radius:12px;padding:22px;width:min(580px,95vw);max-height:90vh;overflow:auto}
+#editFuel::backdrop{background:#000a}#editFuel label{display:block;margin:8px 0;font-size:12px}
+#editFuel input,#editFuel select,.filter-group select{display:block;width:100%;padding:9px;margin-top:5px;background:#06080f;color:#fff;border:1px solid #334155;border-radius:6px}
+#editFuel input[type=checkbox]{width:auto;display:inline-block;margin-right:5px}
+#editFuel p{font-size:12px;color:#94a3b8;margin:10px 0}.form-grid{display:grid;grid-template-columns:1fr 1fr;gap:6px 12px}.scroll-table{overflow-x:auto}.empty{color:var(--text-dim);padding:18px}.chart-card canvas{max-height:280px}
+@media(max-width:600px){.form-grid{grid-template-columns:1fr}}
+.hm-legend{margin-top:14px;font-size:11px;color:var(--text-dim)}
+.hm-legend-bar{height:9px;border-radius:5px;background:linear-gradient(90deg,rgba(251,191,36,.035),rgba(251,191,36,.3325),rgba(251,191,36,.545),rgba(251,191,36,.7575),rgba(251,191,36,.97));border:1px solid var(--card-border);margin:6px 0 4px}
+.hm-legend-ticks{display:flex;justify-content:space-between;gap:4px;font-family:"JetBrains Mono",monospace;font-size:10px}
+.hm-context{display:flex;gap:8px 18px;flex-wrap:wrap;margin:0 0 10px;font-size:11px;color:var(--text-dim)}
+.hm-context strong{color:var(--text)}
+.hm-detail{margin-top:8px;min-height:18px;font-size:11px;color:var(--text-dim)}
+.hm-cell:focus-visible{outline:2px solid var(--accent);outline-offset:-2px}
+.goal-control{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin:8px 0;color:var(--text-dim);font-size:12px}
+.goal-control input{width:74px;padding:6px;border-radius:6px;background:var(--bg);color:var(--text);border:1px solid var(--card-border);font:inherit}
+.fuel-summary{margin-top:14px}.fuel-summary .data-table{font-size:11px}
+</style>
+<div class="syncbar"><span id="sync" role="status">Conectando à planilha…</span><button class="btn-reset" onclick="pull()">Atualizar dados</button><button class="btn-reset" id="editbutton" disabled onclick="openEdit(false)">Editar abastecimento</button><button class="btn-filter" id="newbutton" disabled onclick="openEdit(true)">Registrar abastecimento</button></div>
+<div class="header"><div class="header-inner"><div class="logo">VX</div><div><h1>Fuel Performance</h1><p id="header-subtitle">VEXO · Inteligência de combustível</p></div></div></div>
+<div class="filters-bar"><div class="filters-inner">
+<div class="filter-group"><label for="filter-start">De:</label><input type="date" id="filter-start"></div>
+<div class="filter-group"><label for="filter-end">Até:</label><input type="date" id="filter-end"></div>
+<div class="filter-group"><label for="fuel-filter">Combustível</label><select id="fuel-filter"><option value="">Todos</option><option>Gasolina</option><option>Etanol</option><option>Diesel</option></select></div>
+<button class="btn-filter" onclick="applyFilters()">Filtrar</button><button class="btn-reset" onclick="resetFilters()">Limpar</button><div class="filter-info" id="filter-info"></div></div></div>
+<div class="tabs"><div class="tabs-inner">
+<button class="tab-btn active" data-tab="overview">📊 Visão Geral</button><button class="tab-btn" data-tab="efficiency">⛽ Consumo</button><button class="tab-btn" data-tab="stations">📍 Postos e preços</button><button class="tab-btn" data-tab="heatmap">🔥 Mapa de Calor</button><button class="tab-btn" data-tab="monthly">📈 Evolução</button><button class="tab-btn" data-tab="insights">💡 Recomendações</button><button class="tab-btn" data-tab="history">☰ Histórico</button>
+</div></div>
+<div class="content">
+<div id="panel-overview" class="tab-panel active"></div><div id="panel-efficiency" class="tab-panel"></div><div id="panel-stations" class="tab-panel"></div><div id="panel-heatmap" class="tab-panel"></div><div id="panel-monthly" class="tab-panel"></div><div id="panel-insights" class="tab-panel"></div><div id="panel-history" class="tab-panel"></div>
+</div>
+<dialog id="editFuel"><h2 id="edit-title">Abastecimento</h2><p>Os dados são salvos neste navegador.</p><label id="pick-label">Registro<select id="record" onchange="selectRecord()"></select></label>
+<form id="form"><div class="form-grid"><label>Data e hora<input id="date" type="datetime-local" step="1" required></label><label>Odômetro (km)<input id="odo" type="number" min="0" step="1" required></label><label>Litros<input id="liters" type="number" min="0.01" step="0.01" required></label><label>Preço por litro (R$)<input id="price" type="number" min="0.01" step="0.01" required></label><label>Combustível<select id="fuel"><option>Gasolina</option><option>Etanol</option><option>Diesel</option></select></label><label>Posto<input id="station" maxlength="100" required></label></div><label><input id="full" type="checkbox">Tanque cheio após abastecer</label><p id="preview"></p><p id="error" role="alert"></p><button class="btn-filter" id="save">Salvar alterações</button> <button class="btn-reset" type="button" onclick="el('editFuel').close()">Fechar</button></form></dialog>
+<script>
+const el=id=>document.getElementById(id);
+const sum=(a,f)=>a.reduce((t,r)=>t+f(r),0), div=(a,b)=>b>0?a/b:null;
+const num=(n,d=2)=>n==null||!Number.isFinite(n)?'—':n.toLocaleString('pt-BR',{minimumFractionDigits:d,maximumFractionDigits:d});
+const money=n=>n==null||!Number.isFinite(n)?'—':n.toLocaleString('pt-BR',{style:'currency',currency:'BRL'});
+const safe=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const day=r=>r.date.slice(0,10), month=r=>r.date.slice(0,7);
+const group=(a,f)=>a.reduce((m,r)=>{let k=f(r);(m[k]??=[]).push(r);return m;},Object.create(null));
+const days=['Dom','Seg','Ter','Qua','Qui','Sex','Sáb'];
+const chartColors=['#fbbf24','#10b981','#06b6d4','#8b5cf6','#3b82f6','#ef4444'];
+let raw=[], records=[], cycles=[], selected=[], selectedCycles=[], charts={}, current='overview', metric='gasto', busy=false, signature=null, before=null, isNew=false, first=true;
+function normalize(rows){return rows.map((r,i)=>({r,i})).filter(({r})=>r.some((v,k)=>v!==''&&v!==null&&v!==undefined&&!(k===6&&v===false))).map(({r,i})=>{
+ const [id,date,odo,liters,price,fuel,full,station]=r;
+ if(!id||!date||!Number.isFinite(Date.parse(date))||[odo,liters,price].some(x=>x===''||!Number.isFinite(Number(x)))||Number(odo)<0||Number(liters)<=0||Number(price)<=0||!['Gasolina','Etanol','Diesel'].includes(fuel)||typeof full!=='boolean')throw Error('Registro inválido na posição '+(i+1));
+ return {id:String(id),date:String(date),odo:+odo,liters:+liters,price:+price,fuel,full,station:String(station||'Sem posto'),cost:Math.round(+liters*+price*100)/100};
+ }).sort((a,b)=>a.date.localeCompare(b.date)||a.odo-b.odo);}
+function buildCycles(a){
+ let anchor=null, litres=0,cost=0,types=new Set(),out=[];
+ for(const r of a){
+  if(anchor){litres+=r.liters;cost+=r.cost;types.add(r.fuel);}
+  if(r.full){
+   if(anchor&&r.odo>anchor.odo&&litres>0)out.push({date:r.date,start:anchor.date,km:r.odo-anchor.odo,liters:litres,cost,eff:(r.odo-anchor.odo)/litres,costKm:cost/(r.odo-anchor.odo),fuel:types.size===1?[...types][0]:'Misto'});
+   anchor=r;litres=0;cost=0;types=new Set([r.fuel]);
+  }
+ }
+ return out;
+}
+function stats(a,c){
+ let cost=sum(a,r=>r.cost),liters=sum(a,r=>r.liters),km=sum(c,r=>r.km),used=sum(c,r=>r.liters),cycleCost=sum(c,r=>r.cost);
+ return {n:a.length,cost,liters,km,used,cycleCost,eff:div(km,used),cKm:div(cycleCost,km),price:div(cost,liters),avg:div(cost,a.length),cycles:c.length};
+}
+function periodInfo(a){
+ const start=el('filter-start').value|| (a.length?day(a[0]):'');
+ const end=el('filter-end').value|| (a.length?day(a.at(-1)):'');
+ const span=start&&end?Math.round((Date.parse(end)-Date.parse(start))/86400000)+1:0;
+ const active=new Set(a.map(day)).size;
+ const gap=a.length>1?(Date.parse(a.at(-1).date)-Date.parse(a[0].date))/86400000/(a.length-1):null;
+ return {start,end,span,active,gap};
+}
+let goalPct=10;
+function updateGoal(){const input=el('goal-pct');if(!input||input.value===''||!input.checkValidity())return;goalPct=Number(input.value);renderGoal();}
+function renderGoal(){const out=el('goal-result');if(!out)return;const t=stats(selected,selectedCycles),p=periodInfo(selected);if(t.cKm==null||!p.span){out.textContent='Sem ciclos completos para calcular a meta.';return;}const target=t.cKm*(1-goalPct/100),weekKm=t.km*7/p.span;out.textContent='Meta ilustrativa: '+num(target,3)+' R$/km (atual '+num(t.cKm,3)+' R$/km). Economia projetada de '+money((t.cKm-target)*weekKm)+' por semana, mantendo a distância média medida de '+num(weekKm,0)+' km/semana. Não é uma meta salva nem uma previsão.';}
+function setStatus(t){el('sync').textContent=t;}
+function fail(e){busy=false;el('save').disabled=false;setStatus('Não foi possível sincronizar: '+e.message);el('error').textContent=e.message;}
+function receive(rows){try{
+ if(!Array.isArray(rows))throw Error('Base de combustível indisponível.');
+ const sig=JSON.stringify(rows);
+ if(sig!==signature){records=normalize(rows);cycles=buildCycles(records);raw=rows;signature=sig;if(first){resetFilters();first=false}else applyFilters();}
+ busy=false;el('save').disabled=false;el('newbutton').disabled=false;el('editbutton').disabled=!records.length;
+ setStatus('Sincronizado · '+records.length+' registros · Laboratório VEXO');
+ }catch(e){fail(e)}}
+function pull(){if(busy||el('editFuel').open)return;if(typeof Vexo==='undefined'){setStatus('Abra a versão web publicada para conectar os dados.');return;}busy=true;Vexo.run.withFailureHandler(fail).withSuccessHandler(receive).dadosDashboardFuel();}
+function resetFilters(){el('filter-start').value=records.length?day(records[0]):'';el('filter-end').value=records.length?day(records.at(-1)):'';el('fuel-filter').value='';applyFilters();}
+function applyFilters(){
+ const a=el('filter-start').value,b=el('filter-end').value,f=el('fuel-filter').value;
+ if(a&&b&&a>b){el('filter-info').textContent='Período inválido';return;}
+ const range=r=>(!a||day(r)>=a)&&(!b||day(r)<=b);
+ selected=records.filter(r=>range(r)&&(!f||r.fuel===f));
+ selectedCycles=cycles.filter(r=>range(r)&&(!a||r.start.slice(0,10)>=a)&&(!f||r.fuel===f));
+ el('filter-info').textContent=selected.length+' abastecimentos · '+selectedCycles.length+' ciclos completos';
+ el('header-subtitle').textContent='VEXO · Inteligência de combustível · '+(a||'Início')+' a '+(b||'Hoje');
+ render();
+}
+function title(t,p=''){return `<div class="section-title"><h2>${safe(t)}</h2>${p?`<p>${safe(p)}</p>`:''}</div>`}
+function kpi(l,v,s,c='#fbbf24',i=''){return `<div class="kpi-card"><div class="top-bar" style="background:${c}"></div><div class="kpi-icon">${i}</div><div class="kpi-label">${safe(l)}</div><div class="kpi-value" style="color:${c}">${safe(v)}</div><div class="kpi-sub">${safe(s)}</div></div>`}
+function chartBox(id){return `<div class="chart-card"><canvas id="${id}" height="210"></canvas></div>`}
+function clearCharts(){Object.values(charts).forEach(c=>c.destroy());charts={}}
+function chart(id,labels,datasets,type='bar',opts={}){
+ if(typeof Chart==='undefined'){el(id).parentElement.textContent='Gráfico indisponível: biblioteca não carregada.';return;}
+ charts[id]=new Chart(el(id),{type,data:{labels,datasets},options:{responsive:true,maintainAspectRatio:true,plugins:{legend:{display:datasets.length>1,labels:{color:'#94a3b8'}},tooltip:{callbacks:{label:c=>`${c.dataset.label||''}: ${c.raw==null?'Sem dados':num(c.raw,2)}`}}},scales:{x:{ticks:{color:'#64748b',maxTicksLimit:15},grid:{display:false}},y:{beginAtZero:true,ticks:{color:'#64748b'},grid:{color:'rgba(30,41,59,.4)'}}},...opts}});
+}
+function ds(label,data,color=chartColors[0]){return {label,data,backgroundColor:color+'AA',borderColor:color,borderWidth:2,borderRadius:5,tension:.25,pointRadius:2}}
+function table(headers,rows){return `<div class="scroll-table"><table class="data-table"><thead><tr>${headers.map(h=>`<th>${safe(h)}</th>`).join('')}</tr></thead><tbody>${rows.map(r=>`<tr>${r.map((v,i)=>`<td class="${i===0?'bold':'mono'}">${safe(v)}</td>`).join('')}</tr>`).join('')}</tbody></table></div>`}
+function block(id,html){el('panel-'+id).innerHTML=html}
+function render(){clearCharts();const a=selected,c=selectedCycles,t=stats(a,c);
+ if(!a.length){block(current,title('Nenhum abastecimento','Altere o período ou registre um abastecimento.')+'<div class="empty">Sem dados para calcular.</div>');return}
+ const byFuel=group(a,r=>r.fuel), fuels=Object.keys(byFuel);
+ if(current==='overview'){
+  const p=periodInfo(a),perWeek=v=>p.span?v*7/p.span:null;
+  const metrics=[['Gasto total',money(t.cost),p.active+' dias com abastecimento · '+money(div(t.cost,p.span))+'/dia corrido','#ef4444','💳'],['Abastecimentos',String(t.n),num(perWeek(t.n))+' por semana · '+num(p.gap,1)+' dias entre compras','#fbbf24','⛽'],['Litros comprados',num(t.liters,1)+' L',num(perWeek(t.liters),1)+' L/semana','#06b6d4','💧'],['Preço médio por litro',money(t.price),'Ponderado pelos litros comprados','#fbbf24'],['Consumo medido',t.eff==null?'—':num(t.eff,2)+' km/L',t.cycles+' ciclos completos · '+num(t.used,1)+' L repostos','#10b981'],['Custo por km',money(t.cKm),'Reposição · '+num(t.km,0)+' km medidos','#06b6d4'],['Distância medida',num(t.km,0)+' km',num(perWeek(t.km),0)+' km/semana no período (ciclos fechados)','#8b5cf6'],['Valor médio',money(t.avg),num(div(t.liters,t.n))+' L/compra · '+money(perWeek(t.cost))+'/semana','#fbbf24']];
+  block(current,title('Visão Geral',p.span+' dias corridos no período selecionado · valores pagos e eficiência medida')+'<div class="kpi-grid">'+metrics.map(x=>kpi(...x)).join('')+'</div>'+title('Gastos por combustível')+chartBox('c-fuel')+title('Gastos por abastecimento')+chartBox('c-fill')+`<div class="fuel-summary">${title('Composição das compras','Compare volume, participação nos gastos e preço médio; eficiência por ciclo permanece na aba Consumo.')}${table(['Combustível','Compras','Litros','% dos litros','Gasto','% do gasto','Preço/L'],fuels.map(f=>{const x=stats(byFuel[f],[]);return [f,x.n,num(x.liters,1),num(div(x.liters,t.liters)*100,1)+'%',money(x.cost),num(div(x.cost,t.cost)*100,1)+'%',money(x.price)]}))}</div>`);
+  chart('c-fuel',fuels,[ds('Gasto (R$)',fuels.map(f=>stats(byFuel[f],[]).cost),'#fbbf24')]);chart('c-fill',a.map(r=>day(r)),[ds('Gasto (R$)',a.map(r=>r.cost),'#06b6d4')],'line');
+ }else if(current==='efficiency'){
+  const types=Object.keys(group(c,r=>r.fuel));const cards=types.map(f=>{const m=stats([],c.filter(r=>r.fuel===f));return `<div class="faixa-card"><h3>${safe(f)}</h3><div class="faixa-stats"><div><div class="stat-label">Consumo</div><div class="stat-value">${num(m.eff)} km/L</div></div><div><div class="stat-label">Custo/km</div><div class="stat-value">${money(m.cKm)}</div></div><div><div class="stat-label">Distância</div><div class="stat-value">${num(m.km,0)} km</div></div><div><div class="stat-label">Ciclos</div><div class="stat-value">${m.cycles}</div></div></div></div>`}).join('');
+  block(current,title('Consumo real medido','Tanque cheio a tanque cheio; parciais acumulados. Misto = tipos diferentes registrados no ciclo. O combustível residual no tanque não é medido; a classificação é indicativa.')+'<div class="faixa-grid">'+cards+'</div>'+title('Consumo por ciclo')+chartBox('c-eff')+title('Custo por km')+chartBox('c-km')+title('Ciclos completos','Cada linha reúne a distância e os litros repostos entre dois tanques cheios. O Histórico continua mostrando cada compra individual.')+table(['Fechamento','Combustível','Km','Litros','km/L','R$/km'],c.slice().reverse().map(r=>[day(r),r.fuel,num(r.km,0),num(r.liters),num(r.eff),money(r.costKm)])));
+  chart('c-eff',c.map(r=>day(r)),[ds('km/L',c.map(r=>r.eff),'#10b981')],'line');chart('c-km',c.map(r=>day(r)),[ds('R$/km',c.map(r=>r.costKm),'#fbbf24')],'line');
+ }else if(current==='stations'){
+  const groups=group(a,r=>r.station+' · '+r.fuel);const keys=Object.keys(groups).sort();const data=keys.map(k=>stats(groups[k],[]));
+  block(current,title('Postos e preços','Comparação por combustível, com média ponderada e número de observações.')+chartBox('c-station')+table(['Posto / combustível','Registros','Litros','Preço/L','Gasto'],keys.map((k,i)=>[k,data[i].n,num(data[i].liters,1),money(data[i].price),money(data[i].cost)])));
+  chart('c-station',keys,[ds('R$/L',data.map(r=>r.price),'#fbbf24')]);
+ }else if(current==='heatmap'){
+  const cells=Array.from({length:7},()=>Array(24).fill(0)), counts=Array.from({length:7},()=>Array(24).fill(0));
+  a.forEach(r=>{const d=new Date(r.date),w=d.getDay(),h=d.getHours();cells[w][h]+=metric==='gasto'?r.cost:metric==='litros'?r.liters:1;counts[w][h]++});
+  const flat=cells.flat(),nonzero=flat.filter(v=>v>0),max=Math.max(0,...flat),min=nonzero.length?Math.min(...nonzero):0;
+  const fmt=v=>metric==='gasto'?money(v):metric==='litros'?num(v,2)+' L':num(v,Number.isInteger(v)?0:Number.isInteger(v*10)?1:2);
+  const cellText=v=>metric==='qtd'?num(v,0):num(v,1);
+  const unit=metric==='gasto'?'R$':metric==='litros'?'L':'abastecimentos';
+  const name=metric==='gasto'?'Gasto total':metric==='litros'?'Litros comprados':'Quantidade de abastecimentos';
+  const ticks=[0,.25,.5,.75,1].map(f=>max*f);
+  const detail=(d,h)=>days[d]+' · '+String(h).padStart(2,'0')+'h–'+String(h).padStart(2,'0')+'h59 · '+name+': '+fmt(cells[d][h])+' · '+counts[d][h]+' registro(s)';
+  const peak=flat.indexOf(max), peakDay=Math.floor(peak/24),peakHour=peak%24;
+  block(current,title('Mapa de calor de abastecimentos','Horário da compra, não do consumo do combustível.')+`<div class="chart-card"><div style="display:flex;gap:8px;margin-bottom:14px;flex-wrap:wrap">${[['gasto','Gasto'],['litros','Litros'],['qtd','Quantidade']].map(([k,l])=>`<button class="hm-btn ${metric===k?'active':''}" onclick="setMetric('${k}')" aria-pressed="${metric===k}">${l}</button>`).join('')}</div><div class="hm-context"><span>Total: <strong>${fmt(sum(flat,v=>v))}</strong></span><span>Menor célula com compra: <strong>${fmt(min)}</strong></span><span>Maior célula: <strong>${fmt(max)}</strong> (${days[peakDay]} ${String(peakHour).padStart(2,'0')}h)</span><span>Média das células com compra: <strong>${fmt(div(sum(nonzero,v=>v),nonzero.length)??0)}</strong></span></div><div style="overflow:auto"><div class="heatmap-grid" style="grid-template-columns:45px repeat(24,minmax(27px,1fr));min-width:730px"><div></div>${Array.from({length:24},(_,h)=>`<div class="hm-header">${String(h).padStart(2,'0')}</div>`).join('')}${cells.map((row,d)=>`<div class="hm-label">${days[d]}</div>${row.map((v,h)=>`<div tabindex="0" class="hm-cell" data-detail="${safe(detail(d,h))}" style="background:rgba(251,191,36,${v&&max ? .12+.85*v/max : .035});color:${max&&v/max>.6?'#000':'#f1f5f9'}" title="${safe(detail(d,h))}" aria-label="${safe(detail(d,h))}">${v?cellText(v):'–'}</div>`).join('')}`).join('')}</div></div><div class="hm-legend"><div>${name} (${unit}) · escala relativa ao maior valor do filtro atual</div><div class="hm-legend-bar" aria-hidden="true"></div><div class="hm-legend-ticks">${ticks.map(v=>`<span>${fmt(v)}</span>`).join('')}</div><p style="margin-top:6px">Baixo → Alto · 00h–23h · traço = nenhuma compra · acumulado por dia da semana e hora.</p></div><div id="hm-detail" class="hm-detail" role="status">Passe o mouse, toque ou selecione uma célula para ver o valor exato.</div></div>`);
+  el('panel-heatmap').querySelectorAll('.hm-cell').forEach(cell=>{const show=()=>{el('hm-detail').textContent=cell.dataset.detail};cell.addEventListener('mouseenter',show);cell.addEventListener('focus',show);cell.addEventListener('click',show)});
+ }else if(current==='monthly'){
+  const m=group(a,month),cm=group(c,month),keys=Object.keys(m).sort(),vals=keys.map(k=>stats(m[k],cm[k]||[]));
+  block(current,title('Evolução mensal','Ciclos atribuídos ao mês de fechamento.')+'<div class="monthly-grid">'+keys.map((k,i)=>`<div class="month-card"><h3>${k}</h3>${[['Gasto',money(vals[i].cost)],['Litros',num(vals[i].liters,1)],['Preço/L',money(vals[i].price)],['km/L',num(vals[i].eff)],['Custo/km',money(vals[i].cKm)],['Abastecimentos',vals[i].n]].map(([l,v])=>`<div class="month-row"><span class="label">${l}</span><span class="val">${v}</span></div>`).join('')}</div>`).join('')+'</div>'+title('Gastos mensais')+chartBox('c-month')+title('Evolução do consumo')+chartBox('c-month-eff')+title('Evolução do preço')+chartBox('c-month-price'));
+  chart('c-month',keys,[ds('Gastos',vals.map(v=>v.cost),'#ef4444')]);chart('c-month-eff',keys,[ds('km/L',vals.map(v=>v.eff),'#10b981')],'line');chart('c-month-price',keys,fuels.map((f,i)=>ds(f,keys.map(k=>{let z=m[k].filter(r=>r.fuel===f);return div(sum(z,r=>r.cost),sum(z,r=>r.liters))}),chartColors[i%6])),'line');
+ }else if(current==='insights'){
+  const pure=fuels.map(f=>({fuel:f,...stats(a.filter(r=>r.fuel===f),c.filter(r=>r.fuel===f))})).filter(r=>r.cycles>=3&&r.cKm!==null).sort((a,b)=>a.cKm-b.cKm);
+  const best=pure[0],second=pure[1],recent=c.slice(-1)[0],same=recent?c.filter(r=>r.fuel===recent.fuel&&r!==recent):[],baseline=stats([],same).eff;
+  const eligible=recent&&same.length>=3&&baseline>0,change=eligible?(recent.eff/baseline-1)*100:null,alert=eligible&&recent.eff<baseline*.8;
+  const p=periodInfo(a);
+  const comp=group(a,r=>r.fuel),stationRanks=Object.keys(comp).map(f=>{const g=group(comp[f],r=>r.station);return {f,rank:Object.keys(g).map(station=>({station,...stats(g[station],[])})).filter(v=>v.n>=3).sort((x,y)=>x.price-y.price)}});
+  const stationText=stationRanks.map(({f,rank})=>rank.length?`${f}: ${rank[0].station}, ${money(rank[0].price)}/L (${rank[0].n} compras).${rank.length>1?' Diferença para o posto mais caro da amostra: '+money(rank.at(-1).price-rank[0].price)+'/L.':''}`:`${f}: menos de três registros por posto; amostra insuficiente.`).join(' ');
+  const trend=Object.keys(comp).map(f=>{const groups=group(comp[f],month),keys=Object.keys(groups).sort();if(keys.length<2)return f+': sem dois meses comparáveis.';const x=stats(groups[keys[0]],[]).price,y=stats(groups[keys.at(-1)],[]).price;return `${f}: ${keys[0]} ${money(x)}/L → ${keys.at(-1)} ${money(y)}/L (${num((y/x-1)*100,1)}%).`}).join(' ');
+  const effTrend=pure.map(f=>{const g=group(c.filter(r=>r.fuel===f.fuel),month),keys=Object.keys(g).sort().filter(k=>g[k].length>=3);if(keys.length<2)return f.fuel+': sem dois meses com três ciclos.';const x=stats([],g[keys[0]]).eff,y=stats([],g[keys.at(-1)]).eff;return `${f.fuel}: ${keys[0]} ${num(x)} km/L → ${keys.at(-1)} ${num(y)} km/L (${num((y/x-1)*100,1)}%).`}).join(' ');
+  const hero=best?(second?`${best.fuel} apresentou menor custo de reposição por km: ${money(best.cKm)} contra ${money(second.cKm)} (${second.fuel}), diferença de ${num((1-best.cKm/second.cKm)*100,1)}%. Amostra: ${best.cycles} e ${second.cycles} ciclos. A comparação é histórica e não mede a mistura residual no tanque.`:`${best.fuel}: ${money(best.cKm)}/km medidos em ${best.cycles} ciclos. Ainda não há amostra comparável de outro combustível.`):'Registre pelo menos três ciclos completos do mesmo combustível para obter uma recomendação comparável.';
+  const recentText=!recent?'Sem ciclos fechados.':!eligible?`Último ciclo (${recent.fuel}): ${num(recent.eff)} km/L. São necessários três ciclos anteriores da mesma categoria; há ${same.length}.`:`Último ciclo (${recent.fuel}): ${num(recent.eff)} km/L; média anterior ponderada: ${num(baseline)} km/L (${same.length} ciclos); variação: ${change>=0?'+':''}${num(change,1)}%. Limite atual de alerta: queda maior que 20% (abaixo de ${num(baseline*.8)} km/L). ${alert?'Alerta: confira condições de uso e manutenção.':'Sem alerta por esse critério.'} O limiar é uma regra do painel, não um diagnóstico.`;
+  const insights=(h,p,color)=>`<div class="insight-card" style="border-left-color:${color}"><h3>${safe(h)}</h3><p>${safe(p)}</p></div>`;
+  block(current,title('Recomendações','Indicadores derivados dos registros; não são previsão de demanda nem diagnóstico mecânico.')+`<div class="hero-insight"><h3>Economia por km</h3><p>${safe(hero)}</p></div>`+insights('Consumo recente',recentText,alert?'#ef4444':'#fbbf24')+insights('Autonomia','Indisponível: falta o volume restante do tanque. Litros comprados não medem o nível atual. Nenhuma autonomia é calculada.','#fbbf24')+insights('Postos e preços observados',stationText+' Os preços são históricos; confira o preço atual antes de abastecer.','#3b82f6')+insights('Volume × eficiência',`${num(t.liters,1)} L comprados e ${money(t.cost)} pagos em ${p.active} dias com compras. ${num(t.used,1)} L repostos nos ${t.cycles} ciclos medidos; custo de reposição: ${money(t.cKm)}/km. O gasto total de compra e o custo dos ciclos têm bases diferentes.`,'#10b981')+insights('Evolução dos preços',trend+' Comparação do mesmo combustível, ponderada pelos litros.','#8b5cf6')+insights('Evolução do consumo',effTrend||'Sem amostra de ciclos comparáveis para avaliar a evolução.','#06b6d4')+insights('Intervalo e orçamento',`${num(p.gap,1)} dias entre compras, em média. No filtro de ${p.span} dias, gasto médio de ${money(div(t.cost,p.span))}/dia corrido e ${money(p.span?t.cost*7/p.span:null)}/semana. Use como referência, não previsão.`,'#fbbf24')+`<div class="action-plan"><h3>Plano de ação</h3><div class="action-step"><span class="step-num">1.</span> Registre todos os abastecimentos, inclusive parciais.</div><div class="action-step"><span class="step-num">2.</span> Confirme o tanque cheio e o odômetro para fechar ciclos.</div><div class="action-step"><span class="step-num">3.</span> Compare custo por km de ciclos semelhantes, não apenas preço do litro.</div><div class="action-step"><span class="step-num">4.</span> <strong>Postos:</strong> ${safe(stationText)}</div><div class="action-step"><span class="step-num">5.</span> <strong>Meta de economia (simulação ajustável):</strong><div class="goal-control"><label for="goal-pct">Reduzir custo/km em (%)</label><input id="goal-pct" type="number" min="0" max="100" step="1" value="${goalPct}" onchange="updateGoal()" oninput="updateGoal()"></div><p id="goal-result" role="status"></p></div><div class="action-step"><span class="step-num">6.</span> <strong>Monitorar:</strong> compare semanas e ciclos completos do mesmo combustível; registre o preço de cada posto e acompanhe o custo/km.</div></div>`);
+  renderGoal();
+ }else{
+  block(current,title('Histórico editável','Use Editar abastecimento no topo para modificar um registro.')+table(['Data e hora','Odômetro','Litros','Preço/L','Total','Combustível','Tanque cheio','Posto'],a.slice().reverse().map(r=>[r.date.replace('T',' '),num(r.odo,0),num(r.liters),money(r.price),money(r.cost),r.fuel,r.full?'Sim':'Não',r.station])));
+ }
+}
+function setMetric(m){metric=m;render()}
+function updatePreview(){el('preview').textContent='Total calculado: '+money(Math.round(Number(el('liters').value)*Number(el('price').value)*100)/100)}
+function fillForm(r){el('date').value=r[1];el('odo').value=r[2];el('liters').value=r[3];el('price').value=r[4];el('fuel').value=r[5];el('full').checked=r[6]===true;el('station').value=r[7];updatePreview()}
+function selectRecord(){before=raw.find(r=>String(r[0])===el('record').value)?.slice();if(before)fillForm(before)}
+function openEdit(add){isNew=add;el('error').textContent='';el('edit-title').textContent=add?'Registrar abastecimento':'Editar abastecimento';el('pick-label').hidden=add;el('pick-label').style.display=add?'none':'block';el('record').replaceChildren();
+ if(add){before=null;const last=records.at(-1);const now=new Date();const local=new Date(now.getTime()-now.getTimezoneOffset()*60000).toISOString().slice(0,19);fillForm(['',local,last?.odo||0,'','',last?.fuel||'Gasolina',false,'']);}
+ else{raw.filter(r=>r[0]).forEach(r=>{const o=document.createElement('option');o.value=r[0];o.textContent=r[1].replace('T',' ')+' · '+money(+r[3]*+r[4])+' · '+r[0];el('record').appendChild(o)});selectRecord();}
+ el('editFuel').showModal();
+}
+document.addEventListener('DOMContentLoaded',()=>{
+ document.querySelectorAll('.tab-btn').forEach(b=>b.addEventListener('click',()=>{document.querySelectorAll('.tab-btn,.tab-panel').forEach(x=>x.classList.remove('active'));b.classList.add('active');current=b.dataset.tab;el('panel-'+current).classList.add('active');render()}));
+ ['liters','price'].forEach(id=>el(id).addEventListener('input',updatePreview));
+ el('form').addEventListener('submit',event=>{event.preventDefault();if(busy)return;busy=true;el('save').disabled=true;
+ let after=[before?.[0]||'',el('date').value.length===16?el('date').value+':00':el('date').value,+el('odo').value,+el('liters').value,+el('price').value,el('fuel').value,el('full').checked,el('station').value.trim()];
+ Vexo.run.withFailureHandler(fail).withSuccessHandler(rows=>{el('editFuel').close();receive(rows)}).salvarDashboardFuel(before,after);});
+ render();pull();setInterval(()=>{if(!document.hidden)pull()},5000);
+});
+</script>
+</body></html>

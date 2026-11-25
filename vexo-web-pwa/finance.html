@@ -1,0 +1,568 @@
+<!doctype html>
+<html lang="pt-BR">
+  <head><script src="data.js"></script><link rel="stylesheet" href="responsive.css">
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>VEXO — Finance Performance</title>
+    <link
+      href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700;800;900&family=JetBrains+Mono:wght@400;600;700;800&display=swap"
+      rel="stylesheet"
+    />
+    <style>
+      :root {
+        --bg: #06080f;
+        --bg2: #0c1017;
+        --card: #111827;
+        --card-border: #1a2236;
+        --accent: #fbbf24;
+        --accent-dim: rgba(251, 191, 36, 0.12);
+        --green: #10b981;
+        --red: #ef4444;
+        --blue: #3b82f6;
+        --purple: #8b5cf6;
+        --cyan: #06b6d4;
+        --text: #f1f5f9;
+        --text-dim: #94a3b8;
+        --text-muted: #64748b;
+        --radius: 10px;
+      }
+      * {
+        margin: 0;
+        padding: 0;
+        box-sizing: border-box;
+      }
+      body {
+        background: var(--bg);
+        color: var(--text);
+        font-family: "DM Sans", sans-serif;
+        min-height: 100vh;
+      }
+      ::-webkit-scrollbar {
+        width: 5px;
+        height: 5px;
+      }
+      ::-webkit-scrollbar-track {
+        background: var(--bg2);
+      }
+      ::-webkit-scrollbar-thumb {
+        background: var(--card-border);
+        border-radius: 3px;
+      }
+      .header {
+        background: linear-gradient(135deg, #111827, var(--bg));
+        border-bottom: 1px solid var(--card-border);
+        padding: 20px 16px 14px;
+      }
+      .header-inner {
+        max-width: 960px;
+        margin: 0 auto;
+        display: flex;
+        align-items: center;
+        gap: 12px;
+      }
+      .logo {
+        width: 42px;
+        height: 42px;
+        border-radius: 10px;
+        background: linear-gradient(135deg, var(--accent), #f59e0b);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 18px;
+        font-weight: 900;
+        color: #000;
+        flex-shrink: 0;
+      }
+      .header h1 {
+        font-size: 18px;
+        font-weight: 900;
+        letter-spacing: -0.5px;
+      }
+      .header p {
+        font-size: 11px;
+        color: var(--text-muted);
+        margin-top: 2px;
+      }
+      .filters-bar {
+        background: var(--card);
+        border-bottom: 1px solid var(--card-border);
+        padding: 12px 16px;
+      }
+      .filters-inner {
+        max-width: 960px;
+        margin: 0 auto;
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        flex-wrap: wrap;
+      }
+      .filter-group {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+      }
+      .filter-group label {
+        font-size: 11px;
+        color: var(--text-muted);
+        font-weight: 600;
+        text-transform: uppercase;
+        letter-spacing: 0.8px;
+      }
+      .filter-group input[type="date"] {
+        background: var(--bg);
+        border: 1px solid var(--card-border);
+        color: var(--text);
+        padding: 6px 10px;
+        border-radius: 6px;
+        font-size: 12px;
+        font-family: "DM Sans", Arial, sans-serif;
+        outline: none;
+      }
+      .btn-filter {
+        background: var(--accent);
+        color: #000;
+        border: none;
+        padding: 7px 16px;
+        border-radius: 6px;
+        font-size: 12px;
+        font-weight: 700;
+        cursor: pointer;
+        font-family: "DM Sans", Arial, sans-serif;
+      }
+      .btn-reset {
+        background: transparent;
+        color: var(--text-muted);
+        border: 1px solid var(--card-border);
+        padding: 7px 14px;
+        border-radius: 6px;
+        font-size: 12px;
+        font-weight: 600;
+        cursor: pointer;
+        font-family: "DM Sans", Arial, sans-serif;
+      }
+      .tabs {
+        background: var(--bg2);
+        border-bottom: 1px solid var(--card-border);
+        padding: 0 16px;
+        overflow-x: auto;
+        white-space: nowrap;
+      }
+      .tabs-inner {
+        max-width: 960px;
+        margin: 0 auto;
+        display: flex;
+      }
+      .tab-btn {
+        background: none;
+        border: none;
+        cursor: pointer;
+        padding: 11px 14px;
+        font-size: 12px;
+        font-weight: 600;
+        color: var(--text-muted);
+        border-bottom: 2px solid transparent;
+        display: flex;
+        align-items: center;
+        gap: 5px;
+        font-family: "DM Sans", Arial, sans-serif;
+        transition: all 0.2s;
+        white-space: nowrap;
+      }
+      .tab-btn.active {
+        color: var(--accent);
+        border-bottom-color: var(--accent);
+      }
+      .content {
+        max-width: 960px;
+        margin: 0 auto;
+        padding: 20px 16px 60px;
+      }
+      .tab-panel {
+        display: none;
+      }
+      .tab-panel.active {
+        display: block;
+      }
+      .kpi-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
+        gap: 10px;
+        margin-bottom: 24px;
+      }
+      .kpi-card {
+        background: var(--card);
+        border: 1px solid var(--card-border);
+        border-radius: var(--radius);
+        padding: 16px 18px;
+        position: relative;
+        overflow: hidden;
+      }
+      .kpi-card .top-bar {
+        position: absolute;
+        top: 0;
+        left: 0;
+        right: 0;
+        height: 2px;
+      }
+      .kpi-card .kpi-icon {
+        position: absolute;
+        top: 10px;
+        right: 14px;
+        font-size: 20px;
+        opacity: 0.25;
+      }
+      .kpi-card .kpi-label {
+        font-size: 10px;
+        color: var(--text-muted);
+        text-transform: uppercase;
+        letter-spacing: 1px;
+        font-weight: 700;
+        margin-bottom: 6px;
+      }
+      .kpi-card .kpi-value {
+        font-size: 24px;
+        font-weight: 900;
+        font-family: "JetBrains Mono", monospace;
+      }
+      .kpi-card .kpi-sub {
+        font-size: 11px;
+        color: var(--text-dim);
+        margin-top: 4px;
+      }
+      .section-title {
+        margin: 8px 0 16px;
+      }
+      .section-title h2 {
+        font-size: 17px;
+        font-weight: 800;
+      }
+      .section-title p {
+        font-size: 11px;
+        color: var(--text-muted);
+        margin-top: 3px;
+      }
+      .chart-card {
+        background: var(--card);
+        border: 1px solid var(--card-border);
+        border-radius: var(--radius);
+        padding: 18px;
+        margin-bottom: 18px;
+      }
+      .faixa-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(210px, 1fr));
+        gap: 10px;
+        margin-bottom: 24px;
+      }
+      .faixa-card {
+        background: var(--card);
+        border: 1px solid var(--card-border);
+        border-radius: var(--radius);
+        padding: 16px;
+        border-left: 3px solid var(--accent);
+      }
+      .faixa-card h3 {
+        font-size: 13px;
+        font-weight: 700;
+        margin-bottom: 10px;
+      }
+      .faixa-stats {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 8px;
+        font-size: 11px;
+      }
+      .faixa-stats .stat-label {
+        color: var(--text-muted);
+      }
+      .faixa-stats .stat-value {
+        font-weight: 700;
+        font-family: "JetBrains Mono";
+      }
+      .hm-btn {
+        background: var(--card);
+        color: var(--text-dim);
+        border: 1px solid var(--card-border);
+        border-radius: 6px;
+        padding: 5px 14px;
+        font-size: 11px;
+        font-weight: 700;
+        cursor: pointer;
+        font-family: "DM Sans", Arial, sans-serif;
+      }
+      .hm-btn.active {
+        background: var(--accent);
+        color: #000;
+        border-color: var(--accent);
+      }
+      .heatmap-grid {
+        display: grid;
+        gap: 2px;
+        overflow-x: auto;
+        min-width: 500px;
+      }
+      .hm-cell {
+        border-radius: 3px;
+        padding: 5px 2px;
+        text-align: center;
+        font-size: 10px;
+        font-family: "JetBrains Mono";
+        min-height: 28px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+      }
+      .hm-label {
+        font-size: 11px;
+        color: var(--text-dim);
+        font-weight: 600;
+        display: flex;
+        align-items: center;
+      }
+      .hm-header {
+        font-size: 10px;
+        color: var(--text-muted);
+        text-align: center;
+        font-weight: 600;
+        padding: 4px 0;
+      }
+      .insight-card {
+        background: var(--card);
+        border: 1px solid var(--card-border);
+        border-radius: var(--radius);
+        padding: 16px 18px;
+        border-left: 3px solid var(--accent);
+        margin-bottom: 10px;
+      }
+      .insight-card h3 {
+        font-size: 13px;
+        font-weight: 700;
+        margin-bottom: 6px;
+        display: flex;
+        align-items: center;
+        gap: 8px;
+      }
+      .insight-card p {
+        font-size: 12px;
+        color: var(--text-dim);
+        line-height: 1.65;
+      }
+      .hero-insight {
+        background: linear-gradient(135deg, var(--accent-dim), transparent);
+        border: 1px solid rgba(251, 191, 36, 0.25);
+        border-radius: 12px;
+        padding: 20px;
+        margin-bottom: 18px;
+      }
+      .hero-insight h3 {
+        font-size: 15px;
+        font-weight: 800;
+        color: var(--accent);
+        margin-bottom: 8px;
+      }
+      .hero-insight p {
+        font-size: 13px;
+        color: var(--text);
+        line-height: 1.7;
+      }
+      .action-plan {
+        background: var(--card);
+        border: 1px solid var(--card-border);
+        border-radius: 12px;
+        padding: 20px;
+      }
+      .action-plan h3 {
+        font-size: 14px;
+        font-weight: 800;
+        margin-bottom: 14px;
+      }
+      .action-step {
+        font-size: 12px;
+        color: var(--text-dim);
+        line-height: 1.8;
+        margin-bottom: 6px;
+      }
+      .action-step strong {
+        color: var(--text);
+      }
+      .step-num {
+        color: var(--green);
+        font-weight: 800;
+      }
+      .monthly-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(210px, 1fr));
+        gap: 10px;
+        margin-bottom: 24px;
+      }
+      .month-card {
+        background: var(--card);
+        border: 1px solid var(--card-border);
+        border-radius: var(--radius);
+        padding: 18px;
+      }
+      .month-card h3 {
+        font-size: 15px;
+        font-weight: 800;
+        color: var(--accent);
+        margin-bottom: 12px;
+      }
+      .month-row {
+        display: flex;
+        justify-content: space-between;
+        font-size: 12px;
+        margin-bottom: 8px;
+      }
+      .month-row .label {
+        color: var(--text-muted);
+      }
+      .month-row .val {
+        font-weight: 700;
+        font-family: "JetBrains Mono";
+      }
+      .pct-badge {
+        font-size: 10px;
+        margin-left: 6px;
+      }
+      .pct-up {
+        color: var(--green);
+      }
+      .pct-down {
+        color: var(--red);
+      }
+      .data-table {
+        width: 100%;
+        border-collapse: collapse;
+        font-size: 12px;
+      }
+      .data-table th {
+        padding: 8px 10px;
+        text-align: left;
+        color: var(--text-muted);
+        font-weight: 600;
+        font-size: 10px;
+        text-transform: uppercase;
+        letter-spacing: 0.8px;
+        border-bottom: 1px solid var(--card-border);
+      }
+      .data-table td {
+        padding: 10px;
+        border-bottom: 1px solid rgba(30, 41, 59, 0.3);
+      }
+      .data-table .rank {
+        font-weight: 800;
+      }
+      .data-table .money {
+        color: var(--green);
+        font-weight: 700;
+        font-family: "JetBrains Mono";
+      }
+      .data-table .mono {
+        font-family: "JetBrains Mono";
+        color: var(--text-dim);
+      }
+      .data-table .bold {
+        font-weight: 600;
+        color: var(--text);
+      }
+      .filter-info {
+        font-size: 11px;
+        color: var(--accent);
+        font-weight: 600;
+        margin-left: auto;
+      }
+      @media (max-width: 600px) {
+        .kpi-grid {
+          grid-template-columns: repeat(2, 1fr);
+        }
+        .faixa-grid,
+        .monthly-grid {
+          grid-template-columns: 1fr;
+        }
+        .filters-inner {
+          flex-direction: column;
+          align-items: stretch;
+        }
+        .filter-info {
+          margin-left: 0;
+        }
+      }
+    </style>
+  </head>
+<body>
+<style>
+.syncbar{padding:10px 16px;display:flex;align-items:center;gap:10px;flex-wrap:wrap;background:#0c1017;font-size:11px;color:#94a3b8}.syncbar span{flex:1;min-width:180px}.kpi-value{font-size:clamp(18px,2.15vw,24px);overflow-wrap:anywhere}.kpi-grid{grid-template-columns:repeat(auto-fit,minmax(205px,1fr))}.section-title p{line-height:1.5}.subnote{font-size:12px;color:var(--text-dim);line-height:1.55;margin:8px 0 16px}.warning{border:1px solid #8b6828;border-left:3px solid var(--accent);background:#fbbf2410;border-radius:8px;padding:12px 14px;margin:0 0 16px;color:#f8de9e;font-size:12px;line-height:1.5}.status-error{color:#fca5a5}.chart-card h3{font-size:13px;margin-bottom:4px}.chart-card p{font-size:11px;color:var(--text-dim);margin:4px 0 8px}.chart-scroll,.scroll-table{overflow-x:auto}.chart-scroll svg{display:block;min-width:530px;width:100%;height:auto}.chart-scroll svg [tabindex]:focus{outline:2px solid var(--accent)}.chart-detail{min-height:19px;font-size:11px;color:var(--text-dim);margin-top:6px}.chart-legend{display:flex;gap:8px 18px;flex-wrap:wrap;font-size:11px;color:var(--text-dim);margin:8px 0}.dot{display:inline-block;width:9px;height:9px;border-radius:2px;margin-right:5px}.split{display:grid;grid-template-columns:1fr 1fr;gap:12px}.panel-box{background:var(--card);border:1px solid var(--card-border);border-radius:10px;padding:16px;margin-bottom:16px}.panel-box h3{font-size:14px;margin-bottom:8px}.line-item{display:flex;justify-content:space-between;align-items:center;gap:12px;padding:10px 0;border-bottom:1px solid var(--card-border);font-size:12px}.line-item:last-child{border:0}.line-item strong{font-family:'JetBrains Mono',monospace;font-size:13px;white-space:nowrap}.highlight{color:var(--green)}.negative{color:var(--red)}.progress{height:8px;background:var(--bg);border-radius:6px;overflow:hidden;margin:10px 0}.progress i{display:block;height:100%;background:var(--green);border-radius:6px}.progress-label{display:flex;justify-content:space-between;gap:12px;color:var(--text-dim);font-size:11px}.form-grid{display:grid;grid-template-columns:1fr 1fr;gap:10px 14px}.form-grid label,.goal-form label{font-size:12px;color:var(--text-dim)}input,select{color-scheme:dark}.form-grid input,.form-grid select,.goal-form input,.filter-group select,.goal-month{display:block;width:100%;padding:8px;margin-top:4px;background:var(--bg);color:var(--text);border:1px solid #334155;border-radius:6px;font:inherit}dialog{margin:auto;background:var(--card);color:var(--text);border:1px solid #334155;border-radius:12px;padding:22px;width:min(560px,95vw);max-height:90vh;overflow:auto}dialog::backdrop{background:#000b}dialog h2{font-size:18px}dialog .actions{display:flex;gap:8px;margin-top:16px}button:disabled{opacity:.45;cursor:not-allowed}.goal-form{display:grid;grid-template-columns:repeat(auto-fit,minmax(145px,1fr));align-items:end;gap:12px}.goal-month{max-width:170px;margin-bottom:12px}.heat-grid{display:grid;grid-template-columns:45px repeat(24,minmax(24px,1fr));gap:3px;min-width:690px}.heat-cell{height:34px;border:1px solid #1a2236;border-radius:4px;color:#f1f5f9;font:10px 'JetBrains Mono',monospace;cursor:pointer}.heat-cell:focus-visible{outline:2px solid var(--accent)}.heat-head{font-size:10px;color:var(--text-dim);text-align:center;align-self:center}.heat-scale{height:9px;background:linear-gradient(90deg,#17202e,#fbbf24);border-radius:6px;margin-top:12px}.heat-scale.signed{background:linear-gradient(90deg,#ef4444,#17202e,#10b981)}.heat-ticks{display:flex;justify-content:space-between;font-size:10px;color:var(--text-dim);margin-top:4px}.empty{padding:16px;color:var(--text-dim);font-size:13px}.action-row{display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin:8px 0}.data-table td,.data-table th{white-space:nowrap}.data-table button{white-space:nowrap}.tabs-inner{max-width:960px}.tab-btn:focus-visible,button:focus-visible,input:focus-visible,select:focus-visible{outline:2px solid var(--accent);outline-offset:2px}.muted{color:var(--text-dim)}
+@media(max-width:640px){.split,.form-grid{grid-template-columns:1fr}.kpi-grid{grid-template-columns:repeat(2,minmax(0,1fr))}.kpi-card{padding:13px 10px}.kpi-value{font-size:17px}.kpi-label{letter-spacing:.4px}.kpi-icon{display:none}.content{padding:15px 12px 40px}.syncbar{padding:9px 12px}.chart-card{padding:12px}.goal-form{grid-template-columns:1fr 1fr}}
+</style>
+<div class="syncbar"><span id="sync" role="status">Conectando às bases VEXO…</span><button class="btn-reset" id="refresh" onclick="pull()">Atualizar dados</button><button class="btn-filter" id="add-expense" disabled onclick="editExpense()">Registrar despesa</button></div>
+<div class="header"><div class="header-inner"><div class="logo">VX</div><div><h1>Finance Performance</h1><p id="header-subtitle">VEXO · Corridas, combustível e despesas</p></div></div></div>
+<div class="filters-bar"><div class="filters-inner"><div class="filter-group"><label for="filter-start">De:</label><input type="date" id="filter-start"></div><div class="filter-group"><label for="filter-end">Até:</label><input type="date" id="filter-end"></div><button class="btn-filter" onclick="applyFilters()">Filtrar</button><button class="btn-reset" onclick="resetFilters()">Limpar</button><button class="btn-reset" onclick="commonFilters()">Período em comum</button><div class="filter-info" id="filter-info" role="status"></div></div></div>
+<div class="tabs"><div class="tabs-inner" role="tablist" aria-label="Análises financeiras">
+<button class="tab-btn active" data-tab="overview" role="tab" aria-selected="true">📊 Visão Geral</button><button class="tab-btn" data-tab="revenue" role="tab" aria-selected="false">💰 Receitas</button><button class="tab-btn" data-tab="expenses" role="tab" aria-selected="false">💳 Despesas</button><button class="tab-btn" data-tab="profit" role="tab" aria-selected="false">📉 Rentabilidade</button><button class="tab-btn" data-tab="heatmap" role="tab" aria-selected="false">🔥 Mapa de Calor</button><button class="tab-btn" data-tab="goals" role="tab" aria-selected="false">🎯 Metas</button><button class="tab-btn" data-tab="insights" role="tab" aria-selected="false">💡 Recomendações</button>
+</div></div>
+<main class="content" id="content" aria-live="polite"><div class="empty">Aguardando dados.</div></main>
+<dialog id="expense-dialog"><h2 id="expense-title">Registrar despesa</h2><p class="subnote">Combustível é registrado no Fuel. Reembolso extra é somente o valor que não consta na receita da corrida.</p><form id="expense-form"><div class="form-grid"><label>Data<input id="ex-date" type="date" required></label><label>Categoria<select id="ex-category"><option>Pedágio</option><option>Manutenção</option><option>Fixo</option><option>Operacional</option><option>Pessoal</option></select></label><label style="grid-column:1/-1">Descrição<input id="ex-desc" maxlength="120" required></label><label>Valor pago (R$)<input id="ex-paid" type="number" min="0.01" step="0.01" required></label><label>Reembolso extra (R$)<input id="ex-refund" type="number" min="0" step="0.01" required></label><label style="grid-column:1/-1">ID da corrida (opcional)<input id="ex-ride" maxlength="80"></label></div><p id="ex-error" class="subnote" role="alert"></p><div class="actions"><button class="btn-filter" id="ex-save">Salvar</button><button type="button" class="btn-reset" onclick="document.getElementById('expense-dialog').close()">Cancelar</button></div></form></dialog>
+<script>
+// VEXO Core — regras puras, sem dependência de Google Sheets ou DOM.
+const Core=(()=>{
+const categories=['Pedágio','Manutenção','Fixo','Operacional','Pessoal'];
+const sum=(a,f)=>a.reduce((s,x)=>s+f(x),0), cents=x=>Math.round((x+Number.EPSILON)*100)/100;
+const time=s=>{if(typeof s!=='string'||!/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}$/.test(s))throw Error('Data e hora inválida: '+s);const n=Date.parse(s+'Z');if(!Number.isFinite(n)||new Date(n).toISOString().slice(0,19)!==s)throw Error('Data inválida: '+s);return n;};
+const day=s=>s.slice(0,10), date=(n)=>new Date(n).toISOString().slice(0,10), dtime=s=>time(s+'T00:00:00');
+const number=(v)=>{if(v===''||v===null||v===undefined||typeof v==='boolean'||!Number.isFinite(Number(v))||Number(v)<0)throw Error('Número inválido: '+v);return Number(v);};
+const unique=(a)=>{if(new Set(a.map(x=>x.id)).size!==a.length)throw Error('IDs duplicados na origem.');return a;};
+function normalize(raw){
+ const rides=unique(raw.rides.filter(r=>r[0]!==''&&r[0]!=null).map(r=>{let a=time(r[2]),b=r[3]?time(r[3]):null; if(!['finished','unfinished','cancel trip'].includes(r[1]))throw Error('Situação inválida: '+r[0]); if(r[1]==='finished'&&(b===null||b<a))throw Error('Finalização inválida: '+r[0]);return {id:String(r[0]),status:r[1],date:r[2],a,b,seconds:number(r[4]),km:number(r[5]),revenue:number(r[7])};})).sort((a,b)=>a.a-b.a);
+ const fills=unique(raw.fills.filter(r=>r[0]!==''&&r[0]!=null).map(r=>{const l=number(r[3]),p=number(r[4]);if(!l||!p||typeof r[6]!=='boolean')throw Error('Abastecimento inválido: '+r[0]);return {id:String(r[0]),date:r[1],t:time(r[1]),odo:number(r[2]),liters:l,price:p,cost:cents(l*p),fuel:r[5],full:r[6]};})).sort((a,b)=>a.t-b.t);
+ const expenses=unique(raw.expenses.filter(r=>r[0]!==''&&r[0]!=null).map(r=>{const paid=number(r[4]),refund=number(r[5]??0);if(!categories.includes(r[2])||!paid||refund>paid||!r[3])throw Error('Despesa inválida: '+r[0]);dtime(r[1]);return {id:String(r[0]),date:r[1],category:r[2],description:String(r[3]),paid,refund,net:cents(paid-refund),ride:String(r[6]??'')};})).sort((a,b)=>a.date.localeCompare(b.date));
+ const goals={revenue:number(raw.goals.revenue),cash:number(raw.goals.cash),reserve:number(raw.goals.reserve)};
+ const cycles=[];let anchor=null,liters=0,cost=0,invalid=0;for(let i=0;i<fills.length;i++){const f=fills[i];if(i&&(f.t<=fills[i-1].t||f.odo<fills[i-1].odo))throw Error('Ordem ou odômetro inválido: '+f.id);if(anchor){liters+=f.liters;cost+=f.cost;}if(f.full){if(anchor){const km=f.odo-anchor.odo;if(km>0&&liters>0)cycles.push({a:anchor.t,b:f.t,km,liters,cost:cents(cost),rate:cost/km,eff:km/liters,id:f.id});else invalid++;}anchor=f;liters=cost=0;}}
+ // Rateio por sobreposição temporal; km uniformes dentro de uma corrida que cruza um ciclo.
+ const finished=rides.filter(r=>r.status==='finished').map(r=>{let coveredKm=0,cost=0,coveredTime=0;for(const c of cycles){if(r.b===r.a){if(r.a>=c.a&&r.a<c.b){coveredKm=r.km;cost=r.km*c.rate;coveredTime=1;break;}continue;}const dt=Math.max(0,Math.min(r.b,c.b)-Math.max(r.a,c.a));if(!dt)continue;const k=r.km*dt/(r.b-r.a);coveredKm+=k;coveredTime+=dt;cost+=k*c.rate;}const covered=r.b===r.a?coveredTime===1:coveredTime>=r.b-r.a-1;return {...r,covered,coveredKm,cost:covered?cost:null};});
+ return {rides,finished,fills,expenses,goals,cycles,invalid};
+}
+function stats(data,start='',end=''){const inside=s=>(!start||day(s)>=start)&&(!end||day(s)<=end),r=data.finished.filter(x=>inside(x.date)),f=data.fills.filter(x=>inside(x.date)),e=data.expenses.filter(x=>inside(x.date)),op=e.filter(x=>x.category!=='Pessoal'),personal=e.filter(x=>x.category==='Pessoal'),covered=r.filter(x=>x.covered),revenue=sum(r,x=>x.revenue),km=sum(r,x=>x.km),hours=sum(r,x=>x.seconds)/3600,paidFuel=sum(f,x=>x.cost),opCost=sum(op,x=>x.net),personalCost=sum(personal,x=>x.net),fuelEst=sum(covered,x=>x.cost),coveredRevenue=sum(covered,x=>x.revenue),coveredKm=sum(covered,x=>x.km),complete=r.length>0&&covered.length===r.length,active=new Set(r.map(x=>day(x.date))).size;
+ const scope=data.cycles.filter(c=>(!start||c.b>=dtime(start))&&(!end||c.a<dtime(end)+86400000));
+ const warnings=scope.filter(c=>c.eff>20||c.eff<4); // limiar de inspeção ilustrativo, não especificação veicular
+ const inconsistent=scope.filter(c=>sum(data.finished,x=>{if(x.b===x.a)return x.a>=c.a&&x.a<c.b?x.km:0;return x.km*Math.max(0,Math.min(x.b,c.b)-Math.max(x.a,c.a))/(x.b-x.a);})>c.km+0.01);
+ return {r,f,e,op,personal,covered,revenue,km,hours,paidFuel,opCost,personalCost,fuelEst,coveredRevenue,coveredKm,complete,active,scope,warnings,inconsistent,cash:revenue-paidFuel-opCost,afterPersonal:revenue-paidFuel-opCost-personalCost,result:complete&&!inconsistent.length?revenue-fuelEst-opCost:null,reserve:km*data.goals.reserve};}
+function range(data){const a=[...data.rides.map(r=>day(r.date)),...data.fills.map(r=>day(r.date)),...data.expenses.map(r=>r.date)].sort();return [a[0]||'',a.at(-1)||''];}
+function common(data){if(!data.cycles.length||!data.finished.length)return range(data);const a=Math.max(data.cycles[0].a,data.finished[0].a),b=Math.min(data.cycles.at(-1).b,Math.max(...data.finished.map(r=>r.b)));if(a>b)return range(data);const s=date(a),e=date(b);const innerStart=date(Math.ceil(a/86400000)*86400000),innerEnd=date(Math.floor(b/86400000)*86400000-86400000);return innerStart<=innerEnd?[innerStart,innerEnd]:s<=e?[s,e]:range(data);}
+function groups(rows,key){const m=new Map();for(const r of rows){const k=key(r);if(!m.has(k))m.set(k,[]);m.get(k).push(r);}return m;}
+return {categories,normalize,stats,range,common,groups,sum,day,time,date,dtime,cents};})();
+if(typeof module!=='undefined')module.exports=Core;
+const $=id=>document.getElementById(id), safe=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const money=n=>n==null||!Number.isFinite(n)?'—':n.toLocaleString('pt-BR',{style:'currency',currency:'BRL'}), num=(n,d=2)=>n==null||!Number.isFinite(n)?'—':n.toLocaleString('pt-BR',{minimumFractionDigits:d,maximumFractionDigits:d}), ratio=(a,b)=>b>0?a/b:null,pct=n=>n==null?'—':num(n*100,1)+'%', fmtdate=s=>s?s.split('-').reverse().join('/'):'—';
+const C={gold:'#fbbf24',green:'#10b981',red:'#ef4444',cyan:'#06b6d4',blue:'#3b82f6',purple:'#8b5cf6',muted:'#94a3b8'}, {sum,groups,day}=Core;
+let raw=null,data=null,period=['',''],current='overview',busy=false,editing=null,signature='',heatMetric='margin',goalMonth='',goalDirty=false,stale=false;
+const k=(l,v,s,c=C.gold,i='')=>`<div class="kpi-card"><div class="top-bar" style="background:${c}"></div><div class="kpi-icon">${i}</div><div class="kpi-label">${safe(l)}</div><div class="kpi-value" style="color:${c}">${safe(v)}</div><div class="kpi-sub">${safe(s)}</div></div>`;
+const title=(h,p='')=>`<div class="section-title"><h2>${safe(h)}</h2><p>${safe(p)}</p></div>`, line=(l,v,c='')=>`<div class="line-item"><span>${safe(l)}</span><strong class="${c}">${safe(v)}</strong></div>`, box=(h,body)=>`<div class="panel-box"><h3>${safe(h)}</h3>${body}</div>`, warn=t=>`<div class="warning">${safe(t)}</div>`, note=t=>`<p class="subnote">${safe(t)}</p>`, grid=a=>`<div class="kpi-grid">${a.join('')}</div>`, table=(h,rows)=>`<div class="scroll-table"><table class="data-table"><thead><tr>${h.map(x=>`<th>${safe(x)}</th>`).join('')}</tr></thead><tbody>${rows.length?rows.map(r=>`<tr>${r.map(x=>`<td>${safe(x)}</td>`).join('')}</tr>`).join(''):`<tr><td colspan="${h.length}">Nenhum registro neste período.</td></tr>`}</tbody></table></div>`;
+const periodLabel=()=>`${fmtdate(period[0])} – ${fmtdate(period[1])}`;
+function status(t,error=false){$('sync').textContent=t;$('sync').classList.toggle('status-error',error);}
+function fail(e){busy=false;stale=true;$('refresh').disabled=false;$('ex-save').disabled=false;$('add-expense').disabled=true;status('Sincronização interrompida · '+(e.message||e)+(data?' · exibindo última leitura':'') ,true);if($('expense-dialog').open)$('ex-error').textContent=e.message||e;else if(data)render();else $('content').innerHTML=warn('Não foi possível carregar os dados. Use Atualizar dados.');}
+function receive(p){try{const next=Core.normalize(p);const sig=JSON.stringify([p.rides,p.fills,p.expenses,p.goals]);const first=!data,changed=sig!==signature||stale;raw=p;data=next;signature=sig;busy=false;stale=false;$('refresh').disabled=false;$('ex-save').disabled=false;$('add-expense').disabled=false;status('Sincronizado · '+data.rides.length+' chamadas · '+data.fills.length+' abastecimentos · '+data.expenses.length+' despesas');if(first){period=['',''];goalMonth=Core.range(data)[1].slice(0,7);setInputs();}if(changed||first)render();}catch(e){fail(e);}}
+function pull(){if(busy||$('expense-dialog').open||goalDirty)return;if(typeof Vexo==='undefined'){status('Abra a versão web publicada.',true);return;}busy=true;$('refresh').disabled=true;Vexo.run.withFailureHandler(fail).withSuccessHandler(receive).financeDados();}
+function setInputs(){$('filter-start').value=period[0];$('filter-end').value=period[1];}
+function applyFilters(){if(goalDirty&&!confirm('Descartar alterações de meta não salvas?'))return;const s=$('filter-start').value,e=$('filter-end').value;if(s&&e&&s>e){$('filter-info').textContent='Data inicial posterior à final.';return;}period=[s,e];if(e)goalMonth=e.slice(0,7);goalDirty=false;render();}
+function resetFilters(){if(!data||goalDirty&&!confirm('Descartar alterações de meta não salvas?'))return;period=Core.range(data);setInputs();goalMonth=period[1].slice(0,7);goalDirty=false;render();}
+function commonFilters(){if(!data||goalDirty&&!confirm('Descartar alterações de meta não salvas?'))return;period=Core.common(data);setInputs();goalMonth=period[1].slice(0,7);goalDirty=false;render();}
+function chart(name,subtitle,labels,series,opts={}){if(!labels.length||!series.some(s=>s.values.some(v=>v!=null)))return `<div class="chart-card"><h3>${safe(name)}</h3>${note(subtitle)}<div class="empty">Sem dados para o gráfico.</div></div>`;const W=820,H=230,L=92,R=18,T=12,B=39,values=series.flatMap(s=>s.values.filter(v=>v!=null&&Number.isFinite(v))),min=Math.min(0,...values),max=Math.max(0,...values),lo=min===max?0:min,hi=min===max?1:max,span=hi-lo,y=v=>T+(hi-v)/span*(H-T-B),step=(W-L-R)/labels.length,unit=opts.unit||'R$',val=v=>unit==='R$'?money(v):num(v,unit==='km'?0:2)+' '+unit;let svg=`<svg viewBox="0 0 ${W} ${H}" role="group" aria-label="${safe(name)}">`;for(let i=0;i<=4;i++){const v=lo+(hi-lo)*i/4,yy=y(v);svg+=`<line x1="${L}" y1="${yy}" x2="${W-R}" y2="${yy}" stroke="#263247" stroke-dasharray="3 4"/><text x="${L-7}" y="${yy+4}" fill="#94a3b8" font-size="10" text-anchor="end">${safe(val(v))}</text>`;}const baseline=y(0);svg+=`<line x1="${L}" y1="${baseline}" x2="${W-R}" y2="${baseline}" stroke="#64748b"/>`;const bw=Math.min(27,step*.76/series.length);series.forEach((s,j)=>{s.values.forEach((v,i)=>{if(v==null||!Number.isFinite(v))return;const x=L+step*(i+.5)+(j-(series.length-1)/2)*bw-bw*.45,yy=y(v),h=Math.max(1,Math.abs(yy-baseline)),txt=labels[i]+' · '+s.label+': '+val(v);svg+=`<rect x="${x}" y="${Math.min(yy,baseline)}" width="${bw*.9}" height="${h}" rx="2" fill="${s.color}" tabindex="0" role="button" aria-label="${safe(txt)}" data-detail="${safe(txt)}"><title>${safe(txt)}</title></rect>`;});});const skip=Math.max(1,Math.ceil(labels.length/12));labels.forEach((l,i)=>{if(i%skip===0||i===labels.length-1)svg+=`<text x="${L+step*(i+.5)}" y="${H-15}" font-size="10" fill="#94a3b8" text-anchor="middle">${safe(l)}</text>`;});return `<div class="chart-card"><h3>${safe(name)}</h3><p>${safe(subtitle)}</p><div class="chart-legend">${series.map(s=>`<span><i class="dot" style="background:${s.color}"></i>${safe(s.label)}</span>`).join('')}</div><div class="chart-scroll">${svg}</svg></div><div class="chart-detail" role="status">Selecione uma barra para ver o valor.</div></div>`;}
+function monthly(s){const keys=[...new Set([...s.r.map(x=>x.date.slice(0,7)),...s.f.map(x=>x.date.slice(0,7)),...s.e.map(x=>x.date.slice(0,7))])].sort();return keys.map(key=>{const start=period[0]&&period[0]>key+'-01'?period[0]:key+'-01',endMonth=Core.date(Date.UTC(+key.slice(0,4),+key.slice(5,7),0)),end=period[1]&&period[1]<endMonth?period[1]:endMonth;return {key,...Core.stats(data,start,end)};});}
+const sign=n=>n<0?'negative':'highlight';
+function overview(s){const est=s.result==null?'Sem cobertura integral':s.warnings.length?'Estimativa · ciclos atípicos':'Estimativa por ciclo';const m=monthly(s), labs=m.map(x=>x.key.slice(5)+'/'+x.key.slice(2,4));return title('Seu dinheiro no período','Receita, dinheiro desembolsado e resultado estimado — separados para não contar combustível duas vezes.')+grid([k('Receita das corridas',money(s.revenue),`${s.r.length} finalizadas · ${s.active} dias ativos`,C.green,'💰'),k('Saldo operacional de caixa',money(s.cash),`Após abastecimentos e ${s.op.length} despesas`,s.cash<0?C.red:C.green,'💵'),k('Combustível comprado',money(s.paidFuel),`${num(sum(s.f,x=>x.liters),1)} L · ${s.f.length} abastecimentos`,C.gold,'⛽'),k('Despesas operacionais',money(s.opCost),`${money(sum(s.op,x=>x.refund))} de reembolsos extras`,C.red,'💳'),k('Combustível estimado',money(s.covered.length?s.fuelEst:null),`${num(s.coveredKm,0)} km cobertos · ${s.covered.length}/${s.r.length} corridas`,C.cyan,'🛣'),k('Resultado operacional estimado',money(s.result),est,s.result!=null&&s.result<0?C.red:C.purple,'📊'),k('Despesas pessoais',money(s.personalCost),`${s.personal.length} lançamentos · fora do operacional`,C.blue,'👤'),k('Saldo após despesas pessoais',money(s.afterPersonal),'Saldo operacional de caixa menos retiradas',s.afterPersonal<0?C.red:C.green,'💼')])+chart('Evolução financeira','Valores por mês, limitados ao filtro. O resultado de caixa usa compras, não consumo.',labs,[{label:'Receita',values:m.map(x=>x.revenue),color:C.green},{label:'Saídas operacionais',values:m.map(x=>x.paidFuel+x.opCost),color:C.red},{label:'Saldo',values:m.map(x=>x.cash),color:C.gold}])+box('Fechamento de caixa',line('Receita',money(s.revenue))+line('Abastecimentos pagos','− '+money(s.paidFuel))+line('Demais despesas líquidas','− '+money(s.opCost))+line('Saldo operacional',money(s.cash),sign(s.cash))+line('Despesas pessoais','− '+money(s.personalCost))+line('Saldo após pessoais',money(s.afterPersonal),sign(s.afterPersonal)))+note('Receita atribuída à data da chamada das corridas finalizadas. Não há extrato bancário ou data de liquidação; saldo de caixa é uma aproximação pelos registros, não saldo bancário.');}
+function revenue(s){const byDay=[...groups(s.r,x=>day(x.date)).entries()].sort((a,b)=>a[0].localeCompare(b[0])),byHour=Array.from({length:24},(_,h)=>s.r.filter(r=>+r.date.slice(11,13)===h)),byWeek=Array.from({length:7},(_,i)=>s.r.filter(r=>new Date(r.a).getUTCDay()===(i+1)%7));return title('Receitas','Onde, quando e quanto as corridas finalizadas geram.')+grid([k('Ticket médio',money(ratio(s.revenue,s.r.length)),`${num(ratio(s.km,s.r.length),1)} km/corrida`,C.gold),k('Receita por dia ativo',money(ratio(s.revenue,s.active)),`${s.active} dias com corridas`,C.green),k('Receita por km',money(ratio(s.revenue,s.km)),`${num(s.km,0)} km informados`,C.cyan),k('Receita por hora em corrida',money(ratio(s.revenue,s.hours)),`${num(s.hours,1)} h somadas · não horas online`,C.blue)])+chart('Receita por dia','Total recebido por data de chamada.',byDay.map(x=>x[0].slice(8)+'/'+x[0].slice(5,7)),[{label:'Receita',values:byDay.map(x=>sum(x[1],r=>r.revenue)),color:C.green}])+chart('Receita por horário','Hora da chamada; todos os dias do filtro.',byHour.map((_,h)=>String(h).padStart(2,'0')+'h'),[{label:'Receita',values:byHour.map(a=>sum(a,r=>r.revenue)),color:C.gold}])+chart('Receita por dia da semana','Acumulado no período, não média por dia.', ['Seg','Ter','Qua','Qui','Sex','Sáb','Dom'],[{label:'Receita',values:byWeek.map(a=>sum(a,r=>r.revenue)),color:C.cyan}])+title('Corridas por dia','Receita e produtividade por dia ativo.')+table(['Data','Corridas','Receita','Km','Horas em corrida'],byDay.slice().reverse().map(([d,a])=>[fmtdate(d),a.length,money(sum(a,r=>r.revenue)),num(sum(a,r=>r.km),1),num(sum(a,r=>r.seconds)/3600,1)]));}
+function expenses(s){const cats=Core.categories, totals=cats.map(c=>sum(s.e.filter(x=>x.category===c),x=>x.net));const rows=s.e.slice().reverse();return title('Despesas','Registre pedágio, manutenção, custos fixos e operacionais. Combustível vem do Fuel.')+grid([k('Abastecimentos',money(s.paidFuel),`${s.f.length} compras · importado do Fuel`,C.gold),k('Demais gastos pagos',money(sum(s.op,x=>x.paid)),`${s.op.length} lançamentos operacionais`,C.red),k('Reembolsos extras',money(sum(s.op,x=>x.refund)),'Deduzidos dos gastos operacionais',C.green),k('Pessoal',money(s.personalCost),'Separado do resultado operacional',C.blue)])+chart('Despesas por categoria','Valores líquidos de reembolso. Pessoal não entra no resultado operacional.',['Combustível',...cats],[{label:'Despesas',values:[s.paidFuel,...totals],color:C.gold}])+box('Detalhamento por categoria',cats.map((c,i)=>line(c,money(totals[i]))).join(''))+title('Histórico de despesas','Edite os registros existentes; reembolsos somente se não estiverem na receita.')+`<div class="scroll-table"><table class="data-table"><thead><tr>${['Data','Categoria','Descrição','Pago','Reembolso','Líquido','Corrida',''].map(v=>`<th>${v}</th>`).join('')}</tr></thead><tbody>${rows.length?rows.map(x=>`<tr>${[fmtdate(x.date),x.category,x.description,money(x.paid),money(x.refund),money(x.net),x.ride||'—'].map(v=>`<td>${safe(v)}</td>`).join('')}<td><button class="btn-reset" data-edit="${safe(x.id)}" ${stale?'disabled':''}>Editar</button></td></tr>`).join(''):'<tr><td colspan="8">Nenhuma despesa neste período.</td></tr>'}</tbody></table></div>`;}
+function profit(s){const margin=s.coveredRevenue-s.fuelEst, m=monthly(s);return title('Rentabilidade','Consumo estimado por ciclo de tanque cheio; margem das corridas não equivale ao resultado após todas as despesas.')+grid([k('Cobertura de combustível',pct(ratio(s.covered.length,s.r.length)),`${s.covered.length} de ${s.r.length} corridas`,C.cyan),k('Custo estimado por km',money(ratio(s.fuelEst,s.coveredKm)),`${num(s.coveredKm,0)} km cobertos`,C.gold),k('Margem após combustível',money(s.covered.length?margin:null),'Somente corridas cobertas · antes demais despesas',C.green),k('Margem por hora em corrida',money(ratio(margin,sum(s.covered,x=>x.seconds)/3600)),'Não inclui espera/tempo online',C.blue),k('Resultado operacional estimado',money(s.result),s.result==null?'Cobertura insuficiente ou km incompatíveis':'Receita menos consumo e despesas operacionais',C.purple),k('Margem operacional estimada',pct(s.result==null?null:ratio(s.result,s.revenue)),'Sem depreciação e tributos não registrados',C.green)])+chart('Receita e margem das corridas cobertas','Comparação homogênea: somente corridas com combustível estimável.',m.map(x=>x.key.slice(5)+'/'+x.key.slice(2,4)),[{label:'Receita coberta',values:m.map(x=>x.covered.length?x.coveredRevenue:null),color:C.green},{label:'Combustível estimado',values:m.map(x=>x.covered.length?x.fuelEst:null),color:C.red},{label:'Margem após combustível',values:m.map(x=>x.covered.length?x.coveredRevenue-x.fuelEst:null),color:C.gold}])+box('Reconciliação',line('Receita total',money(s.revenue))+line('Receita coberta',money(s.coveredRevenue))+line('Custo de consumo coberto',money(s.covered.length?s.fuelEst:null))+line('Margem das corridas cobertas',money(s.covered.length?margin:null))+line('Demais despesas operacionais',money(s.opCost))+line('Resultado do período',money(s.result),s.result==null?'':sign(s.result)))+title('Ciclos utilizados','Consumo inferior a 4 ou superior a 20 km/L é destacado para inspeção; faixa ilustrativa, não limite de engenharia.')+table(['Até','Km','Litros','Km/L','R$/km','Validação'],s.scope.map(c=>[fmtdate(Core.date(c.b)),num(c.km,0),num(c.liters),num(c.eff),num(c.rate,3),s.inconsistent.includes(c)?'Km incompatíveis':s.warnings.includes(c)?'Consumo atípico':'Sem alerta de faixa']))+note('Corridas que cruzam ciclos têm a distância rateada proporcionalmente ao tempo. Não há GPS ou consumo por corrida; deslocamentos fora das corridas não entram nesse custo estimado.');}
+function heatmap(s){const signed=heatMetric==='margin',source=signed?s.covered:s.r,matrix=Array.from({length:7},()=>Array.from({length:24},()=>[]));for(const r of source)matrix[(new Date(r.a).getUTCDay()+6)%7][+r.date.slice(11,13)].push(r);const val=a=>a.length?heatMetric==='count'?a.length:heatMetric==='revenue'?sum(a,x=>x.revenue):sum(a,x=>x.revenue-x.cost):null;const vals=matrix.flat().map(val).filter(v=>v!=null),abs=Math.max(0,...vals.map(Math.abs)),max=Math.max(0,...vals),min=Math.min(0,...vals),format=v=>heatMetric==='count'?num(v,0):money(v),scale=signed?abs:max;let h='<div class="heat-grid"><span></span>'+Array.from({length:24},(_,i)=>`<span class="heat-head">${String(i).padStart(2,'0')}</span>`).join('');matrix.forEach((arr,i)=>{h+=`<span class="heat-head">${['Seg','Ter','Qua','Qui','Sex','Sáb','Dom'][i]}</span>`;arr.forEach((a,j)=>{const v=val(a),intensity=v==null||!scale?0:Math.abs(v)/scale,color=signed?(v<0?'239,68,68':'16,185,129'):'251,191,36',label=`${['Seg','Ter','Qua','Qui','Sex','Sáb','Dom'][i]} ${String(j).padStart(2,'0')}h · ${v==null?'sem dados':format(v)} · ${a.length} corridas`;h+=`<button class="heat-cell" style="background:${v==null?'#101722':`rgba(${color},${.12+.78*intensity})`}" title="${safe(label)}" aria-label="${safe(label)}" data-heat="${safe(label)}">${v==null?'·':heatMetric==='count'?v:''}</button>`;});});h+='</div>';const ticks=signed?[-abs,-abs/2,0,abs/2,abs]:[0,max/4,max/2,3*max/4,max];return title('Mapa de Calor','Cruze dia da semana e hora de chamada. Valores acumulados, não média de rentabilidade.')+`<div class="action-row"><label class="muted" for="heat-metric">Indicador</label><select id="heat-metric" class="goal-month" style="max-width:250px;margin:0"><option value="margin" ${signed?'selected':''}>Margem após combustível</option><option value="revenue" ${heatMetric==='revenue'?'selected':''}>Receita</option><option value="count" ${heatMetric==='count'?'selected':''}>Corridas</option></select></div>`+`<div class="chart-card"><h3>${safe(signed?'Margem das corridas cobertas':heatMetric==='count'?'Quantidade de corridas':'Receita das corridas')}</h3><p>${source.length} corridas · ${vals.length} células com dados · pico ${format(max)}${signed&&min<0?' · menor '+format(min):''}</p><div class="chart-scroll">${h}</div><div class="heat-scale ${signed?'signed':''}"></div><div class="heat-ticks">${ticks.map(t=>`<span>${safe(format(t))}</span>`).join('')}</div><div class="chart-detail" id="heat-detail" role="status">Selecione uma célula para ver o valor. Ponto indica ausência de registros.</div></div>`+note(signed?'A margem exclui despesas não atribuídas às corridas. Células sem cobertura não são tratadas como zero de custo.':'A escala numérica se adapta aos dados filtrados.');}
+function goalProgress(label,actual,target,sub){const p=target>0?actual/target:0,remaining=Math.max(0,target-actual);return box(label,line('Realizado',money(actual),sign(actual))+line('Meta mensal',target>0?money(target):'Não definida')+`<div class="progress"><i style="width:${Math.max(0,Math.min(100,p*100))}%"></i></div><div class="progress-label"><span>${target>0?pct(p):'Sem meta'}</span><span>${target>0?'Faltam '+money(remaining):'Defina um valor'}</span></div>`+note(sub));}
+function goals(){const key=goalMonth||period[1].slice(0,7)||Core.range(data)[1].slice(0,7)||new Date().toISOString().slice(0,7),start=key+'-01',end=key?Core.date(Date.UTC(+key.slice(0,4),+key.slice(5,7),0)):'',s=Core.stats(data,start,end),g=data.goals;return title('Metas financeiras','As metas são mensais e persistem na base. O mês abaixo independe do recorte dos outros gráficos.')+`<label class="muted" for="goal-month">Mês de acompanhamento</label><input type="month" class="goal-month" id="goal-month" value="${safe(key)}">`+`<div class="split">${goalProgress('Meta de receita',s.revenue,g.revenue,`${s.r.length} corridas · ${s.active} dias ativos`)}${goalProgress('Meta de saldo operacional de caixa',s.cash,g.cash,'Depois dos abastecimentos pagos e despesas operacionais, antes dos gastos pessoais.')}</div>`+box('Reserva sugerida para manutenção',line('Distância das corridas no mês',num(s.km,1)+' km')+line('Reserva por km',money(g.reserve))+line('Valor sugerido',money(s.reserve))+note('Não descontada do caixa ou do resultado. A manutenção efetivamente paga é registrada uma vez em Despesas.'))+box('Configurar metas',`<form id="goal-form" class="goal-form"><label>Receita mensal (R$)<input id="goal-revenue" type="number" min="0" step="0.01" required value="${g.revenue}"></label><label>Saldo mensal (R$)<input id="goal-cash" type="number" min="0" step="0.01" required value="${g.cash}"></label><label>Reserva por km (R$)<input id="goal-reserve" type="number" min="0" step="0.01" required value="${g.reserve}"></label><button class="btn-filter" ${stale?'disabled':''}>Salvar metas</button></form><p class="subnote" id="goal-status" role="status">Valores editáveis de planejamento; não são previsão.</p>`);}
+function insights(s){const rec=[];if(!s.r.length)rec.push(['Sem corridas','Amplie o período ou registre corridas finalizadas no Driver.']);if(s.covered.length<s.r.length)rec.push(['Completar cobertura',`${s.r.length-s.covered.length} corridas não têm ciclo de combustível completo. Registre tanques cheios antes e depois do intervalo.`]);if(s.inconsistent.length)rec.push(['Corrigir quilometragem',`${s.inconsistent.length} ciclos registram mais km em corridas do que no odômetro. Confira as fontes; resultado operacional integral bloqueado.`]);if(s.warnings.length)rec.push(['Revisar consumo',`${s.warnings.length} ciclos fora da faixa ilustrativa de 4–20 km/L. Revise litros, odômetro e o veículo antes de usar a estimativa para decisões reais.`]);if(s.op.length){const cat=Core.categories.filter(c=>c!=='Pessoal').map(c=>({c,v:sum(s.op.filter(x=>x.category===c),x=>x.net)})).sort((a,b)=>b.v-a.v)[0];rec.push(['Prioridade de despesas',`${cat.c}: ${money(cat.v)} no recorte. Confira lançamentos, reembolsos e recorrências.`]);}else rec.push(['Registrar custos', 'Sem despesas operacionais registradas neste período não significa que não houve gastos. Cadastre pedágios, manutenção e custos fixos.']);if(s.cash<0)rec.push(['Caixa negativo',`Saídas operacionais superam as receitas em ${money(-s.cash)}. Confira datas das compras e recebimentos.`]);if(s.covered.length&&s.coveredRevenue>0){const costShare=s.fuelEst/s.coveredRevenue;rec.push(['Combustível nas corridas cobertas',`${pct(costShare)} da receita coberta foi atribuída ao consumo. Acompanhe o R$/km e compare ciclos equivalentes.`]);}if(data.goals.reserve>0&&s.km>0)rec.push(['Planejar manutenção',`Reserve de forma separada ${money(s.reserve)} para ${num(s.km,0)} km de corrida, usando sua meta de ${money(data.goals.reserve)}/km.`]);return title('Recomendações e plano de ação','Ações derivadas dos registros e das limitações das bases, não previsões.')+rec.map(([h,t],i)=>box(`${i+1}. ${h}`,note(t))).join('')+title('Regras de cálculo','Para auditar o motor sem olhar a planilha.')+table(['Indicador','Regra'],[['Saldo operacional de caixa','Receita − abastecimentos pagos − despesas operacionais líquidas'],['Margem das corridas cobertas','Receita coberta − combustível estimado por ciclo'],['Resultado operacional estimado','Receita − combustível consumido estimado − despesas operacionais líquidas'],['Reserva','Km de corrida × reserva configurada; não é gasto pago'],['Pessoal','Deduzido somente após o saldo operacional'],['Reembolso extra','Só entra se não consta na receita da corrida']])+note('Dados do laboratório são fictícios; não são resultado de um motorista real.');}
+function render(){if(!data)return;const s=Core.stats(data,...period);$('header-subtitle').textContent='VEXO · Laboratório · '+periodLabel();$('filter-info').textContent=s.r.length+' corridas finalizadas · '+s.f.length+' abastecimentos';let w=stale?warn('Última leitura disponível. A conexão não foi atualizada.'):'';if(s.inconsistent.length)w+=warn(`${s.inconsistent.length} ciclos com km incompatíveis. Resultado operacional integral bloqueado.`);if(s.warnings.length)w+=warn(`${s.warnings.length} ciclos com consumo atípico. Estimativas são de laboratório; confira os dados antes de tomar decisões.`);if(s.r.length&&!s.complete)w+=warn(`Cobertura parcial: ${s.covered.length}/${s.r.length} corridas têm ciclo completo. O saldo de caixa continua disponível, mas o resultado operacional integral não.`);$('content').innerHTML=w+({overview,revenue,expenses,profit,heatmap,goals,insights}[current])(s);}
+function editExpense(id){if(!data||busy||stale)return;editing=id?raw.expenses.find(r=>String(r[0])===id)?.slice():null;if(id&&!editing)return;$('expense-title').textContent=editing?'Editar despesa':'Registrar despesa';const r=editing||['',period[1]||new Date().toISOString().slice(0,10),'Pedágio','',0,0,''];for(const [k,i] of [['date',1],['category',2],['desc',3],['paid',4],['refund',5],['ride',6]])$('ex-'+k).value=r[i]??'';$('ex-error').textContent='';$('expense-dialog').showModal();}
+function saveExpense(ev){ev.preventDefault();if(busy||stale)return;const paid=Number($('ex-paid').value),refund=Number($('ex-refund').value);if(refund>paid){$('ex-error').textContent='Reembolso não pode superar o valor pago.';return;}const after=[editing?editing[0]:'',$('ex-date').value,$('ex-category').value,$('ex-desc').value,paid,refund,$('ex-ride').value.trim()];busy=true;$('ex-save').disabled=true;Vexo.run.withFailureHandler(fail).withSuccessHandler(p=>{$('expense-dialog').close();receive(p);}).financeSalvarDespesa(editing,after);}
+function saveGoals(ev){ev.preventDefault();if(busy||stale)return;const g={revenue:Number($('goal-revenue').value),cash:Number($('goal-cash').value),reserve:Number($('goal-reserve').value)};busy=true;const b=ev.target.querySelector('button');b.disabled=true;Vexo.run.withFailureHandler(e=>{goalDirty=false;fail(e);}).withSuccessHandler(p=>{goalDirty=false;receive(p);render();if($('goal-status'))$('goal-status').textContent='Metas salvas.';}).financeSalvarMetas(raw.goals,g);}
+document.querySelectorAll('.tab-btn').forEach(b=>b.addEventListener('click',()=>{if(goalDirty&&!confirm('Descartar alterações de meta não salvas?'))return;goalDirty=false;current=b.dataset.tab;document.querySelectorAll('.tab-btn').forEach(x=>{x.classList.toggle('active',x===b);x.setAttribute('aria-selected',String(x===b));});render();}));$('content').addEventListener('click',e=>{const t=e.target.closest('[data-edit],[data-heat],[data-detail]');if(!t)return;if(t.dataset.edit)editExpense(t.dataset.edit);if(t.dataset.heat)$('heat-detail').textContent=t.dataset.heat;if(t.dataset.detail)t.closest('.chart-card').querySelector('.chart-detail').textContent=t.dataset.detail;});$('content').addEventListener('focusin',e=>{if(e.target.dataset.detail)e.target.closest('.chart-card').querySelector('.chart-detail').textContent=e.target.dataset.detail;});$('content').addEventListener('keydown',e=>{if(e.target.dataset.detail&&['Enter',' '].includes(e.key)){e.preventDefault();e.target.closest('.chart-card').querySelector('.chart-detail').textContent=e.target.dataset.detail;}});$('content').addEventListener('change',e=>{if(e.target.id==='heat-metric'){heatMetric=e.target.value;render();}if(e.target.id==='goal-month'){if(!e.target.value)return;if(goalDirty&&!confirm('Descartar alterações de meta não salvas?')){e.target.value=goalMonth;return;}goalMonth=e.target.value;goalDirty=false;render();}});$('content').addEventListener('input',e=>{if(e.target.closest('#goal-form'))goalDirty=true;});$('content').addEventListener('submit',e=>{if(e.target.id==='goal-form')saveGoals(e);});$('expense-form').addEventListener('submit',saveExpense);pull();setInterval(()=>{if(!document.hidden)pull();},5000);
+
+</script>
+</body>
+</html>
