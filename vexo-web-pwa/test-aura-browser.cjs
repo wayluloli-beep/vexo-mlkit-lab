@@ -7,11 +7,11 @@ const date=d=>new Date(d-d.getTimezoneOffset()*60000).toISOString().slice(0,10);
   browser=await chromium.launch({headless:true});
   const ctx=await browser.newContext({viewport:{width:390,height:844},isMobile:true,hasTouch:true,deviceScaleFactor:2});
   await ctx.addInitScript(()=>{window.__voiceCalls=[];window.VexoVoice={speak:x=>window.__voiceCalls.push(x),stop(){},listen(){window.__voiceCalls.push('listen')}};});
-  const errors=[],requests=[];await ctx.route('https://vexo-aura-flash-bridge-xs69.onrender.com/aura/v2',async route=>{
+  const errors=[],requests=[];await ctx.route('https://vexo-aura-flash-bridge-xs69.onrender.com/aura/v3',async route=>{
    const headers={'access-control-allow-origin':'*','access-control-allow-methods':'POST,OPTIONS','access-control-allow-headers':'content-type'};
    if(route.request().method()==='OPTIONS')return route.fulfill({status:204,headers,body:''});
-   const b=route.request().postDataJSON();requests.push(b);assert.equal(b.protocol,2);assert.ok(!('history'in b)&&!('finance'in b));
-   if(b.question==='Como está o panorama?')return route.fulfill({status:200,headers,contentType:'application/json',body:JSON.stringify({protocol:2,text:JSON.stringify({intent:'detalhes',period:'hoje',platform:'todos',metrics:[],compareMetric:'corridas',reply:''})})});
+   const b=route.request().postDataJSON();requests.push(b);assert.equal(b.protocol,3);assert.ok(!('history'in b)&&!('finance'in b));
+   if(b.question==='Como está o panorama?')return route.fulfill({status:200,headers,contentType:'application/json',body:JSON.stringify({protocol:3,text:JSON.stringify({intent:'detalhes',period:'hoje',platform:'todos',metrics:[],compareMetric:'corridas',reply:''})})});
    return route.fulfill({status:504,headers,contentType:'application/json',body:JSON.stringify({error:'gemini_timeout'})});
   });
   const page=await ctx.newPage();page.on('pageerror',e=>errors.push(e.message));
@@ -40,6 +40,12 @@ const date=d=>new Date(d-d.getTimezoneOffset()*60000).toISOString().slice(0,10);
   await a.locator('#mic').click();assert.ok(await a.evaluate(()=>window.__voiceCalls.includes('listen')));await a.evaluate(()=>window.vexoAuraRecognized('Quantos km?'));assert.equal(await a.locator('#question').inputValue(),'Quantos km?');passed+=2;
   const old=await a.locator('.msg.aura').count();await page.reload();await page.waitForFunction(()=>document.querySelector('#generator').contentDocument?.readyState==='complete');a=await goAura();assert.equal(await a.locator('.msg.aura').count(),old);passed++;
   await ask('E na Uber?',/Uber: R\$[\s\u00a0]*99,00/);
+  await ask('Quais informações vc tem acesso das corridas?',/Início: 9\/9/);
+  await ask('Quais horários foram feitos as corridas?',/08:00[\s\S]*16:18/);
+  await ask('Horário da corrida e o dia',/08:00[\s\S]*16:18/);
+  await ask('E na Uber?',/de 4/);
+  await ask('Qual foi a corrida mais cara hoje?',/30,00/);
+  assert.equal(requests.length,2);passed++;
   assert.ok(await a.evaluate(()=>document.documentElement.scrollWidth<=innerWidth));assert.deepEqual(errors,[]);passed+=2;
   console.log('Browser mobile: '+passed+' verificações aprovadas; '+requests.length+' chamadas simuladas ao Gemini; navegação, UI, voz simulada e persistência.');
  }finally{if(browser)await browser.close();server.kill();}

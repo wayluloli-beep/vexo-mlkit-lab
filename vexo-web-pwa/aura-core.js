@@ -100,7 +100,7 @@ function parseRecords(t,prior,period,platform){
  const prev=prior?.intent==='registros'?prior.record:null;
  const next=/^(?:e\s+)?(?:mais|proxim[ao]s?|outr[ao]s?|continu[ae]|mostra mais)(?:\s+\d+)?[?.!]*$/.test(t);
  if(next&&prev)return {intent:'registros',period,platform:platform||prior.platform,record:{...prev,offset:prev.offset+prev.limit}};
- const capability=/(?:quais|que|qual|o que).*(?:informac|dados|campos|acesso|consegue ver|consegue consultar|voce sabe)|(?:tem acesso|consegue ver).*(?:corrid|historico)/.test(t);
+ const capability=/(?:quais|que|qual|o que).*(?:informac|dados|campos|acesso|consegue ver|consegue consultar|voce sabe)|(?:tem acesso|consegue ver).*(?:corrid|historico)/.test(t)&&/corrid|historico|viagem/.test(t);
  const times=/\bhorarios?\b|que horas|a que horas|em quais horas|data e hora|dia e hora|inicio e fim|comecaram|terminaram|quando (?:foram|fiz|rodei|comecei|terminei)/.test(t);
  const addresses=/enderec|origem|destino|de onde|para onde|embarque e desembarque|locais das corridas/.test(t);
  const listed=/\b(?:liste|lista|listar|historico|cada corrida|corrida por corrida|uma por uma|todas as corridas|detalhes de cada)\b/.test(t)&&!/historico (?:todo|completo)/.test(t);
