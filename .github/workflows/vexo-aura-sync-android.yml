@@ -1,7 +1,7 @@
 name: VEXO Web Android - Aura Sync
 on:
   push:
-    branches: [build/vexo-aura-sync-1-5-20261125]
+    branches: [build/vexo-aura-sync-1-6-20261125]
   workflow_dispatch:
 permissions:
   contents: write
@@ -23,6 +23,7 @@ jobs:
           node vexo-web-pwa/test-aura-records.cjs
           node vexo-web-pwa/test-aura-quality.cjs
           node vexo-web-pwa/test-backup.cjs
+          node vexo-web-pwa/test-advisor.cjs
       - name: Testar conversa na interface mobile
         working-directory: vexo-web-pwa
         run: |
@@ -43,16 +44,16 @@ jobs:
             "$SM" --install "platforms;android-35" "build-tools;35.0.0"
           fi
           mkdir -p build/webapk/{assets,classes,dex}
-          for f in index.html mobile-original.html driver.html fuel.html finance.html data.js settings.js responsive.css chart.umd.min.js aura.html aura-core.js aura.js; do
+          for f in index.html mobile-original.html driver.html fuel.html finance.html data.js settings.js responsive.css chart.umd.min.js aura.html aura-core.js aura-advisor.js aura.js; do
             cp "vexo-web-pwa/$f" build/webapk/assets/
           done
           cd build/webapk
           cat > AndroidManifest.xml <<'EOF'
-          <manifest xmlns:android="http://schemas.android.com/apk/res/android" package="com.vexo.webintegridade.aura15" android:versionCode="1" android:versionName="1.5-aura">
+          <manifest xmlns:android="http://schemas.android.com/apk/res/android" package="com.vexo.webintegridade.aura16" android:versionCode="1" android:versionName="1.6-aura">
             <uses-sdk android:minSdkVersion="23" android:targetSdkVersion="34"/>
             <uses-permission android:name="android.permission.INTERNET"/>
             <queries><intent><action android:name="android.intent.action.TTS_SERVICE"/></intent><intent><action android:name="android.speech.action.RECOGNIZE_SPEECH"/></intent></queries>
-            <application android:label="VEXO Aura 1.5" android:theme="@android:style/Theme.Material.NoActionBar" android:usesCleartextTraffic="false" android:allowBackup="false">
+            <application android:label="VEXO Aura 1.6" android:theme="@android:style/Theme.Material.NoActionBar" android:usesCleartextTraffic="false" android:allowBackup="false">
               <activity android:name=".MainActivity" android:exported="true">
                 <intent-filter><action android:name="android.intent.action.MAIN"/><category android:name="android.intent.category.LAUNCHER"/></intent-filter>
               </activity>
@@ -60,7 +61,7 @@ jobs:
           </manifest>
           EOF
           cat > MainActivity.java <<'EOF'
-          package com.vexo.webintegridade.aura15;
+          package com.vexo.webintegridade.aura16;
           import android.app.Activity;
           import android.os.Bundle;
           import android.content.Intent;
@@ -81,7 +82,7 @@ jobs:
             private String pendingBackup;
             private ValueCallback<Uri[]> backupPicker;
             private static final String HOST="vexo.local";
-            private static final Set<String> FILES=new HashSet<>(Arrays.asList("index.html","mobile-original.html","driver.html","fuel.html","finance.html","data.js","settings.js","responsive.css","chart.umd.min.js","aura.html","aura-core.js","aura.js"));
+            private static final Set<String> FILES=new HashSet<>(Arrays.asList("index.html","mobile-original.html","driver.html","fuel.html","finance.html","data.js","settings.js","responsive.css","chart.umd.min.js","aura.html","aura-core.js","aura-advisor.js","aura.js"));
             @Override public void onCreate(Bundle state) {
               super.onCreate(state);
               getWindow().setStatusBarColor(Color.rgb(8,11,18));
@@ -167,4 +168,4 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          gh release create vexo-aura-sync-1-5-20261125 build/webapk/VEXO-Aura-Sync.apk /tmp/VEXO-Aura-Sync-Codigo-Fonte.zip --target "$GITHUB_SHA" --title 'VEXO Aura Sync 1.5 - candidato de qualidade' --notes 'Candidato: dez melhorias de consulta, backup local validado e integracao nativa de arquivos. Gemini externo sujeito a disponibilidade. Selecao de arquivos e voz ainda requerem validacao em Android fisico. Instalacao separada; versoes anteriores sem exportacao nao migram automaticamente.' --prerelease
+          gh release create vexo-aura-sync-1-6-20261125 build/webapk/VEXO-Aura-Sync.apk /tmp/VEXO-Aura-Sync-Codigo-Fonte.zip --target "$GITHUB_SHA" --title 'VEXO Aura Sync 1.6 - candidato de qualidade' --notes 'Candidato: analise operacional local, metas, estimativas de ofertas e comparacao de dias; preserva backup e consultas. Gemini externo sujeito a disponibilidade. Selecao de arquivos e voz ainda requerem validacao em Android fisico. Instalacao separada; versoes anteriores sem exportacao nao migram automaticamente.' --prerelease

@@ -62,6 +62,14 @@ const date=d=>new Date(d-d.getTimezoneOffset()*60000).toISOString().slice(0,10);
   await ask('Corridas de 31/02/2026',/inválido/);
   await ask('Corridas entre 25:00 e 28:00',/inválido/);
   assert.equal(requests.length,2);passed++;
+  await ask('O que significa faturamento bruto?',/antes dos custos/);
+  await ask('Vale a pena uma corrida de R$ 30, 12 km e 25 min?',/Margem estimada:/);
+  await ask('Estou indo bem hoje?',/Não há corridas reais/);
+  await ask('Qual app é melhor Uber ou 99?',/Amostra insuficiente/);
+  await ask('Quanto tempo trabalhei hoje?',/Não há medição da jornada/);
+  await ask('Compare hoje e ontem',/comparação justa/);
+  await ask('Quanto ganhei hoje?',/209,20/);
+  assert.equal(requests.length,2);passed++;
   assert.ok(await a.evaluate(()=>document.documentElement.scrollWidth<=innerWidth));assert.deepEqual(errors,[]);passed+=2;
   console.log('Browser mobile: '+passed+' verificações aprovadas; '+requests.length+' chamadas simuladas ao Gemini; navegação, UI, voz simulada e persistência.');
  }finally{if(browser)await browser.close();server.kill();}
