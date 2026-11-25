@@ -19,6 +19,7 @@
  case 'dadosDashboard99':return d.rides.map(r=>r.slice(0,8));
  case 'dadosDashboardFuel':return d.fills;
  case 'financeDados':return finance(d);
+ case 'auraDados':return {finance:finance(d),rates:rates(d)};
  case 'webState':return state(d);
  case 'settings':return d.settings;
  case 'saveSettings': {const s=args[0];num(s.fuel,.01,1000);num(s.consumption,.01,1000);num(s.fixed,0,1e6);d.settings={fuel:s.fuel,consumption:s.consumption,fixed:s.fixed};return d.settings;}
@@ -29,7 +30,7 @@
  case 'webAction':{const [action,id]=args;let r=d.offer;if(action==='new'){if(r&&['offer','accepted'].includes(r.status))return state(d);r={id:uid('MOB-'),status:'offer',app:Math.random()<.5?'99':'Uber',gross:cents(12+Math.random()*48),pickupKm:1,tripKm:cents(3+Math.random()*15),pickupMin:4,tripMin:Math.round(8+Math.random()*30),rating:cents(4.5+Math.random()*.5),origin:'Embarque simulado',destination:'Destino simulado'};d.seen.push(r.id);d.offer=r;return state(d);}if(!r||r.id!==id)throw Error('A oferta mudou. Atualize.');if(action==='accept'){if(r.status==='accepted')return state(d);if(r.status!=='offer')throw Error('A corrida não está disponível para aceitar.');d.offer={...quote(r,d),status:'accepted'};}else if(action==='finish'){if(r.status==='finished')return state(d);if(r.status!=='accepted')throw Error('Aceite antes de finalizar.');if(!d.rides.some(x=>x[0]===r.id)){const end=new Date();d.rides.push([r.id,'finished',date(new Date(end-r.min*60000)),date(end),r.min*60,r.km,'Paid by Company',r.gross,r.app,r.pickupKm,r.tripKm,r.fuel,r.reserve,r.fixed,r.profit,r.origin,r.destination,r.rating]);}r.status='finished';}else if(action==='reject'){if(r.status==='rejected')return state(d);if(r.status!=='offer')throw Error('Ação inválida para esta corrida.');r.status='rejected';}else throw Error('Ação inválida para esta corrida.');return state(d);}
  default:throw Error('Função não disponível: '+name);
  }}
- const reads=new Set(['dadosDashboard99','dadosDashboardFuel','financeDados','webState','settings']);
+ const reads=new Set(['dadosDashboard99','dadosDashboardFuel','financeDados','auraDados','webState','settings']);
  async function invoke(name,...args){const execute=()=>{const d=read(),result=call(name,args,d);if(!reads.has(name)){const next=JSON.stringify(d);if(next!==localStorage.getItem(KEY)){localStorage.setItem(KEY,next);try{localStorage.setItem(BACKUP,next);}catch{storageNotice='Dados salvos, mas a cópia de segurança local não pôde ser atualizada.';console.warn(storageNotice);}window.dispatchEvent(new Event('vexo-update'));}}return clone(result);};return navigator.locks?navigator.locks.request(KEY,execute):execute();}
  function runner(ok=()=>{},fail=console.error){return new Proxy({}, {get(_,key){if(key==='withSuccessHandler')return f=>runner(f,fail);if(key==='withFailureHandler')return f=>runner(ok,f);return (...args)=>invoke(key,...args).then(ok).catch(fail);}});}
  window.Vexo={invoke,get run(){return runner();}};
