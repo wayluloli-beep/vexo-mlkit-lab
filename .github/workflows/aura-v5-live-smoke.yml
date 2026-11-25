@@ -1,0 +1,26 @@
+name: Aura v5 mobile live smoke
+on:
+  push:
+    branches: [test/aura-v5-live-smoke-20261125]
+permissions:
+  contents: read
+jobs:
+  smoke:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 3
+    steps:
+      - uses: actions/checkout@v4
+      - name: Validate endpoint with synthetic input and real client budget
+        run: |
+          node <<'JS'
+          const {randomUUID}=require('node:crypto'),T=require('./vexo-web-pwa/aura-mobile-transport.js'),A=require('./vexo-web-pwa/aura-adapter.js'),E=require('./vexo-web-pwa/aura-query-engine.js'),C=require('./vexo-web-pwa/aura-core.js'),fixture=require('./vexo-web-pwa/test-aura-fixture.cjs');
+          (async()=>{const now=new Date(),date=new Intl.DateTimeFormat('en-CA',{timeZone:'America/Sao_Paulo',year:'numeric',month:'2-digit',day:'2-digit'}).format(now),y=new Date(date+'T00:00:00Z');y.setUTCDate(y.getUTCDate()-1);const bundle={finance:fixture(date,y.toISOString().slice(0,10)),rates:{fuel:.6,reserve:.15,fixed:6,eff:10,cycles:1}};
+          let state=A.empty(),pass=0;
+          for(const question of ['Simula 30 reais, 12 km e 25 minutos','E se forem 15 km?','Quanto ganhei ontem?']){
+            const request_id=randomUUID(),start=Date.now(),r=await T.run((signal,attempt)=>fetch('https://vexo-aura-flash-bridge-xs69.onrender.com/aura/v5',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({protocol:5,question,context:state,request_id,attempt}),signal}));
+            if(r.kind!=='response'){console.log('SMOKE',JSON.stringify({question,status:r.status,elapsed:Date.now()-start}));continue;}
+            try{if(r.response.protocol!==5)throw Error('protocol');const result=await A.execute(r.response.plan,state,{engine:E,core:C,readData:async()=>bundle,now});state=result.context;const expected=question.startsWith('Simula')?/18,50/:question.startsWith('E se')?/16,25/:/45,00/;const ok=result.kind==='success'&&expected.test(result.text);if(ok)pass++;console.log('SMOKE',JSON.stringify({question,plan:r.response.plan,text:result.text,status:r.status,elapsed:Date.now()-start,pass:ok}));}catch(e){console.log('SMOKE',JSON.stringify({question,error:e.message}));}
+          }
+          console.log('SMOKE_RESULT',pass,'/3');if(pass!==3)process.exitCode=1;
+          })().catch(e=>{console.error(e);process.exitCode=1});
+          JS
