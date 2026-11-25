@@ -54,7 +54,7 @@ const catalog=[
  ['plano',/plano|sugest\w*|estrateg\w*|melhorar|produtiv\w*|compensa|vale a pena|o que (?:fazer|faco)|como ganhar|como aumentar|como reduzir/]
 ];
 const keys=catalog.map(x=>x[0]),partitioned=['ganhos','distancia','duracao','corridas','ganho_hora','ganho_km','ticket'];
-const intents=[...keys,'comparacao','multi','saudacao','conversa','esclarecer'];
+const intents=[...keys,'registros','comparacao','multi','saudacao','conversa','esclarecer'];
 const normalize=q=>String(q||'').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g,'').replace(/\s+/g,' ').trim();
 const round=x=>Number.isFinite(x)?Math.round((x+Number.EPSILON)*100)/100:null;
 const money=x=>Number.isFinite(x)?x.toLocaleString('pt-BR',{style:'currency',currency:'BRL'}):'indisponível';
@@ -68,6 +68,105 @@ function range(period,now=new Date()){
  if(period==='mes'){const start=new Date(now);start.setDate(1);return [date(start),date(now)];}
  const n={hoje:0,semana:6,quinze:14,trinta:29}[period]??0;return [date(add(now,-n)),date(now)];
 }
+
+const recordFields={
+ dia:{label:'Data',type:'date'},inicio:{label:'Início',type:'time'},fim:{label:'Término',type:'time'},plataforma:{label:'Plataforma',type:'text'},situacao:{label:'Situação',type:'text'},valor:{label:'Valor',type:'money'},km:{label:'Distância total',type:'km'},duracao:{label:'Duração',type:'seconds'},embarque_km:{label:'Até o embarque',type:'km'},passageiro_km:{label:'Com passageiro',type:'km'},combustivel:{label:'Combustível estimado',type:'money'},reserva:{label:'Reserva estimada',type:'money'},fixo:{label:'Custo fixo estimado',type:'money'},resultado:{label:'Margem estimada da oferta',type:'money'},origem:{label:'Origem',type:'text'},destino:{label:'Destino',type:'text'},nota:{label:'Avaliação registrada',type:'number'},valor_km:{label:'Faturamento/km',type:'money'},valor_hora:{label:'Faturamento/hora em corrida',type:'money'}
+};
+const recordKeys=Object.keys(recordFields);
+const numericKeys=recordKeys.filter(k=>['money','km','seconds','number'].includes(recordFields[k].type));
+const fieldDefault=['dia','inicio','fim','plataforma','valor','km','duracao'];
+function recordPlan(input){
+ if(!input||!['list','first','last','max','min','group','capabilities'].includes(input.operation))return null;
+ const operation=input.operation,fields=Array.isArray(input.fields)?[...new Set(input.fields.filter(k=>recordKeys.includes(k)))].slice(0,8):[];
+ const sort=recordKeys.includes(input.sort)?input.sort:'inicio';
+ if(['max','min'].includes(operation)&&!numericKeys.includes(sort))return null;
+ const group=['dia','hora','plataforma','situacao'].includes(input.group)?input.group:'dia';
+ const metric=['count','valor','km','duracao'].includes(input.metric)?input.metric:'count';
+ const offset=Number.isInteger(input.offset)?Math.max(0,Math.min(100000,input.offset)):0;
+ const limit=Number.isInteger(input.limit)?Math.max(1,Math.min(20,input.limit)):10;
+ const status=['finished','unfinished','cancel trip','all'].includes(input.status)?input.status:'finished';
+ return {operation,fields:fields.length?fields:fieldDefault,sort,group,metric,offset,limit,status};
+}
+function projectRecords(raw,data,inside){
+ const byId=new Map(raw.rides.map(r=>[String(r[0]),r]));
+ const num=v=>typeof v==='number'&&Number.isFinite(v)?v:null;
+ const str=v=>typeof v==='string'&&v.trim()?v.trim().slice(0,160):null;
+ return data.rides.filter(r=>inside(r)).map(r=>{
+ const a=byId.get(r.id),app=String(a[8]??'').trim().toLowerCase(),finished=r.status==='finished';
+ return {dia:r.date.slice(0,10),inicio:r.date,fim:a[3]||null,plataforma:app==='uber'?'Uber':app==='99'?'99':'Não identificada',situacao:r.status,valor:finished?r.revenue:null,km:finished?r.km:null,duracao:finished?r.seconds:null,embarque_km:num(a[9]),passageiro_km:num(a[10]),combustivel:num(a[11]),reserva:num(a[12]),fixo:num(a[13]),resultado:num(a[14]),origem:str(a[15]),destino:str(a[16]),nota:num(a[17]),valor_km:finished&&r.km?r.revenue/r.km:null,valor_hora:finished&&r.seconds?r.revenue*3600/r.seconds:null,simulated:r.id.startsWith('MOB-')};
+ });
+}
+function parseRecords(t,prior,period,platform){
+ const prev=prior?.intent==='registros'?prior.record:null;
+ const next=/^(?:e\s+)?(?:mais|proxim[ao]s?|outr[ao]s?|continu[ae]|mostra mais)(?:\s+\d+)?[?.!]*$/.test(t);
+ if(next&&prev)return {intent:'registros',period,platform:platform||prior.platform,record:{...prev,offset:prev.offset+prev.limit}};
+ const capability=/(?:quais|que|qual|o que).*(?:informac|dados|campos|acesso|consegue ver|consegue consultar|voce sabe)|(?:tem acesso|consegue ver).*(?:corrid|historico)/.test(t);
+ const times=/\bhorarios?\b|que horas|a que horas|em quais horas|data e hora|dia e hora|inicio e fim|comecaram|terminaram|quando (?:foram|fiz|rodei|comecei|terminei)/.test(t);
+ const addresses=/enderec|origem|destino|de onde|para onde|embarque e desembarque|locais das corridas/.test(t);
+ const listed=/\b(?:liste|lista|listar|historico|cada corrida|corrida por corrida|uma por uma|todas as corridas|detalhes de cada)\b/.test(t)&&!/historico (?:todo|completo)/.test(t);
+ const order=/\b(?:primeira|ultima|maior|menor|melhor|pior|mais longa|mais curta|mais cara|mais barata|mais rentavel)\b/.test(t)&&/corrida|viagem/.test(t);
+ const grouped=/\b(?:por dia|por horario|por faixa horaria|por hora do dia|por plataforma|por situacao)\b/.test(t)&&/corrid|fatur|ganh|quant|km|distancia|duracao/.test(t);
+ const individual=/\b(?:qual|quais|mostr\w*|detalh\w*)\b.*\b(?:corrida|corridas|viagem|viagens)\b/.test(t)&&/valor|preco|avaliac|nota|distancia|duracao|combustivel|reserva|custo fixo|margem/.test(t);
+ if(!capability&&!times&&!addresses&&!listed&&!order&&!grouped&&!individual)return null;
+ const fields=[];
+ if(times)fields.push('dia','inicio','fim','plataforma');
+ if(addresses)fields.push('origem','destino','plataforma');
+ if(/valor|preco|ganh|fatur|cara|barata/.test(t))fields.push('valor');
+ if(/distancia|\bkm\b|longa|curta/.test(t))fields.push('km');
+ if(/duracao|tempo|longa|curta/.test(t))fields.push('duracao');
+ if(/avaliac|nota/.test(t))fields.push('nota');
+ if(/combustivel/.test(t))fields.push('combustivel');
+ if(/reserva/.test(t))fields.push('reserva');
+ if(/custo fixo/.test(t))fields.push('fixo');
+ if(/margem|rentavel|lucro/.test(t))fields.push('resultado');
+ if(/por km/.test(t))fields.push('valor_km');
+ if(/por hora/.test(t)&&!/por hora do dia/.test(t))fields.push('valor_hora');
+ if(!fields.length)fields.push(...fieldDefault);
+ const operation=capability?'capabilities':grouped?'group':/\bprimeira\b/.test(t)?'first':/\bultima\b/.test(t)?'last':/menor|pior|curta|barata/.test(t)&&order?'min':order?'max':'list';
+ const sort=operation==='max'||operation==='min'?/por km/.test(t)?'valor_km':/por hora/.test(t)?'valor_hora':/rentavel|margem|lucro/.test(t)?'resultado':/duracao|tempo|longa|curta/.test(t)?'duracao':/distancia|\bkm\b/.test(t)?'km':'valor':'inicio';
+ const group=/por plataforma/.test(t)?'plataforma':/por situacao/.test(t)?'situacao':/por horario|por faixa horaria|por hora do dia/.test(t)?'hora':'dia';
+ const metric=/ganh|fatur|valor/.test(t)?'valor':/\bkm\b|distancia/.test(t)?'km':/duracao|tempo/.test(t)?'duracao':'count';
+ const status=/cancel/.test(t)?'cancel trip':/nao finaliz|incomplet/.test(t)?'unfinished':/todas.*situac/.test(t)?'all':'finished';
+ const requested=t.match(/\b(?:ultim[ao]s?|primeir[ao]s?|mostre|liste)\s+(\d+)\s+corridas/);
+ return {intent:'registros',period,platform,record:{operation,fields,sort,group,metric,status,limit:requested?Number(requested[1]):10,offset:0}};
+}
+function recordValue(k,v){
+ if(v==null)return 'não registrado';
+ const type=recordFields[k].type;
+ if(type==='date')return v.split('-').reverse().join('/');
+ if(type==='time')return v.slice(0,10).split('-').reverse().join('/')+' '+v.slice(11,16);
+ if(type==='money')return money(v);
+ if(type==='km')return fmt(v,2)+' km';
+ if(type==='seconds')return duration(v);
+ if(k==='situacao')return {'finished':'Finalizada','unfinished':'Não finalizada','cancel trip':'Cancelada'}[v]||v;
+ return String(v);
+}
+function recordAnswer(s,options){
+ const q=recordPlan(options.record);if(!q)return 'Não consegui definir a consulta ao histórico.';
+ let rows=s.records.filter(r=>(!options.platform||r.plataforma===options.platform)&&(q.status==='all'||r.situacao===q.status));
+ if(q.operation==='capabilities'){
+ const fields=recordKeys.map(k=>{const count=rows.filter(r=>r[k]!=null).length;return recordFields[k].label+': '+count+'/'+rows.length+' registros';});
+ return 'Posso consultar os campos abaixo, quando preenchidos no VEXO. Disponibilidade neste período:\n'+fields.join('\n')+'\nNão tenho GPS em tempo real nem acesso direto às contas Uber/99. Os horários simulados são estimados pelo gerador.';
+ }
+ if(!rows.length)return 'Nenhuma corrida corresponde a esses filtros no período.';
+ const caveat=rows.some(r=>r.simulated)?'\nHá corridas simuladas. Seus horários são calculados pelo gerador, não medidos em viagem real.':'';
+ if(q.operation==='group'){
+ const groups=new Map();
+ for(const r of rows){const key=q.group==='hora'?r.inicio.slice(11,13)+':00':r[q.group];const v=q.metric==='count'?1:r[q.metric];if(v==null)continue;groups.set(key,(groups.get(key)||0)+v);}
+ const g=[...groups.entries()].sort((a,b)=>String(a[0]).localeCompare(String(b[0])));
+ return 'Histórico agrupado por '+q.group+' ('+rows.length+' registros):\n'+g.slice(q.offset,q.offset+q.limit).map(([k,v])=>(q.group==='dia'?recordValue('dia',k):q.group==='situacao'?recordValue('situacao',k):k)+': '+(q.metric==='count'?v+' corrida(s)':recordValue(q.metric,v))).join('\n')+(g.length>q.offset+q.limit?'\nDiga "mais" para continuar.':'')+caveat;
+ }
+ if(q.operation==='first')rows=rows.slice(0,1);
+ if(q.operation==='last')rows=rows.slice(-1);
+ if(['max','min'].includes(q.operation)){rows=rows.filter(r=>r[q.sort]!=null).sort((a,b)=>q.operation==='max'?b[q.sort]-a[q.sort]:a[q.sort]-b[q.sort]).slice(0,1);}
+ if(!rows.length)return 'Esse indicador não está preenchido nas corridas selecionadas.';
+ const page=rows.slice(q.offset,q.offset+q.limit);
+ if(!page.length)return 'Você chegou ao fim dos registros.';
+ const fields=[...new Set([...q.fields,...(['max','min'].includes(q.operation)?[q.sort]:[])])];
+ const lines=page.map((r,i)=>(q.offset+i+1)+'. '+fields.map(k=>recordFields[k].label+': '+recordValue(k,r[k])).join(' · ')+(r.simulated?' (simulada)':''));
+ return 'Histórico de corridas — '+(q.offset+1)+'–'+(q.offset+page.length)+' de '+rows.length+'\n'+lines.join('\n')+(rows.length>q.offset+q.limit?'\nDiga "mais" para continuar.':'')+caveat;
+}
+
 function snapshot(raw,rate,period='hoje',now=new Date()){
  const data=Core.normalize(raw);let [from,to]=range(period,now);
  if(period==='total'){const dates=[...data.rides.map(x=>x.date),...data.fills.map(x=>x.date),...data.expenses.map(x=>x.date)].map(x=>x.slice(0,10)).filter(x=>x<=to).sort();from=dates[0]||to;}
@@ -84,7 +183,7 @@ function snapshot(raw,rate,period='hoje',now=new Date()){
  for(const p of Object.values(platformStats)){p.gross=round(p.gross);p.km=round(p.km);p.tripKm=round(p.tripKm);p.pickupKm=round(p.pickupKm);}
  const byPlatform=Object.fromEntries(Object.entries(platformStats).map(([k,p])=>[k,p.count]));
  const liters=s.f.reduce((a,r)=>a+r.liters,0);
- return {period,from,to,byPlatform,platformStats,seconds:s.r.reduce((a,r)=>a+r.seconds,0),tripKm:round(tripKm),pickupKm:round(pickupKm),splitCount,count:s.r.length,realCount:finished.length,simulated,canceled,cancelRate:real.length?canceled/real.length*100:null,gap:round(gap),gapSamples:gaps.length,gross:round(s.revenue),cash:round(s.cash),afterPersonal:round(s.afterPersonal),result:round(s.result),km:round(s.km),hours:round(s.hours),grossHour:s.hours?round(s.revenue/s.hours):null,grossKm:s.km?round(s.revenue/s.km):null,paidFuel:round(s.paidFuel),opCost:round(s.opCost),personalCost:round(s.personalCost),liters:round(liters),fillCount:s.f.length,avgPrice:liters?round(s.paidFuel/liters):null,consumption:Number.isFinite(rate?.eff)?rate.eff:null,fuelKm:Number.isFinite(rate?.fuel)?rate.fuel:null,cycles:rate?.cycles||0,goal:period==='mes'?data.goals.revenue:null,reserve:round(s.reserve),coverage:s.covered.length,invalid:s.inconsistent.length};
+ return {period,from,to,records:projectRecords(raw,data,inside),byPlatform,platformStats,seconds:s.r.reduce((a,r)=>a+r.seconds,0),tripKm:round(tripKm),pickupKm:round(pickupKm),splitCount,count:s.r.length,realCount:finished.length,simulated,canceled,cancelRate:real.length?canceled/real.length*100:null,gap:round(gap),gapSamples:gaps.length,gross:round(s.revenue),cash:round(s.cash),afterPersonal:round(s.afterPersonal),result:round(s.result),km:round(s.km),hours:round(s.hours),grossHour:s.hours?round(s.revenue/s.hours):null,grossKm:s.km?round(s.revenue/s.km):null,paidFuel:round(s.paidFuel),opCost:round(s.opCost),personalCost:round(s.personalCost),liters:round(liters),fillCount:s.f.length,avgPrice:liters?round(s.paidFuel/liters):null,consumption:Number.isFinite(rate?.eff)?rate.eff:null,fuelKm:Number.isFinite(rate?.fuel)?rate.fuel:null,cycles:rate?.cycles||0,goal:period==='mes'?data.goals.revenue:null,reserve:round(s.reserve),coverage:s.covered.length,invalid:s.inconsistent.length};
 }
 function cleanQuery(q,previous=null){
  if(!q||!intents.includes(q.intent))return null;
@@ -93,10 +192,11 @@ function cleanQuery(q,previous=null){
  const compareMetric=partitioned.includes(q.compareMetric)?q.compareMetric:'corridas';
  const metrics=Array.isArray(q.metrics)?[...new Set(q.metrics.filter(k=>keys.includes(k)&&!['plataformas','detalhes','plano'].includes(k)))].slice(0,4):[];
  if(q.intent==='multi'&&!metrics.length)return null;
- return {intent:q.intent,period,platform,compareMetric,metrics,reply:typeof q.reply==='string'?q.reply.trim().slice(0,350):''};
+ const record=q.intent==='registros'?recordPlan(q.record):null;if(q.intent==='registros'&&!record)return null;
+ return {intent:q.intent,period,platform,compareMetric,metrics,...(record?{record}:{}),reply:typeof q.reply==='string'?q.reply.trim().slice(0,350):''};
 }
 function parse(question,previous=null){
- const t=normalize(question);const prior=cleanQuery(previous);
+ const t=normalize(question).replace(/\bhj\b/g,'hoje').replace(/\bvc\b/g,'voce').replace(/\bqts\b/g,'quantos');const prior=cleanQuery(previous);
  const explicit=/\bontem\b/.test(t)?'ontem':/\b(?:15|quinze)\s*(?:dias)?\b/.test(t)&&!/\b(?:r\$|reais)\b/.test(t)?'quinze':/\b(?:30|trinta)\s*(?:dias)\b/.test(t)?'trinta':/\bsemana\b|\b7 dias\b/.test(t)?'semana':/\bmes\b|mensal/.test(t)?'mes':/\bhoje\b/.test(t)?'hoje':/historico (?:todo|completo)|todo (?:o )?periodo|desde (?:o )?comeco|desde sempre/.test(t)?'total':null;
  const u=/\buber\b/.test(t),n=/\b99\b|noventa e nove/.test(t),both=u&&n,hasPlatform=u||n;
  let platform=u&&!n?'Uber':n&&!u?'99':null;
@@ -106,6 +206,7 @@ function parse(question,previous=null){
  if(other&&prior?.platform){return {...prior,platform:prior.platform==='Uber'?'99':'Uber',reply:''};}
  if((follow||periodOnly)&&prior&&prior.intent!=='saudacao'){return {...prior,period:explicit||prior.period,platform:follow?platform:prior.platform,reply:''};}
  if(/^(oi|ola|opa|e ai|bom dia|boa tarde|boa noite)[!?. ]*$/.test(t))return cleanQuery({intent:'saudacao',period:'hoje'});
+ const historyQuery=parseRecords(t,prior,explicit||prior?.period||'hoje',platform);if(historyQuery)return cleanQuery(historyQuery);
  const found=new Set(catalog.filter(([,r])=>r.test(t)).map(([k])=>k));
  // Semantic precedence applies to overlapping units, not entire questions.
  if(found.has('custo_km')){found.delete('ganho_km');found.delete('distancia');found.delete('despesas');}
@@ -151,6 +252,7 @@ function plan(s){
 }
 function answer(intent,s,options={}){
  const p=options.platform,metric=options.compareMetric||'corridas';
+ if(intent==='registros')return recordAnswer(s,options);
  if(intent==='saudacao')return 'Olá! Sou a Aura. Posso consultar suas corridas, ganhos, combustível, despesas e montar um plano de ação.';
  if(intent==='multi')return (options.metrics||[]).map(k=>answer(k,s,{platform:p,omitNote:true})).filter(Boolean).join('\n\n')+note(s);
  let out;
@@ -214,6 +316,6 @@ async function resolve(question,previous,{readData,interpret,now=new Date(),onPh
  if(!reply)throw Error('Consulta não implementada');
  return {text:reply,source:source+' · '+s.from.split('-').reverse().join('/')+' a '+s.to.split('-').reverse().join('/'),context:{...query,reply:''},snapshot:s};
 }
-return {snapshot,parse,answer,plan,range,cleanQuery,resolve,catalog:keys};
+return {snapshot,parse,answer,plan,range,cleanQuery,resolve,recordPlan,catalog:keys,recordFields};
 })();
 if(typeof module!=='undefined')module.exports=AuraCore;

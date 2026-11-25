@@ -1,0 +1,24 @@
+const assert=require('node:assert/strict'),A=require('./aura-core.js'),fixture=require('./test-aura-fixture.cjs');
+(async()=>{
+const raw=fixture(),now=new Date(2026,10,25,18),readData=async()=>({finance:raw,rates:{eff:10,fuel:.6,cycles:1}});
+let ctx=null,calls=0,count=0;
+const ask=async(q,check)=>{const r=await A.resolve(q,ctx,{readData,now,interpret:async()=>{calls++;throw Error('API desligada');}});assert.ok(check(r),q+' => '+r.text);ctx=r.context;count++;return r;};
+await ask('Quais informações vc tem acesso das corridas?',r=>r.text.includes('Início: 9/9')&&r.text.includes('Origem: 0/9')&&r.text.includes('não tenho GPS')===false);
+await ask('Quais horários foram feitos as corridas?',r=>r.text.includes('25/11/2026 08:00')&&r.text.includes('25/11/2026 16:18')&&r.text.includes('simuladas'));
+await ask('Horário da corrida e o dia',r=>r.context.intent==='registros'&&r.text.includes('08:00'));
+await ask('E na Uber?',r=>r.context.platform==='Uber'&&r.text.includes('de 4'));
+await ask('E ontem?',r=>r.text.includes('24/11/2026 09:00'));
+await ask('Qual foi a primeira corrida hoje?',r=>r.text.includes('08:00')&&r.text.includes('R$')&&r.text.includes('30,00'));
+await ask('Qual foi a última corrida hoje?',r=>r.text.includes('16:00')&&r.text.includes('27,20'));
+await ask('Qual foi a corrida mais cara hoje?',r=>r.text.includes('30,00'));
+await ask('Qual a corrida mais curta hoje?',r=>r.text.includes('0h 14min'));
+await ask('Quantas corridas por dia no histórico todo?',r=>r.text.includes('24/11/2026: 1')&&r.text.includes('25/11/2026: 9'));
+await ask('Quais os endereços das corridas hoje?',r=>r.text.includes('Origem: não registrado'));
+await ask('Quanto ganhei hj?',r=>r.text.includes('209,20'));
+assert.equal(calls,0);count++;
+assert.equal(A.cleanQuery({intent:'registros',record:{operation:'exec'}}),null);count++;
+assert.equal(A.cleanQuery({intent:'registros',record:{operation:'max',sort:'origem'}}),null);count++;
+const a=A.parse('Quais horários das corridas?');assert.equal(A.parse('mais',a).record.offset,10);count++;
+const plan=A.recordPlan({operation:'list',fields:['valor','__proto__'],limit:999});assert.deepEqual(plan.fields,['valor']);assert.equal(plan.limit,20);count+=2;
+console.log('Aura histórico: '+count+' verificações, nenhuma chamada de rede');
+})().catch(e=>{console.error(e);process.exitCode=1;});
