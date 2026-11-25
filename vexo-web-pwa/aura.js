@@ -1,8 +1,9 @@
 (()=>{'use strict';
-const $=id=>document.getElementById(id),KEY='vexo-aura-chat-v1',PROXY='https://vexo-aura-flash-bridge-xs69.onrender.com/aura';
-let history=[],previous=null,busy=false,voice=false,recognizer=null,lastReply='';
-try{const saved=JSON.parse(localStorage.getItem(KEY)||'null');if(saved&&Array.isArray(saved.history)){history=saved.history.filter(x=>['user','aura'].includes(x.role)&&typeof x.text==='string').slice(-40);previous=saved.previous||null;voice=saved.voice===true}}catch{}
-function persist(){try{localStorage.setItem(KEY,JSON.stringify({history:history.slice(-40),previous,voice}))}catch{setStatus('Armazenamento da conversa indisponível.')}}
+const $=id=>document.getElementById(id),KEY='vexo-aura-chat-v1',PROXY='https://vexo-aura-flash-bridge-xs69.onrender.com/aura/v5',MEMORY='vexo-aura-session-v5',DEBUG='vexo-aura-field-log-v5';
+let history=[],previous=AuraAdapter.empty(),busy=false,voice=false,recognizer=null,lastReply='',active=null,epoch=0,listenId=null,logs=[];
+try{const saved=JSON.parse(localStorage.getItem(KEY)||'null');if(saved&&Array.isArray(saved.history)){history=saved.history.filter(x=>['user','aura'].includes(x.role)&&typeof x.text==='string').slice(-40);voice=saved.voice===true}}catch{}
+try{previous=AuraAdapter.restore(JSON.parse(localStorage.getItem(MEMORY)||'null'));const saved=JSON.parse(localStorage.getItem(DEBUG)||'[]');if(Array.isArray(saved))logs=saved.slice(-100)}catch{}
+function persist(){try{localStorage.setItem(KEY,JSON.stringify({history:history.slice(-40),voice}))}catch{setStatus('Armazenamento da conversa indisponível.')}}
 function setStatus(x){$('status').textContent=x}
 function render(){const node=$('thread');node.replaceChildren();if(!history.length){const m=document.createElement('div');m.className='msg aura';m.textContent='Olá! Sou a Aura, sua copiloto. Posso consultar seus ganhos, custos e desempenho para montar um plano de ação.';node.append(m)}for(const x of history){const m=document.createElement('div');m.className='msg '+x.role;m.textContent=x.text;if(x.source){const s=document.createElement('span');s.className='source';s.textContent=x.source;m.append(s)}node.append(m)}node.scrollTop=node.scrollHeight}
 function append(role,text,source){history.push({role,text,source});history=history.slice(-40);persist();render()}
@@ -12,14 +13,52 @@ function speak(text){if(!voiceAvailable()){setStatus('Voz indisponível neste di
 function voiceLabel(){$('voice').setAttribute('aria-pressed',String(voice));$('voice').title=voice?'Desativar voz':'Ativar voz';$('voice').style.color=voice?'#8adce8':'#94a3b8'}
 $('voice').onclick=()=>{voice=!voice;voiceLabel();persist();if(voice){if(lastReply)speak(lastReply);else if(!voiceAvailable())setStatus('Voz indisponível neste dispositivo.')}else stop()};
 $('orb').onclick=()=>{if(window.speechSynthesis?.speaking){stop();return}if(lastReply)speak(lastReply);else speak('Olá, sou a Aura. Como posso ajudar?')};
-let apiBackoffUntil=0,lastApiFailure=null;
-async function interpret(q,context){if(Date.now()<apiBackoffUntil){const e=Error('Pausa temporária da conexão');e.httpStatus=lastApiFailure?.httpStatus||503;e.reason='gemini_cooldown';throw e;}const controller=new AbortController(),timer=setTimeout(()=>controller.abort(),30000);try{const res=await fetch(PROXY+'/v3',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({protocol:3,question:q,context}),signal:controller.signal});const data=await res.json().catch(()=>({}));if(!res.ok){const e=Error('HTTP '+res.status);e.httpStatus=res.status;e.reason=String(data.error||'');throw e;}if(data.protocol!==3)throw Error('Protocolo incompatível');const result=JSON.parse(data.text);apiBackoffUntil=0;lastApiFailure=null;return result}catch(e){if([429,503,504].includes(e.httpStatus)||e.name==='AbortError'||e instanceof TypeError){lastApiFailure=e;apiBackoffUntil=Date.now()+(e.httpStatus===429?120000:60000);}throw e}finally{clearTimeout(timer)}}
-async function ask(q){q=q.trim().slice(0,600);if(!q||busy)return;busy=true;$('send').disabled=true;$('question').value='';append('user',q);
-try{const readData=()=>Vexo.invoke('auraDados');const result=await AuraAdvisor.resolve(q,previous,{readData,core:AuraCore})||await AuraCore.resolve(q,previous,{readData,interpret,onPhase:setStatus});previous=result.context;lastReply=result.text;append('aura',result.text,result.source);setStatus('Copiloto · pronta');if(voice)speak(result.text);}
-catch(e){append('aura','Não consegui validar os registros do VEXO. Os dados foram preservados. Confira os registros antes de usar os indicadores.','Dados indisponíveis');setStatus('Não foi possível consultar os dados')}
-finally{busy=false;$('send').disabled=false;}}
-$('form').onsubmit=e=>{e.preventDefault();ask($('question').value)};$('question').addEventListener('keydown',e=>{if(e.key==='Enter'&&!e.shiftKey){e.preventDefault();ask($('question').value)}});document.querySelectorAll('[data-q]').forEach(b=>b.onclick=()=>ask(b.dataset.q));
-window.vexoAuraRecognized=text=>{if(typeof text==='string'&&text.trim()){$('question').value=text;setStatus('Confira a transcrição e envie.')}};
-$('mic').onclick=()=>{if(window.VexoVoice?.listen){try{window.VexoVoice.listen();setStatus('Ouvindo…');return}catch{}}const R=window.SpeechRecognition||window.webkitSpeechRecognition;if(!R){setStatus('Microfone indisponível nesta WebView. Digite sua pergunta.');return}try{recognizer=new R();recognizer.lang='pt-BR';recognizer.interimResults=false;recognizer.onresult=e=>window.vexoAuraRecognized(e.results[0][0].transcript);recognizer.onerror=()=>setStatus('Não foi possível acessar o microfone.');recognizer.onend=()=>$('orb').classList.remove('active');$('orb').classList.add('active');recognizer.start();setStatus('Ouvindo…')}catch{setStatus('Não foi possível iniciar o microfone.')}};
+function record(text_stt,intent_retornada,latencia_total_ms,status_rede){
+ const row={texto_stt:text_stt??null,intent_retornada:intent_retornada??null,latencia_total_ms:Math.max(0,Math.round(latencia_total_ms)),status_rede};logs.push(row);logs=logs.slice(-100);
+ try{localStorage.setItem(DEBUG,JSON.stringify(logs))}catch{}
+}
+window.vexoAuraDebugLogs=()=>JSON.stringify(logs,null,2);
+let hold;
+$('status').addEventListener('pointerdown',()=>{hold=setTimeout(()=>{try{if(window.VexoVoice?.copyDebug)window.VexoVoice.copyDebug(window.vexoAuraDebugLogs());else navigator.clipboard?.writeText(window.vexoAuraDebugLogs())}catch{}},900)});
+for(const evt of ['pointerup','pointercancel','pointerleave'])$('status').addEventListener(evt,()=>clearTimeout(hold));
+function cancel(){epoch++;if(active){active.controller.abort();record(active.stt,active.intent,performance.now()-active.started,'CANCELED');active=null;}busy=false;$('send').disabled=false;stop();if(recognizer){try{recognizer.abort()}catch{}recognizer=null;}}
+window.vexoAuraSuspend=()=>{cancel();setStatus('Copiloto · pronta');};
+window.addEventListener('pagehide',()=>cancel());
+function id(){return globalThis.crypto?.randomUUID?.()||('aura-'+Date.now()+'-'+Math.random().toString(36).slice(2)+'-'+Math.random().toString(36).slice(2))}
+async function ask(q,stt=false,quick=null){
+ q=String(q||'').trim().slice(0,600);if(!q)return;listenId=null;cancel();
+ const token=epoch,controller=new AbortController(),started=performance.now(),requestId=id();active={controller,started,stt:stt?q:null,intent:null};busy=true;$('send').disabled=true;$('question').value='';append('user',q);
+ const current=()=>epoch===token&&!controller.signal.aborted;
+ let status='OK',intent=null;
+ try{
+  const readData=()=>Vexo.invoke('auraDados');
+  let result;
+  if(quick){const b=await readData(),s=AuraCore.snapshot(b.finance,b.rates,'hoje');result={text:AuraCore.answer(quick,s),source:'Dados locais · atalho',kind:'concept',context:previous,intent:'LOCAL_SHORTCUT'};}
+  else{
+   const response=await AuraMobileTransport.run((signal,attempt)=>fetch(PROXY,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({protocol:5,question:q,context:previous,request_id:requestId,attempt}),signal}),{signal:controller.signal,onSlow:()=>{if(current())setStatus('Calculando…')}});
+   if(!current())return;
+   status=response.status;
+   if(response.kind!=='response'){result={text:response.text,source:'Rede · '+status,kind:'unavailable',context:previous};}
+   else{
+    if(response.response?.protocol!==5)throw Error('Protocolo incompatível');
+    const wire=AuraAdapter.validate(response.response.plan);intent=wire.intent;active.intent=intent;
+    result=await AuraAdapter.execute(wire,previous,{engine:AuraQueryEngine,core:AuraCore,readData});
+    if(result.kind==='unavailable')status='LOCAL_UNAVAILABLE';
+   }
+  }
+  if(!current())return;
+  intent=result.intent||intent;
+  if(result.kind==='success'){try{localStorage.setItem(MEMORY,JSON.stringify(result.context));previous=result.context;}catch{status='STORAGE_ERROR';}}
+  lastReply=result.text;append('aura',result.text,result.source);setStatus('Copiloto · pronta');record(stt?q:null,intent,performance.now()-started,status);if(voice||stt)speak(result.text);
+ }catch(e){if(current()){status=intent?'LOCAL_ERROR':'INVALID_PLAN';record(stt?q:null,intent,performance.now()-started,status);lastReply='Não consegui validar a consulta. Pode repetir?';append('aura',lastReply,'Consulta indisponível');setStatus('Copiloto · pronta');if(voice||stt)speak(lastReply);}}
+ finally{if(epoch===token){active=null;busy=false;$('send').disabled=false;}}
+}
+$('form').onsubmit=e=>{e.preventDefault();ask($('question').value)};$('question').addEventListener('keydown',e=>{if(e.key==='Enter'&&!e.shiftKey){e.preventDefault();ask($('question').value)}});
+document.querySelectorAll('[data-q]').forEach(b=>b.onclick=()=>ask(b.dataset.q,false,b.dataset.q==='Qual meu plano de ação hoje?'?'plano':b.dataset.q==='Qual o custo por km?'?'custo_km':null));
+window.vexoAuraRecognized=(text,token)=>{if(!listenId||token!==listenId)return;listenId=null;recognizer=null;if(typeof text==='string'&&text.trim())ask(text,true);else{setStatus('Copiloto · pronta');record(null,null,0,'STT_NO_RESULT');}};
+$('mic').onclick=()=>{if(listenId)return;cancel();const token=id();listenId=token;if(window.VexoVoice?.listen){try{window.VexoVoice.listen(token);setStatus('Ouvindo…');return}catch{listenId=null;setStatus('Microfone indisponível.');return}}
+ const R=window.SpeechRecognition||window.webkitSpeechRecognition;if(!R){listenId=null;setStatus('Microfone indisponível nesta WebView. Digite sua pergunta.');return}
+ try{recognizer=new R();recognizer.lang='pt-BR';recognizer.interimResults=false;recognizer.onresult=e=>window.vexoAuraRecognized(e.results[0][0].transcript,token);recognizer.onerror=()=>window.vexoAuraRecognized(null,token);recognizer.onend=()=>{if(listenId===token)window.vexoAuraRecognized(null,token);$('orb').classList.remove('active')};$('orb').classList.add('active');recognizer.start();setStatus('Ouvindo…')}catch{window.vexoAuraRecognized(null,token)}
+};
 voiceLabel();render();lastReply=history.filter(x=>x.role==='aura').at(-1)?.text||'';
 })();

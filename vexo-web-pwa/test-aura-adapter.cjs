@@ -1,0 +1,22 @@
+const assert=require('node:assert/strict'),A=require('./aura-adapter.js'),E=require('./aura-query-engine.js'),C=require('./aura-core.js'),T=require('./aura-mobile-transport.js'),fixture=require('./test-aura-fixture.cjs');
+(async()=>{let n=0,reads=0;const raw=fixture(),before=JSON.stringify(raw),env={engine:E,core:C,now:new Date(2026,10,25,14),readData:async()=>{reads++;return {finance:raw,rates:{fuel:.6,reserve:.15,fixed:6,eff:10,cycles:1}}}};
+const sim=(fare_brl,distance_km,duration_min,ride_platform='UNKNOWN')=>({intent:'SIMULATE_RIDE',ride_simulation:{fare_brl,distance_km,duration_min,ride_platform}}),q=(domain,metric,start_date='2026-11-25',end_date=start_date,query_platform='ALL')=>({domain,metric,start_date,end_date,query_platform}),query=(...data_queries)=>({intent:'QUERY_DATA',data_queries});
+let st=A.empty();const run=async(p,pattern,kind='success')=>{const r=await A.execute(p,st,env);assert.equal(r.kind,kind);assert.match(r.text,pattern);if(kind!=='success')assert.equal(r.context,st);st=r.context;n++;return r};
+await run(sim(30,12,25),/18,50/);await run(sim(30,15,25),/16,25/);await run(sim(24,15,25),/10,25/);
+await run(sim(18,9,null),/tempo total/,'clarify');await run(query(q('FINANCE','GROSS_REVENUE','2026-11-24')),/45,00/);
+await run(query(q('FINANCE','GROSS_REVENUE','2026-11-25','2026-11-25','99')),/110,20/);assert.equal(st.active_ride_simulation.fare_brl,24);n++;
+await run(query(q('FUEL','FUEL_SPENT','2026-11-24'),q('FUEL','FUEL_SPENT','2026-11-25')),/240,00/);
+await run(query(q('FUEL','FUEL_SPENT','2026-11-24','2026-11-25'),q('FUEL','FUEL_SPENT')),/240,00/);
+await run(query(q('FINANCE','NET_PROFIT')), /indisponível/,'unavailable');
+await run(query(q('FINANCE','NET_PROFIT','2026-11-25','2026-11-25','99')), /rateio/,'unavailable');
+await run(query(q('FUEL','FUEL_SPENT','2026-11-25','2026-11-25','99')), /rateio/,'unavailable');
+await run(query(q('GOALS','GOAL_STATUS')), /1.000,00/);await run(query(q('RIDES','AVG_PER_KM','2026-11-24')), /3,00/);
+await run({intent:'CLARIFY',clarification_reason:'AMBIGUOUS_UNIT'},/unidade/,'clarify');await run({intent:'OUT_OF_SCOPE'},/Nenhum dado/,'unsupported');
+assert.deepEqual(A.restore(st),st);n++;assert.deepEqual(A.restore({active_ride_simulation:{},last_query_context:null}),A.empty());n++;
+for(const bad of [{...sim(30,12,25),clarification_reason:'AMBIGUOUS_UNIT'},sim(30,'12',25),query(q('FUEL','RIDE_COUNT')),query(q('FINANCE','GROSS_REVENUE','2026-02-31'))]){const old=reads;await assert.rejects(A.execute(bad,st,env));assert.equal(reads,old);n++;}
+assert.equal(JSON.stringify(raw),before);n++;
+let attempts=0;const r=await T.run(async()=>++attempts===1?{ok:false,status:503}:{ok:true,status:200,json:async()=>({protocol:5})});assert.equal(r.kind,'response');assert.equal(attempts,2);n++;
+attempts=0;const quota=await T.run(async()=>{attempts++;return {ok:false,status:429}});assert.equal(quota.status,'HTTP_429');assert.equal(attempts,1);n++;
+const timeout=await T.run(()=>new Promise(()=>{}),{budget:40});assert.equal(timeout.status,'TIMEOUT_5S');n++;
+const ctrl=new AbortController();const pending=T.run(()=>new Promise(()=>{}),{signal:ctrl.signal});ctrl.abort();assert.equal((await pending).status,'CANCELED');n++;
+console.log('Adapter and transport: '+n+' passed');})().catch(e=>{console.error(e);process.exitCode=1});
