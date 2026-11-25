@@ -2,6 +2,9 @@ name: Aura NLU - quinta bateria vocabulario financeiro e uniao de datas
 on:
   push:
     branches: [experiment/aura-query-engine-20261125]
+concurrency:
+  group: vexo-nlu-lab
+  cancel-in-progress: false
 permissions:
   contents: read
 jobs:
@@ -21,7 +24,7 @@ jobs:
           for(let i=0;i<20;i++){try{const h=await fetch(base+'/health',{signal:AbortSignal.timeout(10000)}).then(r=>r.json());if(h.revision==='aura-query-v3.1-nlu-round5'&&h.keyConfigured){ready=true;break}}catch{}await pause(3000);}
           if(!ready)throw Error('Laboratorio nao publicado');
           const rows=[];
-          async function request(path,timeout){try{const r=await fetch(base+path,{method:'POST',signal:AbortSignal.timeout(timeout)});return {...await r.json(),http:r.status};}catch(e){return {pass:false,error:e.name};}}
+          async function request(path,timeout){for(let i=0;i<30;i++){try{const r=await fetch(base+path,{method:'POST',signal:AbortSignal.timeout(timeout)});const d=await r.json();if(r.status===429&&d.error==='lab_busy'&&i<29){console.log('LAB_BUSY_WAIT',path,i+1);await pause(5000);continue;}return {...d,http:r.status,lab_busy_waits:i};}catch(e){return {pass:false,error:e.name,lab_busy_waits:i};}}}
           for(let i=1;i<=15;i++){const d=await request('/aura/nlu-round5/case/'+i,75000);rows.push({group:'baseline',...d});console.log('BASELINE',i,JSON.stringify(d));await pause(350);}
           let sessions=0;
           for(const name of ['A','B','C']){const d=await request('/aura/nlu-round5/session/'+name,220000);if(d.pass)sessions++;for(const t of d.turns||[]){rows.push({group:'stateful',session:name,...t});console.log('TURN',name,t.turn,JSON.stringify(t));}console.log('SESSION_RESULT',name,d.pass===true,JSON.stringify(d.turns?{turns:d.turns.length}:{error:d.error,http:d.http}));await pause(350);}
