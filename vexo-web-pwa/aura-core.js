@@ -208,7 +208,7 @@ function recordAnswer(s,options){
 }
 
 function snapshot(raw,rate,period='hoje',now=new Date()){
- const data=Core.normalize(raw);let [from,to]=range(period,now);
+ const data=Core.normalize(raw);let [from,to]=typeof period==='object'?[period.from,period.to]:range(period,now);
  if(period==='total'){const dates=[...data.rides.map(x=>x.date),...data.fills.map(x=>x.date),...data.expenses.map(x=>x.date)].map(x=>x.slice(0,10)).filter(x=>x<=to).sort();from=dates[0]||to;}
  const s=Core.stats(data,from,to),inside=x=>x.date.slice(0,10)>=from&&x.date.slice(0,10)<=to;
  const rides=data.rides.filter(inside),real=rides.filter(r=>!r.id.startsWith('MOB-')),simulated=rides.length-real.length;
@@ -359,6 +359,11 @@ async function resolve(question,previous,{readData,interpret,now=new Date(),onPh
  const displayFrom=query.record?.from||s.from,displayTo=query.record?.to||s.to;
  return {text:reply,source:source+' · '+displayFrom.split('-').reverse().join('/')+' a '+displayTo.split('-').reverse().join('/'),context:{...query,reply:''},snapshot:s};
 }
-return {snapshot,parse,answer,plan,range,cleanQuery,resolve,recordPlan,catalog:keys,recordFields};
+// Read-only union of dates. Reuse the existing normalized per-fill cost; never double count.
+function fuelSpentForRanges(raw,ranges){
+ const data=Core.normalize(raw),fills=data.fills.filter(f=>ranges.some(r=>Core.day(f.date)>=r.from&&Core.day(f.date)<=r.to));
+ return {value:Core.cents(Core.sum(fills,f=>f.cost)),count:fills.length};
+}
+return {snapshot,parse,answer,plan,range,cleanQuery,resolve,recordPlan,catalog:keys,recordFields,fuelSpentForRanges};
 })();
 if(typeof module!=='undefined')module.exports=AuraCore;
