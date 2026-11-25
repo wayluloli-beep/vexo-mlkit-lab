@@ -31,3 +31,15 @@ Os arquivos de protótipo `app.js`, `generator.html`, `styles.css`, `sw.js` e `m
 ## Para outra IA continuar
 
 Use a branch `codex/vexo-web-local`, pasta `vexo-web-pwa`. Leia este documento e os módulos antes de editar. Preserve a identidade visual e cálculos existentes. Não reintroduza Google Sheets/Apps Script como dependência. Não grave dados de usuários, tokens, arquivos .env ou credenciais no repositório. Preserve o projeto Android fora desta pasta. Valide finalização idempotente, formulários e telas mobile após alterações.
+
+
+## Revisão de integridade — 25/11/2026
+
+- `node test-stress.cjs`: 37 casos de regressão, incluindo 1.000 corridas e 1.000 reenvios de finalização.
+- `node test-integration.cjs`: 8 casos de integração de lógica entre Radar, Fuel, Finance e o contrato de dados Driver.
+- Os dois conjuntos foram executados sobre o JavaScript extraído do GitHub, com armazenamento e Web Locks simulados: 45/45 casos passaram. Não houve execução do Playwright ou APK nesta revisão.
+- Datas de calendário e limites numéricos validados; ofertas encerradas não podem ser aceitas; despesas usam identificador por abertura do formulário para reenvio idempotente. A chamada legada sem identificador trata registros exatamente iguais como reenvio.
+- O backup local espelha a última gravação quando há espaço disponível; dados inválidos são preservados em quarentena quando uma cópia válida existe. Sem cópia válida, a operação é interrompida sem apagar o original. A recuperação não substitui backup externo nem sincronização e pode recuperar uma versão anterior se o backup não foi atualizado.
+- Custos históricos ausentes são apresentados como indisponíveis, não como zero. Tanques cheios legados com odômetro igual não fecham ciclo; seus litros e custos seguem para o próximo ciclo válido. Novos registros não podem aumentar a quantidade dessas inconsistências.
+- Os limites numéricos são guardas de segurança, não especificações de veículos. Web Locks reais entre abas, interface, armazenamento em quota real, instalação PWA, hospedagem e backend continuam pendentes de validação.
+- Branch de revisão: `fix/vexo-web-integridade-20261125`; base: `codex/vexo-web-local`. Nenhuma alteração fora de `vexo-web-pwa`.
