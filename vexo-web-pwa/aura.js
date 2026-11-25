@@ -36,12 +36,17 @@ async function ask(q,stt=false,quick=null){
   let result;
   const local=quick?null:AuraAdapter.resolvePending(q,pending,previous);
   const guard=quick||local?null:AuraAdapter.localGuard(q,previous);
+  const localQuery=quick||local||guard?null:AuraDashboardContext.localWire(q,AuraCore);
   if(local){status='LOCAL_CLARIFICATION';intent='SIMULATE_RIDE';active.intent=intent;
    result=local.error?{text:local.error,kind:'clarify',context:previous,intent}:await AuraAdapter.execute(local.wire,previous,{engine:AuraQueryEngine,core:AuraCore,readData});
    result={...result,source:'Aura · esclarecimento local'};if(result.kind==='unavailable')status='LOCAL_UNAVAILABLE';
   }else if(guard){status='LOCAL_CLARIFICATION';intent='CLARIFY';active.intent=intent;
    if(current())pending_clarification=guard.pending||null;
    result={text:guard.text,kind:'clarify',context:previous,intent,source:'Aura · esclarecimento local'};
+  }else if(localQuery){
+   intent='QUERY_DATA';active.intent=intent;status='LOCAL_QUERY';
+   result=await AuraAdapter.execute(localQuery,previous,{engine:AuraQueryEngine,core:AuraCore,readData});
+   result={...result,source:'Dados locais · sem consumo de API'};
   }else if(!quick&&typeof window.VexoAuraAdviceTransport==='function'&&AuraDashboardContext.isStrategy(q)){
    intent='ADVICE';active.intent=intent;
    try{result=await AuraDashboardContext.advise(q,{readData,core:AuraCore,transport:window.VexoAuraAdviceTransport,signal:controller.signal});if(!result)throw Error('Advice unavailable');}
