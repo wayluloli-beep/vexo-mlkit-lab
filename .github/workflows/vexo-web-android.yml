@@ -4,7 +4,7 @@ on:
     branches: [build/vexo-web-android-20261125]
   workflow_dispatch:
 permissions:
-  contents: read
+  contents: write
 jobs:
   apk:
     runs-on: ubuntu-latest
@@ -100,8 +100,8 @@ jobs:
           "$BT/aapt2" dump badging VEXO-Web-Android.apk
           for f in assets/*; do unzip -p VEXO-Web-Android.apk "$f" | cmp "$f" -; done
           unzip -t VEXO-Web-Android.apk
-      - uses: actions/upload-artifact@v4
-        with:
-          name: VEXO-Web-Android
-          path: build/webapk/VEXO-Web-Android.apk
-          if-no-files-found: error
+      - name: Disponibilizar APK em release privada
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create vexo-web-android-20261125 build/webapk/VEXO-Web-Android.apk --target "$GITHUB_SHA" --title 'VEXO Web Android 1.0 - teste' --notes 'APK independente com os quatro painéis web originais e motor corrigido. Assinatura de teste verificada.' --prerelease
