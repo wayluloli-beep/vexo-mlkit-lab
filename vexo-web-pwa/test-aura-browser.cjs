@@ -22,7 +22,7 @@ const date=d=>new Date(d-d.getTimezoneOffset()*60000).toISOString().slice(0,10);
   const today=new Date(),y=new Date(today);y.setDate(y.getDate()-1);
   await page.evaluate(s=>localStorage.setItem('vexo-data-v2',JSON.stringify(s)),fixture(date(today),date(y)));
   let a=await goAura();let passed=0;
-  const ask=async(q,pattern)=>{const before=await a.locator('.msg.aura').count();await a.locator('#question').fill(q);await a.locator('#send').click();await a.waitForFunction(n=>document.querySelectorAll('.msg.aura').length>n,before,{timeout:15000});const last=await a.locator('.msg.aura').last().innerText();assert.match(last,pattern,q+' => '+last);passed++;return last;};
+  const ask=async(q,pattern)=>{const before=await a.locator('.msg.user').count();await a.locator('#question').fill(q);await a.locator('#send').click();await a.waitForFunction(n=>document.querySelectorAll('.msg.aura').length>n,before,{timeout:15000});const last=await a.locator('.msg.aura').last().innerText();assert.match(last,pattern,q+' => '+last);passed++;return last;};
   await ask('Quanto ganhei hoje?',/209,20/);
   await ask('Detalha mais',/Uber: 4; 99: 5/);
   await ask('99 ou Uber ?',/Uber 4 \| 99 5/);
