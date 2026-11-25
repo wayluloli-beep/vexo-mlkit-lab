@@ -15,7 +15,37 @@
  const finance=d=>({rides:d.rides,fills:d.fills,expenses:d.expenses,goals:d.goals});
  function state(d){const rows=d.rides.filter(r=>r[1]==='finished'&&r[3].slice(0,10)===date().slice(0,10));const sum=i=>cents(rows.reduce((a,r)=>a+(Number(r[i])||0),0));const unknown=rows.filter(r=>![11,12,13,14].every(i=>typeof r[i]==='number'&&Number.isFinite(r[i]))).length;return {storageNotice:storageNotice||(localStorage.getItem(QUARANTINE)!==null?'Houve recuperação local; confira os últimos registros.':''),ride:d.offer?.status==='offer'?quote(d.offer,d):d.offer,rates:rates(d),summary:{today:date().slice(0,10),count:rows.length,gross:sum(7),km:sum(5),minutes:sum(4)/60,fuel:unknown?null:sum(11),reserve:unknown?null:sum(12),fixed:unknown?null:sum(13),profit:unknown?null:sum(14),unknownCosts:unknown,recent:rows.slice(-10).reverse().map(r=>({id:r[0],app:r[8],gross:r[7],km:r[5],profit:r[14],time:r[3]}))}};}
  function upsert(list,before,after,prefix){const r=clone(after);if(before){const i=list.findIndex(x=>x[0]===before[0]);if(i<0||JSON.stringify(list[i])!==JSON.stringify(before))throw Error('Registro atualizado em outra tela. Atualize e tente novamente.');r[0]=before[0];list[i]=r;}else{r[0]=uid(prefix);list.push(r);}return r;}
+
+ const BACKUP_LIMIT=1500000;
+ function backupPayload(d){return {format:'VEXO-backup',version:1,createdAt:new Date().toISOString(),data:{rides:d.rides,fills:d.fills,expenses:d.expenses,goals:d.goals,settings:d.settings,seen:d.seen}};}
+ function validateBackup(text){
+  if(typeof text!=='string'||!text.length||text.length>BACKUP_LIMIT)throw Error('Arquivo vazio ou acima de 1,5 MB.');
+  let b;try{b=JSON.parse(text);}catch{throw Error('Arquivo JSON inválido.');}
+  if(b?.format!=='VEXO-backup'||b.version!==1||!b.data)throw Error('Formato de backup não reconhecido.');
+  const x=b.data,checkId=id=>{if(typeof id!=='string'||!id.trim()||id.length>200)throw Error('Identificador inválido.');};
+  for(const k of ['rides','fills','expenses','seen'])if(!Array.isArray(x[k])||x[k].length>20000)throw Error('Lista inválida no backup.');
+  for(const k of ['rides','fills','expenses']){const ids=new Set();for(const r of x[k]){if(!Array.isArray(r))throw Error('Registro inválido.');checkId(r[0]);if(ids.has(r[0]))throw Error('Registros duplicados no backup.');ids.add(r[0]);}}
+  for(const r of x.rides){if(r.length<8||r.length>18||!['finished','unfinished','cancel trip'].includes(r[1]))throw Error('Corrida inválida.');
+   r[2]=validDate(r[2],'time');if(r[3]!=null&&r[3]!==''){r[3]=validDate(r[3],'time');if(r[3]<r[2])throw Error('Horário inválido.');}else if(r[1]==='finished')throw Error('Finalização ausente.');
+   [4,5,7].forEach(i=>num(r[i]));if(typeof r[6]!=='string'||r[6].length>200)throw Error('Forma de pagamento inválida.');
+   if(r[8]!=null&&(typeof r[8]!=='string'||r[8].length>100))throw Error('Plataforma inválida.');
+   for(const i of [9,10,11,12,13])if(r[i]!=null)num(r[i]);if(r[14]!=null)num(r[14],-1e9,1e9);
+   for(const i of [15,16])if(r[i]!=null&&(typeof r[i]!=='string'||r[i].length>1000))throw Error('Endereço inválido.');
+   if(r[17]!=null)num(r[17],0,5);
+  }
+  for(const r of x.fills){if(r.length!==8)throw Error('Abastecimento incompleto.');r[1]=validDate(r[1],'time');num(r[2],0,1e8);num(r[3],.01,1e5);num(r[4],.01,1000);if(typeof r[6]!=='boolean'||!['Gasolina','Etanol','Diesel'].includes(r[5])||typeof r[7]!=='string'||r[7].length>1000)throw Error('Abastecimento inválido.');}
+  x.fills.sort((a,b)=>a[1].localeCompare(b[1]));for(let i=1;i<x.fills.length;i++)if(x.fills[i][1]===x.fills[i-1][1]||x.fills[i][2]<x.fills[i-1][2])throw Error('Ordem de abastecimentos inválida.');
+  const rideIds=new Set(x.rides.map(r=>r[0]));for(const r of x.expenses){if(r.length!==7)throw Error('Despesa incompleta.');r[1]=validDate(r[1],'day');num(r[4],.01);num(r[5]);if(r[5]>r[4]||!['Pedágio','Manutenção','Fixo','Operacional','Pessoal'].includes(r[2])||typeof r[3]!=='string'||!r[3].trim()||r[3].length>120||typeof r[6]!=='string'||r[6]&&!rideIds.has(r[6]))throw Error('Despesa inválida.');}
+  if(!x.goals||!x.settings)throw Error('Parâmetros ausentes.');for(const k of ['revenue','cash','reserve'])num(x.goals[k]);num(x.settings.fuel,.01,1000);num(x.settings.consumption,.01,1000);num(x.settings.fixed,0,1e6);x.seen.forEach(checkId);
+  const {revenue,cash,reserve}=x.goals,{fuel,consumption,fixed}=x.settings;
+  return {rides:x.rides,fills:x.fills,expenses:x.expenses,goals:{revenue,cash,reserve},settings:{fuel,consumption,fixed},offer:null,seen:[...new Set(x.seen)]};
+ }
+ function backupCounts(d){return {rides:d.rides.length,fills:d.fills.length,expenses:d.expenses.length};}
+
  function call(name,args,d){switch(name){
+ case 'backupExport':{const text=JSON.stringify(backupPayload(d));validateBackup(text);return text;}
+ case 'backupInspect':{const b=validateBackup(args[0]);return {...backupCounts(b),canRestore:!d.rides.length&&!d.fills.length&&!d.expenses.length&&!['offer','accepted'].includes(d.offer?.status)};}
+ case 'backupRestore':{if(args[1]!=='RESTORE_EMPTY')throw Error('Confirmação de restauração ausente.');if(d.rides.length||d.fills.length||d.expenses.length||['offer','accepted'].includes(d.offer?.status))throw Error('Esta instalação já contém registros ou corrida ativa. Nenhum dado foi alterado.');const b=validateBackup(args[0]);Object.assign(d,b);return backupCounts(d);}
  case 'dadosDashboard99':return d.rides.map(r=>r.slice(0,8));
  case 'dadosDashboardFuel':return d.fills;
  case 'financeDados':return finance(d);
@@ -30,7 +60,7 @@
  case 'webAction':{const [action,id]=args;let r=d.offer;if(action==='new'){if(r&&['offer','accepted'].includes(r.status))return state(d);r={id:uid('MOB-'),status:'offer',app:Math.random()<.5?'99':'Uber',gross:cents(12+Math.random()*48),pickupKm:1,tripKm:cents(3+Math.random()*15),pickupMin:4,tripMin:Math.round(8+Math.random()*30),rating:cents(4.5+Math.random()*.5),origin:'Embarque simulado',destination:'Destino simulado'};d.seen.push(r.id);d.offer=r;return state(d);}if(!r||r.id!==id)throw Error('A oferta mudou. Atualize.');if(action==='accept'){if(r.status==='accepted')return state(d);if(r.status!=='offer')throw Error('A corrida não está disponível para aceitar.');d.offer={...quote(r,d),status:'accepted'};}else if(action==='finish'){if(r.status==='finished')return state(d);if(r.status!=='accepted')throw Error('Aceite antes de finalizar.');if(!d.rides.some(x=>x[0]===r.id)){const end=new Date();d.rides.push([r.id,'finished',date(new Date(end-r.min*60000)),date(end),r.min*60,r.km,'Paid by Company',r.gross,r.app,r.pickupKm,r.tripKm,r.fuel,r.reserve,r.fixed,r.profit,r.origin,r.destination,r.rating]);}r.status='finished';}else if(action==='reject'){if(r.status==='rejected')return state(d);if(r.status!=='offer')throw Error('Ação inválida para esta corrida.');r.status='rejected';}else throw Error('Ação inválida para esta corrida.');return state(d);}
  default:throw Error('Função não disponível: '+name);
  }}
- const reads=new Set(['dadosDashboard99','dadosDashboardFuel','financeDados','auraDados','webState','settings']);
+ const reads=new Set(['dadosDashboard99','dadosDashboardFuel','financeDados','auraDados','webState','settings','backupExport','backupInspect']);
  async function invoke(name,...args){const execute=()=>{const d=read(),result=call(name,args,d);if(!reads.has(name)){const next=JSON.stringify(d);if(next!==localStorage.getItem(KEY)){localStorage.setItem(KEY,next);try{localStorage.setItem(BACKUP,next);}catch{storageNotice='Dados salvos, mas a cópia de segurança local não pôde ser atualizada.';console.warn(storageNotice);}window.dispatchEvent(new Event('vexo-update'));}}return clone(result);};return navigator.locks?navigator.locks.request(KEY,execute):execute();}
  function runner(ok=()=>{},fail=console.error){return new Proxy({}, {get(_,key){if(key==='withSuccessHandler')return f=>runner(f,fail);if(key==='withFailureHandler')return f=>runner(ok,f);return (...args)=>invoke(key,...args).then(ok).catch(fail);}});}
  window.Vexo={invoke,get run(){return runner();}};
