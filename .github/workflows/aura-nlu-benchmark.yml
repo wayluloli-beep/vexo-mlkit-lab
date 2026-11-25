@@ -1,4 +1,4 @@
-name: Aura NLU - benchmark real de 15 falas
+name: Aura NLU - diagnostico e sessoes encadeadas
 on:
   push:
     branches: [experiment/aura-query-engine-20261125]
@@ -7,34 +7,36 @@ permissions:
 jobs:
   benchmark:
     runs-on: ubuntu-24.04
-    timeout-minutes: 9
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@v4
-      - name: Validar contrato do executor (separado)
+      - name: Contrato do executor
         run: node vexo-web-pwa/test-aura-query-engine.cjs
-      - name: Avaliar interpretador real sem fallback oculto
+      - name: Repetir baseline e executar sessoes
         run: |
           node --input-type=module <<'JS'
           const base='https://vexo-aura-flash-bridge-xs69.onrender.com';
+          const pause=ms=>new Promise(r=>setTimeout(r,ms));
           let ready=false;
-          for(let i=0;i<8;i++){try{const h=await fetch(base+'/health',{signal:AbortSignal.timeout(20000)}).then(r=>r.json());if(h.revision==='aura-query-v3.1-nlu-lab'&&h.keyConfigured){ready=true;break}}catch{}await new Promise(r=>setTimeout(r,3000));}
+          for(let i=0;i<15;i++){try{const h=await fetch(base+'/health',{signal:AbortSignal.timeout(15000)}).then(r=>r.json());if(h.revision==='aura-query-v3.1-nlu-diagnostics'&&h.keyConfigured){ready=true;break}}catch{}await pause(3000);}
           if(!ready)throw Error('Laboratorio nao publicado');
-          let overall=false;
-          for(const v of ['2.5','3.5']){
-            let pass=0,attempted=0,transport=0;
-            for(let i=1;i<=15;i++){
-              attempted++;
-              let d;try{const r=await fetch(base+'/aura/nlu-benchmark/'+v+'/'+i,{method:'POST',signal:AbortSignal.timeout(24000)});d=await r.json();if(!r.ok)d={...d,http:r.status};}catch(e){d={pass:false,error:e.name};}
-              console.log('CASE',v,i,JSON.stringify(d));
-              if(d.pass)pass++;if(d.upstreamStatus||d.http||d.error==='TimeoutError')transport++;
-              if([401,403,404].includes(d.upstreamStatus)){console.log('BLOCKED',v,'upstream',d.upstreamStatus);break;}
-              if(d.http===429||d.upstreamStatus===429){console.log('BLOCKED',v,'quota');break;}
-              if(i<15)await new Promise(r=>setTimeout(r,4200));
-            }
-            console.log('RESULT',v,pass,'/15; attempted',attempted,'transport_failures',transport);
-            if(v==='2.5'&&pass===15){overall=true;break;}
-            if(v==='3.5'&&pass===15)overall=true;
-            if(v==='2.5')await new Promise(r=>setTimeout(r,60000));
+          async function request(path,timeout){try{const r=await fetch(base+path,{method:'POST',signal:AbortSignal.timeout(timeout)});return {...await r.json(),http:r.status};}catch(e){return {pass:false,error:e.name};}}
+          let pass=0;
+          for(let i=1;i<=15;i++){
+            const d=await request('/aura/nlu-benchmark/3.5/'+i,24000);
+            console.log('BASELINE',i,JSON.stringify(d));if(d.pass)pass++;
+            if(i<15)await pause(4500);
           }
-          if(!overall)process.exitCode=1;
+          console.log('BASELINE_RESULT',pass,'/15');
+          await pause(61000);
+          let turns=0,sessions=0;
+          for(const name of ['A','B','C']){
+            const d=await request('/aura/nlu-session/'+name,65000);
+            for(const t of d.turns||[])console.log('TURN',name,t.turn,JSON.stringify(t));
+            turns+=(d.turns||[]).filter(t=>t.pass).length;if(d.pass)sessions++;
+            console.log('SESSION_RESULT',name,d.pass===true,JSON.stringify(d.turns?{turns:d.turns.length}:{error:d.error,http:d.http}));
+            await pause(1000);
+          }
+          console.log('STATEFUL_RESULT',turns,'/9;',sessions,'/3');
+          if(pass!==15||sessions!==3)process.exitCode=1;
           JS
