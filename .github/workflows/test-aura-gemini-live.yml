@@ -1,37 +1,40 @@
-name: Aura Gemini - regressao de latencia
+name: Aura v2 - teste real do contrato Gemini
 on:
   push:
     branches: [test/vexo-aura-gemini-20261125]
 permissions:
   contents: read
 jobs:
-  smoke:
+  live:
     runs-on: ubuntu-latest
-    timeout-minutes: 4
+    timeout-minutes: 5
     steps:
-      - name: Testar revisao implantada e tres consultas reais
+      - name: Verificar a revisao online
         run: |
-          set -euo pipefail
-          BASE=https://vexo-aura-flash-bridge-xs69.onrender.com
-          for i in $(seq 1 8); do
-            if curl --fail --silent --show-error --max-time 25 "$BASE/health" -o /tmp/aura-health.json && node -e 'const a=require("/tmp/aura-health.json"); console.log("Revision:",a.revision,"model:",a.model);if(a.revision!=="aura-latency-r2"||!a.keyConfigured||a.status!=="ok")process.exit(1)'; then break; fi
-            sleep 4
-          done
-          node -e 'if(require("/tmp/aura-health.json").revision!=="aura-latency-r2")process.exit(1)'
+          curl --fail --silent --show-error --max-time 50 https://vexo-aura-flash-bridge-xs69.onrender.com/health -o /tmp/aura-health.json
+          node -e 'const a=require("/tmp/aura-health.json");console.log("Revision",a.revision,"models",a.models);if(a.revision!=="aura-query-v2"||!a.keyConfigured||a.status!=="ok")process.exit(1)'
+      - name: Conversa real e compatibilidade legada
+        run: |
           node --input-type=module <<'JS'
           const base='https://vexo-aura-flash-bridge-xs69.onrender.com';
-          const cases=[['Oi','saudacao',''],['Quanto desembolsei hoje?','despesas',''],['E nos últimos 15?','ganhos','Quanto ganhei hoje?']];
+          const cases=[
+            {q:'Sabe me dizer se trabalhei mais na Uber ou na 99?',intent:'plataformas'},
+            {q:'E quanto tempo fiquei em viagens?',intent:'duracao'},
+            {q:'E na 99?',intent:'duracao',platform:'99',ctx:{intent:'duracao',period:'semana',platform:'todos'}},
+            {q:'Me informa o faturamento e a distância de hoje',intent:'multi',metrics:['ganhos','distancia']},
+            {q:'Quanto gastei?',intent:'despesas',legacy:true}
+          ];
           let passed=0;
-          for(const [question,intent,previous] of cases){
-            const t=Date.now();
+          for(const c of cases){
+            const start=Date.now();
             try{
-              const r=await fetch(base+'/aura',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({question,previous,history:[]}),signal:AbortSignal.timeout(22000)});
-              const data=await r.json();if(!r.ok)throw Error('HTTP '+r.status+' '+data.error);
-              const answer=JSON.parse(data.text);
-              if(answer.intent!==intent||(previous&&answer.period!=='quinze'))throw Error('Contrato: '+answer.intent+' '+answer.period);
-              passed++;console.log('PASS',intent,Date.now()-t,'ms');
-            }catch(e){console.log('FAIL',intent,Date.now()-t,'ms',e.message)}
+              const r=await fetch(base+(c.legacy?'/aura':'/aura/v2'),{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(c.legacy?{question:c.q}:{protocol:2,question:c.q,context:c.ctx||null}),signal:AbortSignal.timeout(31000)});
+              const body=await r.json();if(!r.ok)throw Error('HTTP '+r.status+' '+body.error);
+              const a=JSON.parse(body.text);
+              if(a.intent!==c.intent||(c.platform&&a.platform!==c.platform)||(c.ctx&&a.period!==c.ctx.period)||(c.metrics&&!c.metrics.every(x=>a.metrics.includes(x)))||(!c.legacy&&body.protocol!==2))throw Error('Contrato '+JSON.stringify(a));
+              console.log('PASS',c.intent,body.model,Date.now()-start,'ms');passed++;
+            }catch(e){console.log('FAIL',c.intent,Date.now()-start,'ms',e.message)}
           }
-          console.log('RESULT',passed,'/ 3');
-          if(passed!==3)process.exitCode=1;
+          console.log('RESULT',passed,'/',cases.length);
+          if(passed!==cases.length)process.exitCode=1;
           JS
