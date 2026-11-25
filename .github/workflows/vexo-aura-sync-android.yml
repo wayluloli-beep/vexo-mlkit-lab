@@ -1,7 +1,7 @@
 name: VEXO Web Android - Aura Sync
 on:
   push:
-    branches: [build/vexo-aura-sync-2-1-20261125]
+    branches: [build/vexo-aura-sync-2-2-20261125]
   workflow_dispatch:
 permissions:
   contents: write
@@ -51,11 +51,11 @@ jobs:
           done
           cd build/webapk
           cat > AndroidManifest.xml <<'EOF'
-          <manifest xmlns:android="http://schemas.android.com/apk/res/android" package="com.vexo.webintegridade.aura21" android:versionCode="1" android:versionName="2.1-aura-test">
+          <manifest xmlns:android="http://schemas.android.com/apk/res/android" package="com.vexo.webintegridade.aura22" android:versionCode="1" android:versionName="2.2-aura-test">
             <uses-sdk android:minSdkVersion="23" android:targetSdkVersion="34"/>
             <uses-permission android:name="android.permission.INTERNET"/>
             <queries><intent><action android:name="android.intent.action.TTS_SERVICE"/></intent><intent><action android:name="android.speech.action.RECOGNIZE_SPEECH"/></intent></queries>
-            <application android:label="VEXO Aura 2.1 Teste" android:theme="@android:style/Theme.Material.NoActionBar" android:usesCleartextTraffic="false" android:allowBackup="false">
+            <application android:label="VEXO Aura 2.2 Teste" android:theme="@android:style/Theme.Material.NoActionBar" android:usesCleartextTraffic="false" android:allowBackup="false">
               <activity android:name=".MainActivity" android:exported="true">
                 <intent-filter><action android:name="android.intent.action.MAIN"/><category android:name="android.intent.category.LAUNCHER"/></intent-filter>
               </activity>
@@ -63,7 +63,7 @@ jobs:
           </manifest>
           EOF
           cat > MainActivity.java <<'EOF'
-          package com.vexo.webintegridade.aura21;
+          package com.vexo.webintegridade.aura22;
           import android.app.Activity;
           import android.os.Bundle;
           import android.content.Intent;
@@ -174,4 +174,4 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          gh release create vexo-aura-sync-2-1-20261125 build/webapk/VEXO-Aura-Sync.apk /tmp/VEXO-Aura-Sync-Codigo-Fonte.zip --target "$GITHUB_SHA" --title 'VEXO Aura Sync 2.1 - esclarecimento local' --notes 'Candidato 2.1: esclarecimento local de unidade por um turno, telemetria por tentativa, sem mudanca de layout.  NLU 24/24 no laboratorio, adapter e timeout total 5s, cancelamento e logs locais. Escopo limitado as nove metricas aprovadas; consultas detalhadas legadas nao integradas. Voz fisica e rede movel ainda nao verificadas. Instalacao separada; exporte backup da 1.6 antes de importar. Sem OCR nativo nesta variante web.' --prerelease
+          gh release create vexo-aura-sync-2-2-20261125 build/webapk/VEXO-Aura-Sync.apk /tmp/VEXO-Aura-Sync-Codigo-Fonte.zip --target "$GITHUB_SHA" --title 'VEXO Aura Sync 2.2 - guarda local' --notes 'Candidato 2.2: guarda estrita de ambiguidade e unidade isolada; mesmo timeout de 5s, sem mudanca de layout.  NLU 24/24 no laboratorio, adapter e timeout total 5s, cancelamento e logs locais. Escopo limitado as nove metricas aprovadas; consultas detalhadas legadas nao integradas. Voz fisica e rede movel ainda nao verificadas. Instalacao separada; exporte backup da 1.6 antes de importar. Sem OCR nativo nesta variante web.' --prerelease

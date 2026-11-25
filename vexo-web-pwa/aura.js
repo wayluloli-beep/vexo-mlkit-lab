@@ -35,9 +35,13 @@ async function ask(q,stt=false,quick=null){
   const readData=()=>Vexo.invoke('auraDados');
   let result;
   const local=quick?null:AuraAdapter.resolvePending(q,pending,previous);
+  const guard=quick||local?null:AuraAdapter.localGuard(q,previous);
   if(local){status='LOCAL_CLARIFICATION';intent='SIMULATE_RIDE';active.intent=intent;
    result=local.error?{text:local.error,kind:'clarify',context:previous,intent}:await AuraAdapter.execute(local.wire,previous,{engine:AuraQueryEngine,core:AuraCore,readData});
    result={...result,source:'Aura · esclarecimento local'};if(result.kind==='unavailable')status='LOCAL_UNAVAILABLE';
+  }else if(guard){status='LOCAL_CLARIFICATION';intent='CLARIFY';active.intent=intent;
+   if(current())pending_clarification=guard.pending||null;
+   result={text:guard.text,kind:'clarify',context:previous,intent,source:'Aura · esclarecimento local'};
   }else if(quick){const b=await readData(),s=AuraCore.snapshot(b.finance,b.rates,'hoje');result={text:AuraCore.answer(quick,s),source:'Dados locais · atalho',kind:'concept',context:previous,intent:'LOCAL_SHORTCUT'};}
   else{
    const response=await AuraMobileTransport.run((signal,attempt)=>{timing.push({request_id:requestId,attempt,client_send_ms:Date.now(),server_receive_ms:null,gemini_api_ms:null,server_total_ms:null});return fetch(PROXY,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({protocol:5,question:q,context:previous,request_id:requestId,attempt}),signal});},{signal:controller.signal,onAttempt:(attempt,meta)=>{const t=timing.find(x=>x.attempt===attempt);if(t)Object.assign(t,meta);},onSlow:()=>{if(current())setStatus('Calculando…')}});

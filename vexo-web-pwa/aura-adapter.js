@@ -71,6 +71,17 @@ function resolvePending(question,pending,state){
  const {platform,...r}=state.active_ride_simulation;
  try{return {wire:validate({intent:'SIMULATE_RIDE',ride_simulation:{...r,[field]:pending.candidate_value,ride_platform:platform}})}}catch{return {error:'O valor não é válido para essa unidade. Informe o valor e a unidade novamente.'};}
 }
-return {validate,execute,empty,restore,pendingFor,resolvePending};
+
+function localGuard(question,state){
+ const u=unitField(question);
+ if(u){const names={fare_brl:'reais',distance_km:'quilômetros',duration_min:'minutos'};return {kind:'unit_without_pending',text:'Qual valor você quer aplicar em '+names[u]+'? Informe o valor junto com a unidade.'};}
+ if(!state?.active_ride_simulation)return null;
+ // Whole-utterance whitelist, not a general parser. Bare platform 99 is deliberately excluded.
+ const m=normal(question).match(/^(?:e(?:\s+por|\s+se(?:\s+(?:for|forem|fosse|fossem))?)?|por|para|pra|com|em)\s+(\d{1,6}(?:[,.]\d{1,2})?)\s*[?!.]*$/);
+ if(!m||m[1]==='99')return null;
+ const value=Number(m[1].replace(',','.'));if(!Number.isFinite(value)||value<0||value>100000)return null;
+ return {kind:'ambiguous',text:'Qual é a unidade: reais, quilômetros ou minutos?',pending:{type:'AMBIGUOUS_UNIT',candidate_value:value,target_intent:'SIMULATE_RIDE',expires_after_turns:1}};
+}
+return {validate,execute,empty,restore,pendingFor,resolvePending,localGuard};
 })();
 if(typeof module!=='undefined')module.exports=AuraAdapter;
