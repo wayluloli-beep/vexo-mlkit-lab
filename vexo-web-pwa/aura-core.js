@@ -359,6 +359,11 @@ async function resolve(question,previous,{readData,interpret,now=new Date(),onPh
  const displayFrom=query.record?.from||s.from,displayTo=query.record?.to||s.to;
  return {text:reply,source:source+' · '+displayFrom.split('-').reverse().join('/')+' a '+displayTo.split('-').reverse().join('/'),context:{...query,reply:''},snapshot:s};
 }
-return {snapshot,parse,answer,plan,range,cleanQuery,resolve,recordPlan,catalog:keys,recordFields};
+// Read-only union of dates. Reuse the existing normalized per-fill cost; never double count.
+function fuelSpentForRanges(raw,ranges){
+ const data=Core.normalize(raw),fills=data.fills.filter(f=>ranges.some(r=>Core.day(f.date)>=r.from&&Core.day(f.date)<=r.to));
+ return {value:Core.cents(Core.sum(fills,f=>f.cost)),count:fills.length};
+}
+return {snapshot,parse,answer,plan,range,cleanQuery,resolve,recordPlan,catalog:keys,recordFields,fuelSpentForRanges};
 })();
 if(typeof module!=='undefined')module.exports=AuraCore;

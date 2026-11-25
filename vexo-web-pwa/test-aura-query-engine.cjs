@@ -17,6 +17,13 @@ async function verify(E,core,fixture){
  await run(p(r({operation:'ratio',metric:'valor_km'})),v=>v.results[0].value===2.02);
  const previous=session;await run(p(s('clarify',{missing:'metric'})),v=>v.session===previous);
  for(const bad of [p(r({period:{from:'2026-02-31',to:'2026-03-01'}})),p(r({platform:'uber'})),p(r({filters:[{field:'__proto__',op:'gt',value:2}]})),p(s('offer',{gross:30,km:'15',minutes:25})),p(s('write',{data:1})),{mode:'revise',baseTurn:session.turn-1,step:0,changes:{period:'ontem'}},p(r({operation:'sum',metric:'valor_km'})),p(r({operation:'count',clock:{start:1500,end:1600}}))]){const n=reads;let rejected=false;try{await E.run(bad,session,env)}catch{rejected=true}check(rejected&&reads===n,'Invalid command reached data');}
+ const fuel=(ranges,platform='all')=>p(s('fuel_spent',{ranges,platform})),range=(from,to=from)=>({from,to});
+ const split=await run(fuel([range('2026-11-24'),range('2026-11-25')]),v=>v.results[0].value===240&&v.results[0].count===2);
+ await run(fuel([range('2026-11-24','2026-11-25')]),v=>v.results[0].value===split.results[0].value);
+ await run(fuel([range('2026-11-24','2026-11-25'),range('2026-11-25')]),v=>v.results[0].value===240&&v.results[0].count===2);
+ const gapRaw=fixture();gapRaw.fills.unshift(['F0','2026-11-23T07:00:00',800,10,5,'Gasolina',true,'Posto']);
+ const gap=await E.run(fuel([range('2026-11-23'),range('2026-11-25')]),null,{...env,readData:async()=>({finance:gapRaw,rates})});check(gap.results[0].value===170&&gap.results[0].count===2,'Exclude intermediate date');
+ const beforeReject=reads;let rejected=false;try{await E.run(fuel([range('2026-11-24')],'99'),session,env)}catch{rejected=true}check(rejected&&reads===beforeReject,'No invented fuel allocation');
  check(JSON.stringify(raw)===JSON.stringify(fixture()),'Data modified');return passed;
 }
 verify(require('./aura-query-engine.js'),require('./aura-core.js'),require('./test-aura-fixture.cjs')).then(n=>console.log('Engine contracts: '+n+' approved')).catch(e=>{console.error(e);process.exitCode=1;});

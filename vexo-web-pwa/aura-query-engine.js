@@ -17,6 +17,7 @@ function validateStep(s,core,now){
  case 'offer':keys(a,['gross','km','minutes']);return {tool:s.tool,args:{gross:num(a.gross,0,100000),km:num(a.km,.01,3000),minutes:num(a.minutes,.01,2880)}};
  case 'explain':keys(a,['concepts']);check(Array.isArray(a.concepts)&&a.concepts.length>0&&a.concepts.length<=4);return {tool:s.tool,args:{concepts:a.concepts.map(x=>one(x,Object.keys(concepts)))}};
  case 'clarify':keys(a,['missing']);return {tool:s.tool,args:{missing:one(a.missing,['period','metric','offer','scope','unsupported'])}};
+ case 'fuel_spent':keys(a,['ranges','platform']);check(a.platform==='all','Gastos de combustível não possuem rateio por plataforma');check(Array.isArray(a.ranges)&&a.ranges.length>0&&a.ranges.length<=4,'Períodos inválidos');return {tool:s.tool,args:{platform:'all',ranges:a.ranges.map(r=>{keys(r,['from','to']);const from=day(r.from),to=day(r.to);check(from<=to,'Intervalo invertido');return {from,to};})}};
  case 'finance':keys(a,['period','metric']);return {tool:s.tool,args:{period:one(a.period,periods),metric:one(a.metric,['saldo','lucro','despesas','combustivel_gasto','litros','abastecimentos','preco_litro','meta','consumo_kml','custo_km','cancelamentos','espera'])}};
  case 'rides':{
  keys(a,['period','platform','source','status','operation','metric','filters','clock','fields','direction','recordId']);
@@ -50,6 +51,7 @@ function execute(s,b,rows,core,now){
  const a=s.args;
  if(s.tool==='explain')return {kind:'concepts',items:a.concepts.map(k=>({key:k,text:concepts[k]}))};
  if(s.tool==='clarify')return {kind:'clarification',missing:a.missing};
+ if(s.tool==='fuel_spent'){const v=core.fuelSpentForRanges(b.finance,a.ranges);return {kind:'fuel_spent',value:v.value,count:v.count,evidence:{ranges:a.ranges,platform:'all',basis:'paid_fuel'}};}
  if(s.tool==='finance'){const x=core.snapshot(b.finance,b.rates,a.period,now);return {kind:'finance',text:core.answer(a.metric,x),period:{from:x.from,to:x.to}};}
  if(s.tool==='offer'){const r=b.rates;if(!r||![r.fuel,r.reserve,r.fixed].every(x=>Number.isFinite(x)&&x>=0))return {kind:'unavailable',reason:'Parâmetros de custos ausentes'};
  const fuel=round(a.km*r.fuel),reserve=round(a.km*r.reserve),fixed=round(a.minutes/60*r.fixed),margin=round(a.gross-fuel-reserve-fixed);return {kind:'offer',inputs:a,fuel,reserve,fixed,margin,marginPerHour:round(margin*60/a.minutes),estimated:true};}
