@@ -51,6 +51,26 @@ async function execute(wire,state,{engine,core,readData,now=new Date()}){
  }).filter(Boolean).join('\n\n');
  if(!text)fail('empty_result');return {text,kind:'success',context:commit(state,p),intent:p.intent,source:'Gemini · cálculo local VEXO'};
 }
-return {validate,execute,empty,restore};
+
+const normal=s=>String(s??'').normalize('NFD').replace(/[\u0300-\u036f]/g,'').toLowerCase().trim();
+function pendingFor(question,wire,state){
+ if(wire?.intent!=='CLARIFY'||wire.clarification_reason!=='AMBIGUOUS_UNIT'||!state?.active_ride_simulation)return null;
+ const m=normal(question).match(/^(?:e\s+)?(?:se\s+(?:fosse|forem)\s+|por\s+|(?:fosse|forem)\s+)?(\d{1,6}(?:[,.]\d{1,2})?)\s*[?!]*$/);
+ if(!m)return null;const value=Number(m[1].replace(',','.'));if(!Number.isFinite(value)||value<0||value>100000)return null;
+ return {type:'AMBIGUOUS_UNIT',candidate_value:value,target_intent:'SIMULATE_RIDE',expires_after_turns:1};
+}
+function unitField(question){
+ const u=normal(question).replace(/[.!?;,:]+$/g,'').trim().replace(/^a unidade (?:e|eh)\s+/,'').replace(/^(?:(?:em|de|no|na|o|a|os|as)\s+)+/,'').trim();
+ if(['r$','real','reais'].includes(u))return 'fare_brl';
+ if(['km','quilometro','quilometros','kilometro','kilometros'].includes(u))return 'distance_km';
+ if(['min','minuto','minutos'].includes(u))return 'duration_min';return null;
+}
+function resolvePending(question,pending,state){
+ if(!pending||pending.type!=='AMBIGUOUS_UNIT'||pending.target_intent!=='SIMULATE_RIDE'||pending.expires_after_turns!==1||!state?.active_ride_simulation)return null;
+ const field=unitField(question);if(!field)return null;
+ const {platform,...r}=state.active_ride_simulation;
+ try{return {wire:validate({intent:'SIMULATE_RIDE',ride_simulation:{...r,[field]:pending.candidate_value,ride_platform:platform}})}}catch{return {error:'O valor não é válido para essa unidade. Informe o valor e a unidade novamente.'};}
+}
+return {validate,execute,empty,restore,pendingFor,resolvePending};
 })();
 if(typeof module!=='undefined')module.exports=AuraAdapter;

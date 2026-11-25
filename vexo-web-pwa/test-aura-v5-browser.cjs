@@ -13,6 +13,7 @@ const {chromium}=require('playwright'),assert=require('node:assert/strict'),{spa
  if(b.question==='Simula 30 reais 12 km 25 min')return respond(sim(30,12,25));
  if(b.question==='E 15 km?'){assert.equal(b.context.active_ride_simulation.fare_brl,30);return respond(sim(30,15,25))}
  if(b.question==='E por 35?')return respond({intent:'CLARIFY',clarification_reason:'AMBIGUOUS_UNIT'});
+ if(['Reais','Em reais.','Minutos','km'].includes(b.question))return respond({intent:'OUT_OF_SCOPE'});
  if(b.question==='Falha')return respond(null,503);
  if(b.question==='Recupera'&&retry++===0)return respond(null,503);
  if(b.question==='Recupera')return respond(sim(30,15,25));
@@ -28,14 +29,21 @@ const {chromium}=require('playwright'),assert=require('node:assert/strict'),{spa
  const memory=()=>page.evaluate(()=>localStorage.getItem('vexo-aura-session-v5'));
  await ask('Simula 30 reais 12 km 25 min',/Margem estimada/);await ask('E 15 km?',/15 km/);const prior=await memory();
  await ask('E por 35?',/unidade/);assert.equal(await memory(),prior);n++;
+ const count=requests.length;await ask('Em reais.',/35,00 · 15 km · 25 min/);assert.equal(requests.length,count);n++;
+ assert.equal(JSON.parse(await memory()).active_ride_simulation.fare_brl,35);n++;
+ await ask('Simula 30 reais 12 km 25 min',/Margem estimada/);await ask('E 15 km?',/15 km/);assert.equal(await memory(),prior);
+ await ask('E por 35?',/unidade/);
  await ask('Falha',/Rede instável/);assert.equal(await memory(),prior);assert.equal(requests.filter(x=>x.question==='Falha').length,2);n++;
+ await ask('Reais',/não está disponível/);assert.equal(await memory(),prior);assert.equal(requests.filter(x=>x.question==='Reais').length,1);n++;
+ await ask('E por 35?',/unidade/);const voiceCount=requests.length;await page.locator('#mic').click();await page.evaluate(()=>window.vexoAuraRecognized('Reais.',window.__listen));await page.waitForFunction(()=>!document.querySelector('#send').disabled);assert.equal(requests.length,voiceCount);assert.equal(JSON.parse(await memory()).active_ride_simulation.fare_brl,35);n++;
+ await ask('Simula 30 reais 12 km 25 min',/Margem estimada/);await ask('E 15 km?',/15 km/);
  await ask('Recupera',/Margem estimada/);assert.equal(requests.filter(x=>x.question==='Recupera').length,2);n++;
  await ask('Contrato inválido',/Não consegui validar/);assert.equal(await memory(),prior);n++;
  await ask('Quanto ganhei hoje?',/209,20/);
  await page.locator('#question').fill('Resposta atrasada');await page.locator('#send').click();await page.waitForFunction(()=>document.querySelector('#send').disabled);
  await page.locator('#mic').click();await page.evaluate(()=>window.vexoAuraRecognized('E 15 km?',window.__listen));await page.waitForFunction(()=>!document.querySelector('#send').disabled);await page.waitForTimeout(1900);
  assert.match(await page.locator('.msg.aura').last().innerText(),/15 km/);assert.ok(!await page.locator('.msg.aura').filter({hasText:'99,00 · 22'}).count());n++;
- const logs=await page.evaluate(()=>JSON.parse(window.vexoAuraDebugLogs()));assert.ok(logs.some(x=>x.status_rede==='CANCELED'));assert.ok(logs.some(x=>x.texto_stt==='E 15 km?'&&x.status_rede==='OK'));assert.ok(await page.evaluate(()=>window.__voice.includes('STOP')&&window.__voice.some(x=>x.includes('Margem estimada'))));n+=3;
+ const logs=await page.evaluate(()=>JSON.parse(window.vexoAuraDebugLogs()));assert.ok(logs.some(x=>x.status_rede==='LOCAL_CLARIFICATION'&&x.request_timing.length===0));assert.ok(logs.some(x=>x.status_rede==='CANCELED'));assert.ok(logs.some(x=>x.texto_stt==='E 15 km?'&&x.status_rede==='OK'));assert.ok(await page.evaluate(()=>window.__voice.includes('STOP')&&window.__voice.some(x=>x.includes('Margem estimada'))));n+=3;
  await page.reload();assert.equal(JSON.parse(await memory()).active_ride_simulation.distance_km,15);n++;
  assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth),true);assert.deepEqual(errors,[]);n+=2;
  console.log('Mobile v5 browser: '+n+' checks passed; upstream mocked; no physical STT/TTS');
