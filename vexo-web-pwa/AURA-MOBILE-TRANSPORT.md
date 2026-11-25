@@ -1,0 +1,3 @@
+# Candidate: mobile transport
+
+Experimental, not connected to the APK. Each attempt has 2.5 seconds including JSON decode, with one retry after 500 ms for timeout/network/503. On persistent failure return the short voice/text fallback. No state mutation. HTTP 429 returns immediately instead of amplifying quota pressure. The future server must honor the short budget and deduplicate retried requests; aborting the client does not guarantee cancellation of upstream work. Tests use mocked transport and timers; voice playback and actual network latency have not been validated. The caller must validate the semantic plan and commit state only after successful local execution.
