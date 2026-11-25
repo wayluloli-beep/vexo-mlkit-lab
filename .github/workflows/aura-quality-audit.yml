@@ -1,0 +1,25 @@
+name: Aura - auditoria de qualidade sem publicar APK
+on:
+  push:
+    branches: [test/vexo-aura-quality-20261125]
+permissions:
+  contents: read
+jobs:
+  audit:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Regressoes completas do motor
+        run: |
+          node vexo-web-pwa/test-stress.cjs
+          node vexo-web-pwa/test-integration.cjs
+          node vexo-web-pwa/test-aura.cjs
+          node vexo-web-pwa/test-aura-flow.cjs
+          node vexo-web-pwa/test-aura-records.cjs
+          node vexo-web-pwa/test-aura-quality.cjs
+      - name: Navegador mobile
+        working-directory: vexo-web-pwa
+        run: |
+          npm install --no-save --no-package-lock playwright@1.56.1
+          npx playwright install chromium
+          node test-aura-browser.cjs
