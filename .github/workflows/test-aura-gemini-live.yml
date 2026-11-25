@@ -1,4 +1,4 @@
-name: Aura v3 - contrato de historico
+name: Aura v3.1 - consulta natural e filtros reais
 on:
   push:
     branches: [test/vexo-aura-gemini-20261125]
@@ -9,24 +9,26 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 4
     steps:
-      - name: Verificar revisao e consultas sem dados pessoais
+      - name: Verificar revisao e consultas sinteticas
         run: |
           node --input-type=module <<'JS'
           const base='https://vexo-aura-flash-bridge-xs69.onrender.com';
           const h=await fetch(base+'/health',{signal:AbortSignal.timeout(50000)}).then(r=>r.json());
-          console.log('Revision:',h.revision);if(h.revision!=='aura-query-v3'||!h.keyConfigured)process.exit(1);
-          const cases=[['Quais horários foram feitos as corridas?','list'],['Quais informações você tem acesso das corridas?','capabilities'],['Qual foi a corrida mais cara?','max']];
+          console.log('Revision:',h.revision);if(h.revision!=='aura-query-v3.1'||!h.keyConfigured)process.exit(1);
+          const cases=[
+            {q:'De manhã, quantas viagens me renderam mais de 25 reais?',check:p=>p.intent==='registros'&&p.record?.operation==='count'&&p.record?.threshold?.value===25&&p.record?.clock?.start===360},
+            {q:'Em 24/11/2026, quais foram os horários de início das viagens?',check:p=>p.intent==='registros'&&p.record?.from==='2026-11-24'&&p.record?.to==='2026-11-24'&&p.record.fields.includes('inicio')},
+            {q:'O que significa faturamento bruto?',check:p=>['conversa','esclarecer'].includes(p.intent)&&p.reply.length>0}
+          ];
           let passed=0;
-          for(const [question,operation] of cases){
+          for(const c of cases){
             const t=Date.now();
             try{
-              const r=await fetch(base+'/aura/v3',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({question,protocol:3,context:null}),signal:AbortSignal.timeout(31000)});
+              const r=await fetch(base+'/aura/v3',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({question:c.q,protocol:3,context:null}),signal:AbortSignal.timeout(31000)});
               const b=await r.json();if(!r.ok)throw Error('HTTP '+r.status+' '+b.error);
-              const p=JSON.parse(b.text);if(b.protocol!==3||p.intent!=='registros'||p.record?.operation!==operation)throw Error('Contrato '+JSON.stringify(p));
-              if(operation==='list'&&!p.record.fields.includes('inicio'))throw Error('Campo inicio ausente');
-              if(operation==='max'&&p.record.sort!=='valor')throw Error('Ordenacao incorreta');
-              passed++;console.log('PASS',operation,b.model,Date.now()-t,'ms');
-            }catch(e){console.log('FAIL',operation,e.message)}
+              const p=JSON.parse(b.text);if(b.protocol!==3||!c.check(p))throw Error('Contrato '+JSON.stringify(p));
+              passed++;console.log('PASS',p.intent,b.model,Date.now()-t,'ms');
+            }catch(e){console.log('FAIL',c.q,e.message)}
           }
           console.log('RESULT',passed,'/',cases.length);
           if(passed!==cases.length)process.exitCode=1;
