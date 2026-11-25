@@ -30,6 +30,29 @@ async function advise(question,{readData,core,transport,now=new Date(),signal}={
  if(typeof answer?.answer!=='string'||!answer.answer.trim()||answer.answer.length>12000)throw Error('Resposta indisponivel');
  return {text:answer.answer.trim(),source:'Aura · Dify + dados agregados',kind:'advice',intent:'ADVICE'};
 }
-return {project,advise,isStrategy,periodFor};
+
+// Only whole, explicit, single-metric questions. No guessing and no financial updates.
+function localWire(question,core,now=new Date()){
+ const q=norm(question).replace(/[?.!]+$/,'').trim();
+ const suffix='(?:hoje|ontem|(?:nesta|nessa|esta|essa|na) semana|(?:neste|nesse|este|esse|no) mes|nos ultimos 7 dias)';
+ const patterns=[
+ ['FINANCE','GROSS_REVENUE','(?:quanto (?:eu )?(?:ganhei|faturei)|qual (?:foi )?meu faturamento) '+suffix],
+ ['FINANCE','NET_PROFIT','(?:qual (?:foi )?(?:o )?meu lucro|quanto (?:eu )?lucrei) '+suffix],
+ ['RIDES','RIDE_COUNT','(?:quantas corridas (?:eu )?(?:fiz|finalizei)|quantas corridas) '+suffix],
+ ['FUEL','FUEL_SPENT','(?:quanto (?:eu )?gastei (?:com|de|em) combustivel|quanto paguei (?:de|em) combustivel) '+suffix],
+ ['FUEL','FUEL_EFFICIENCY_KM_L','(?:qual (?:e )?(?:o )?meu consumo|quantos km por litro(?: meu carro faz)?)'],
+ ['GOALS','GOAL_STATUS','(?:qual (?:e )?(?:a )?minha meta mensal|quanto falta para minha meta mensal)']
+ ];
+ const match=patterns.find(x=>new RegExp('^'+x[2]+'
+})();
+if(typeof module!=='undefined')module.exports=AuraDashboardContext;
+).test(q));
+ if(!match||typeof core?.range!=='function')return null;
+ const [domain,metric]=match;
+ const p=['FUEL_EFFICIENCY_KM_L','GOAL_STATUS'].includes(metric)?'hoje':periodFor(q);
+ const [start_date,end_date]=core.range(p,now);
+ return {intent:'QUERY_DATA',data_queries:[{domain,metric,start_date,end_date,query_platform:'ALL'}]};
+}
+return {project,advise,isStrategy,periodFor,localWire};
 })();
 if(typeof module!=='undefined')module.exports=AuraDashboardContext;
