@@ -1,7 +1,7 @@
 name: VEXO Web Android - Aura Sync
 on:
   push:
-    branches: [build/vexo-aura-sync-1-6-20261125]
+    branches: [build/vexo-aura-sync-2-0-20261125]
   workflow_dispatch:
 permissions:
   contents: write
@@ -24,12 +24,13 @@ jobs:
           node vexo-web-pwa/test-aura-quality.cjs
           node vexo-web-pwa/test-backup.cjs
           node vexo-web-pwa/test-advisor.cjs
+          node vexo-web-pwa/test-aura-adapter.cjs
       - name: Testar conversa na interface mobile
         working-directory: vexo-web-pwa
         run: |
           npm install --no-save --no-package-lock playwright@1.56.1
           npx playwright install chromium
-          node test-aura-browser.cjs
+          node test-aura-v5-browser.cjs
           node test-backup-browser.cjs
           rm -rf node_modules
       - name: Compilar APK Android independente
@@ -44,16 +45,16 @@ jobs:
             "$SM" --install "platforms;android-35" "build-tools;35.0.0"
           fi
           mkdir -p build/webapk/{assets,classes,dex}
-          for f in index.html mobile-original.html driver.html fuel.html finance.html data.js settings.js responsive.css chart.umd.min.js aura.html aura-core.js aura-advisor.js aura.js; do
+          for f in index.html mobile-original.html driver.html fuel.html finance.html data.js settings.js responsive.css chart.umd.min.js aura.html aura-core.js aura-query-engine.js aura-adapter.js aura-mobile-transport.js aura.js; do
             cp "vexo-web-pwa/$f" build/webapk/assets/
           done
           cd build/webapk
           cat > AndroidManifest.xml <<'EOF'
-          <manifest xmlns:android="http://schemas.android.com/apk/res/android" package="com.vexo.webintegridade.aura16" android:versionCode="1" android:versionName="1.6-aura">
+          <manifest xmlns:android="http://schemas.android.com/apk/res/android" package="com.vexo.webintegridade.aura20" android:versionCode="1" android:versionName="2.0-aura-test">
             <uses-sdk android:minSdkVersion="23" android:targetSdkVersion="34"/>
             <uses-permission android:name="android.permission.INTERNET"/>
             <queries><intent><action android:name="android.intent.action.TTS_SERVICE"/></intent><intent><action android:name="android.speech.action.RECOGNIZE_SPEECH"/></intent></queries>
-            <application android:label="VEXO Aura 1.6" android:theme="@android:style/Theme.Material.NoActionBar" android:usesCleartextTraffic="false" android:allowBackup="false">
+            <application android:label="VEXO Aura 2.0 Teste" android:theme="@android:style/Theme.Material.NoActionBar" android:usesCleartextTraffic="false" android:allowBackup="false">
               <activity android:name=".MainActivity" android:exported="true">
                 <intent-filter><action android:name="android.intent.action.MAIN"/><category android:name="android.intent.category.LAUNCHER"/></intent-filter>
               </activity>
@@ -61,7 +62,7 @@ jobs:
           </manifest>
           EOF
           cat > MainActivity.java <<'EOF'
-          package com.vexo.webintegridade.aura16;
+          package com.vexo.webintegridade.aura20;
           import android.app.Activity;
           import android.os.Bundle;
           import android.content.Intent;
@@ -79,10 +80,11 @@ jobs:
             private TextToSpeech tts;
             private boolean ttsReady=false;
             private boolean listening=false;
+            private String listenToken;
             private String pendingBackup;
             private ValueCallback<Uri[]> backupPicker;
             private static final String HOST="vexo.local";
-            private static final Set<String> FILES=new HashSet<>(Arrays.asList("index.html","mobile-original.html","driver.html","fuel.html","finance.html","data.js","settings.js","responsive.css","chart.umd.min.js","aura.html","aura-core.js","aura-advisor.js","aura.js"));
+            private static final Set<String> FILES=new HashSet<>(Arrays.asList("index.html","mobile-original.html","driver.html","fuel.html","finance.html","data.js","settings.js","responsive.css","chart.umd.min.js","aura.html","aura-core.js","aura-query-engine.js","aura-adapter.js","aura-mobile-transport.js","aura.js"));
             @Override public void onCreate(Bundle state) {
               super.onCreate(state);
               getWindow().setStatusBarColor(Color.rgb(8,11,18));
@@ -133,13 +135,16 @@ jobs:
             }
             public class VoiceBridge{
               @JavascriptInterface public void speak(final String text){runOnUiThread(new Runnable(){public void run(){if(ttsReady&&text!=null&&text.length()<=2500)tts.speak(text,TextToSpeech.QUEUE_FLUSH,null,"aura");else Toast.makeText(MainActivity.this,"Voz em português indisponível",Toast.LENGTH_SHORT).show();}});}
+              @JavascriptInterface public void copyDebug(final String text){runOnUiThread(()->{if(text!=null&&text.length()<=100000){android.content.ClipboardManager cb=(android.content.ClipboardManager)getSystemService(CLIPBOARD_SERVICE);cb.setPrimaryClip(android.content.ClipData.newPlainText("VEXO Aura debug",text));Toast.makeText(MainActivity.this,"Log copiado",Toast.LENGTH_SHORT).show();}});}
               @JavascriptInterface public void stop(){runOnUiThread(new Runnable(){public void run(){if(tts!=null)tts.stop();}});}
-              @JavascriptInterface public void listen(){runOnUiThread(new Runnable(){public void run(){if(listening)return;try{if(tts!=null)tts.stop();Intent i=new Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH);i.putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL,RecognizerIntent.LANGUAGE_MODEL_FREE_FORM);i.putExtra(RecognizerIntent.EXTRA_LANGUAGE,"pt-BR");i.putExtra(RecognizerIntent.EXTRA_MAX_RESULTS,1);listening=true;startActivityForResult(i,42);}catch(Exception e){listening=false;Toast.makeText(MainActivity.this,"Reconhecimento de voz indisponível",Toast.LENGTH_SHORT).show();}}});}
+              @JavascriptInterface public void listen(final String token){runOnUiThread(new Runnable(){public void run(){if(listening)return;listenToken=token;try{if(tts!=null)tts.stop();Intent i=new Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH);i.putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL,RecognizerIntent.LANGUAGE_MODEL_FREE_FORM);i.putExtra(RecognizerIntent.EXTRA_LANGUAGE,"pt-BR");i.putExtra(RecognizerIntent.EXTRA_MAX_RESULTS,1);listening=true;startActivityForResult(i,42);}catch(Exception e){listening=false;deliverVoice(null,listenToken);listenToken=null;Toast.makeText(MainActivity.this,"Reconhecimento de voz indisponível",Toast.LENGTH_SHORT).show();}}});}
             }
+            private void deliverVoice(String text,String token){if(web!=null&&token!=null){String q=text==null?"null":JSONObject.quote(text);web.evaluateJavascript("(function(){var f=document.getElementById('aura');if(f&&f.contentWindow.vexoAuraRecognized)f.contentWindow.vexoAuraRecognized("+q+","+JSONObject.quote(token)+");})();",null);}}
+            @Override protected void onPause(){if(tts!=null)tts.stop();if(web!=null)web.evaluateJavascript("(function(){var f=document.getElementById('aura');if(f&&f.contentWindow.vexoAuraSuspend)f.contentWindow.vexoAuraSuspend();})();",null);super.onPause();}
             @Override protected void onActivityResult(int request,int result,Intent data){super.onActivityResult(request,result,data);
               if(request==43){String content=pendingBackup;pendingBackup=null;boolean saved=false;if(result==RESULT_OK&&data!=null&&data.getData()!=null&&content!=null){try(OutputStream out=getContentResolver().openOutputStream(data.getData(),"wt")){if(out!=null){out.write(content.getBytes("UTF-8"));out.flush();saved=true;}}catch(Exception ignored){saved=false;}}backupStatus(saved);return;}
               if(request==44){ValueCallback<Uri[]> cb=backupPicker;backupPicker=null;if(cb!=null)cb.onReceiveValue(WebChromeClient.FileChooserParams.parseResult(result,data));return;}
-              if(request!=42)return;listening=false;ArrayList<String> words=result==RESULT_OK&&data!=null?data.getStringArrayListExtra(RecognizerIntent.EXTRA_RESULTS):null;if(words!=null&&!words.isEmpty()){String q=JSONObject.quote(words.get(0));web.evaluateJavascript("(function(){var f=document.getElementById('aura');if(f&&f.contentWindow.vexoAuraRecognized)f.contentWindow.vexoAuraRecognized("+q+");})();",null);}}
+              if(request!=42)return;listening=false;ArrayList<String> words=result==RESULT_OK&&data!=null?data.getStringArrayListExtra(RecognizerIntent.EXTRA_RESULTS):null;deliverVoice(words!=null&&!words.isEmpty()?words.get(0):null,listenToken);listenToken=null;}
             @Override protected void onDestroy(){if(tts!=null){tts.stop();tts.shutdown();}if(backupPicker!=null){backupPicker.onReceiveValue(null);backupPicker=null;}pendingBackup=null;if(web!=null){web.removeJavascriptInterface("VexoBackup");web.removeJavascriptInterface("VexoVoice");web.destroy();}super.onDestroy();}
             @Override public void onBackPressed(){if(web.canGoBack())web.goBack();else super.onBackPressed();}
           }
@@ -168,4 +173,4 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          gh release create vexo-aura-sync-1-6-20261125 build/webapk/VEXO-Aura-Sync.apk /tmp/VEXO-Aura-Sync-Codigo-Fonte.zip --target "$GITHUB_SHA" --title 'VEXO Aura Sync 1.6 - candidato de qualidade' --notes 'Candidato: analise operacional local, metas, estimativas de ofertas e comparacao de dias; preserva backup e consultas. Gemini externo sujeito a disponibilidade. Selecao de arquivos e voz ainda requerem validacao em Android fisico. Instalacao separada; versoes anteriores sem exportacao nao migram automaticamente.' --prerelease
+          gh release create vexo-aura-sync-2-0-20261125 build/webapk/VEXO-Aura-Sync.apk /tmp/VEXO-Aura-Sync-Codigo-Fonte.zip --target "$GITHUB_SHA" --title 'VEXO Aura Sync 1.6 - candidato de qualidade' --notes 'Candidato experimental v5: NLU 24/24 no laboratorio, adapter e timeout total 5s, cancelamento e logs locais. Escopo limitado as nove metricas aprovadas; consultas detalhadas legadas nao integradas. Voz fisica e rede movel ainda nao verificadas. Instalacao separada; exporte backup da 1.6 antes de importar. Sem OCR nativo nesta variante web.' --prerelease
