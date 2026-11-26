@@ -3,7 +3,7 @@
   <head><script src="data.js"></script><link rel="stylesheet" href="responsive.css">
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>99 Driver Performance — Garanhuns</title>
+    <title>LAB · 99 Driver Performance — Garanhuns</title>
     <script src="chart.umd.min.js"></script>
     <link
       href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700;800;900&family=JetBrains+Mono:wght@400;600;700;800&display=swap"
@@ -490,7 +490,7 @@
       }
     </style>
   </head>
-  <body><style>.syncbar{padding:10px 16px;display:flex;align-items:center;gap:10px;flex-wrap:wrap;background:#0c1017;font-size:11px;color:#94a3b8}.syncbar span{flex:1}#edit99{margin:auto;background:#111827;color:#f1f5f9;border:1px solid #334155;border-radius:12px;padding:22px;width:min(540px,95vw)}#edit99::backdrop{background:#000a}#edit99 label{display:block;margin:12px 0;font-size:12px}#edit99 input,#edit99 select{display:block;width:100%;padding:9px;margin-top:5px;background:#06080f;color:#fff;border:1px solid #334155;border-radius:6px}#edit99 p{font-size:12px;color:#94a3b8;margin:10px 0}</style>
+  <body><div style="background:#4a3a15;color:#ffe1a2;font:600 11px system-ui;text-align:center;padding:5px;position:relative;z-index:100">LAB · DADOS FICTÍCIOS</div><style>.syncbar{padding:10px 16px;display:flex;align-items:center;gap:10px;flex-wrap:wrap;background:#0c1017;font-size:11px;color:#94a3b8}.syncbar span{flex:1}#edit99{margin:auto;background:#111827;color:#f1f5f9;border:1px solid #334155;border-radius:12px;padding:22px;width:min(540px,95vw)}#edit99::backdrop{background:#000a}#edit99 label{display:block;margin:12px 0;font-size:12px}#edit99 input,#edit99 select{display:block;width:100%;padding:9px;margin-top:5px;background:#06080f;color:#fff;border:1px solid #334155;border-radius:6px}#edit99 p{font-size:12px;color:#94a3b8;margin:10px 0}</style>
 <div class="syncbar"><span id="sync99" role="status">Conectando à planilha…</span><button class="btn-reset" onclick="pull99()">Atualizar dados</button><button class="btn-filter" id="editbutton99" disabled onclick="open99()">Editar corrida</button></div>
 <dialog id="edit99"><h2>Editar corrida</h2><p>As alterações são salvas na aba 99 • Dados editáveis.</p><label>Corrida<select id="ride99" onchange="select99()"></select></label><form id="form99"><label>Valor recebido (R$)<input id="fee99" type="number" min="0" step="0.01" required></label><label>Distância (km)<input id="km99" type="number" min="0" step="0.01" required></label><label>Duração (segundos)<input id="duration99" type="number" min="0" step="1" required></label><label>Situação<select id="status99"><option value="finished">Finalizada</option><option value="unfinished">Não finalizada</option><option value="cancel trip">Cancelada</option></select></label><p id="error99" role="alert"></p><button class="btn-filter" id="save99">Salvar alterações</button> <button class="btn-reset" type="button" onclick="document.getElementById('edit99').close()">Fechar</button></form></dialog>
 <script>
