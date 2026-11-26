@@ -3,13 +3,46 @@
 const endpoint='https://vexo-aura-lfx-probe.onrender.com/chat',accessKey='vexo-aura-lfx-access-v1',sessionKey='vexo-aura-lfx-session-v1';
 let access='',session='',lastPeriod='hoje';
 try{access=sessionStorage.getItem(accessKey)||'';session=sessionStorage.getItem(sessionKey)||'';}catch{}
+const $=id=>document.getElementById(id);
+let verified=false,expanded=false;
+function paint(message=''){
+ const toggle=$('connection-toggle'),fields=$('connection-fields'),detail=$('connection-detail'),feedback=$('connection-feedback');
+ if(!toggle||!fields)return;
+ toggle.textContent=access?'Desconectar':expanded?'Fechar':'Conectar';
+ toggle.setAttribute('aria-expanded',String(!access&&expanded));
+ fields.hidden=Boolean(access)||!expanded;
+ detail.textContent=verified?'Conectada · Gemini + motor':access?'Código configurado · teste enviando uma mensagem':'Modo local · conecte uma vez nesta sessão';
+ feedback.textContent=message;
+}
+function openFields(message=''){
+ expanded=true;paint(message);$('connection-code')?.focus();
+}
 function authorize(){
  if(access)return true;
- const token=window.prompt('Conectar a Aura online? Somente indicadores agregados de corridas, despesas, combustível e metas serão enviados para análise. Cole seu código de acesso da Aura; nenhuma corrida será alterada.');
- if(typeof token!=='string'||token.trim().length<24)return false;
- access=token.trim();try{sessionStorage.setItem(accessKey,access);}catch{}return true;
+ openFields('Informe o código de acesso para usar a conversa online. Consultas locais continuam disponíveis.');
+ return false;
 }
-function disconnect(){access='';session='';lastPeriod='hoje';try{sessionStorage.removeItem(accessKey);sessionStorage.removeItem(sessionKey);}catch{}}
+function disconnect(){
+ access='';session='';lastPeriod='hoje';verified=false;expanded=false;
+ try{sessionStorage.removeItem(accessKey);sessionStorage.removeItem(sessionKey);}catch{}
+ paint('Aura online desconectada. Seus registros permanecem no aparelho.');
+}
+function activate(){
+ const input=$('connection-code'),token=String(input?.value||'').trim();
+ if(token.length<24){openFields('Código incompleto. Confira e tente novamente.');return;}
+ access=token;session='';verified=false;expanded=false;
+ try{sessionStorage.setItem(accessKey,access);sessionStorage.removeItem(sessionKey);}catch{}
+ input.value='';paint('Código salvo nesta sessão. Envie sua primeira mensagem para confirmar a conexão.');
+ $('question')?.focus();
+}
+$('connection-toggle')?.addEventListener('click',()=>{
+ if(access){disconnect();return;}
+ if(expanded){expanded=false;paint();return;}
+ openFields('Somente indicadores agregados serão enviados à Aura. Nenhuma corrida ou despesa será alterada.');
+});
+$('connection-save')?.addEventListener('click',activate);
+$('connection-code')?.addEventListener('keydown',e=>{if(e.key==='Enter'){e.preventDefault();activate();}});
+paint();
 function periodFor(question){const q=String(question).normalize('NFD').replace(/[\u0300-\u036f]/g,'').toLowerCase();if(/\b(hoje|agora)\b/.test(q))return lastPeriod='hoje';if(/\b(ontem|semana|7 dias|mes|mensal)\b/.test(q))return lastPeriod=AuraDashboardContext.periodFor(q);return lastPeriod;}
 async function request(question,{readData,core,history=[],signal}={}){
  if(!authorize())return null;
@@ -19,11 +52,11 @@ async function request(question,{readData,core,history=[],signal}={}){
  if(signal?.aborted)abort();else signal?.addEventListener('abort',abort,{once:true});
  try{
   const response=await fetch(endpoint,{method:'POST',headers:{'Content-Type':'application/json','Authorization':'Bearer '+access},body:JSON.stringify({question,context,session,history:turns}),signal:ctrl.signal});
-  if(response.status===401){disconnect();throw Error('Acesso da Aura inválido.');}
-  if(!response.ok)throw Error('Aura online indisponível.');
+  if(response.status===401){disconnect();openFields('Código inválido. Confira o código e tente novamente.');throw Error('Acesso da Aura inválido.');}
+  if(!response.ok){paint('Serviço temporariamente indisponível. Tente enviar novamente.');throw Error('Aura online indisponível.');}
   const d=await response.json();
   if(typeof d.answer!=='string'||!d.answer.trim()||d.answer.length>12000||typeof d.session!=='string')throw Error('Resposta inválida.');
-  session=d.session;try{sessionStorage.setItem(sessionKey,session);}catch{}
+  session=d.session;verified=true;paint();try{sessionStorage.setItem(sessionKey,session);}catch{}
   return {text:d.answer.trim(),source:d.source==='motor'?'Motor VEXO · dados atualizados':d.source==='motor+gemini'?'Aura · motor VEXO + Gemini':'Aura · Gemini + indicadores atualizados',kind:'advice',intent:'AURA_LFX'};
  }finally{clearTimeout(timeout);signal?.removeEventListener('abort',abort);}
 }
