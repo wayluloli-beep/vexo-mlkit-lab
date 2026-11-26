@@ -1,0 +1,36 @@
+<!doctype html><html lang="pt-BR"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>VEXO · Validação Aura</title><style>body{background:#121417;color:#e8edf1;font:15px system-ui;margin:20px;max-width:800px}input,button{font:inherit;padding:12px;border-radius:8px;border:1px solid #59616a;background:#20262e;color:#eef}pre{white-space:pre-wrap;overflow-wrap:anywhere;line-height:1.5}button:disabled{opacity:.5}</style><h1>Validação Aura · 3 rodadas</h1><p>API real, dados sintéticos. Não modifica registros do VEXO. O código de acesso fica apenas na memória desta página.</p><input id="code" type="password" autocomplete="off" placeholder="Código de acesso"><button id="run">Executar 3 rodadas</button><pre id="out" role="status">Pronto.</pre><script>
+(()=>{'use strict';
+const $=id=>document.getElementById(id),base='https://vexo-aura-lfx-probe.onrender.com',wait=ms=>new Promise(r=>setTimeout(r,ms)),out=$('out');let log=[];
+const write=x=>{log.push(x);out.textContent=log.join('\n');};
+const fixture={periodo:'hoje',drive:{faturamento_bruto_brl:170,corridas_finalizadas:3},finance:{meta_mensal_brl:500,falta_meta_mensal_brl:330,resultado_operacional_brl:109,caixa_operacional_brl:-95}};
+async function post(path,token,p){const t=performance.now();try{const r=await fetch(base+path,{method:'POST',headers:{Authorization:'Bearer '+token,'Content-Type':'application/json'},body:JSON.stringify(p),signal:AbortSignal.timeout(40000)});const d=await r.json();return {status:r.status,data:d,ms:Math.round(performance.now()-t)};}catch(e){return {status:0,data:{error:e.name},ms:Math.round(performance.now()-t)};}}
+$('run').onclick=async()=>{
+ const code=$('code').value.trim();if(!code){write('Informe o código.');return;}$('run').disabled=true;$('code').value='';log=[];let all=0,total=0;
+ try{
+  let ready=false;
+  for(let i=0;i<24;i++){const r=await post('/auth/check',code,{});if(r.status===401){write('ERRO: código inválido.');return;}if(r.status===200&&r.data.ready){ready=true;break;}write('Servidor inicializando... '+(i+1));await wait(2500);}
+  if(!ready){write('ERRO: servidor não ficou pronto.');return;}
+  for(let round=1;round<=3;round++){
+   let sid='',ok=0,n=0;
+   write('\nRODADA '+round+'/3');
+   const check=(name,pass,r)=>{n++;total++;if(pass){ok++;all++;}write((pass?'PASSOU ':'FALHOU ')+name+' | HTTP '+r.status+' | '+r.ms+' ms | '+(r.data.source||'')+' | '+String(r.data.answer||r.data.error||'').replace(/\n/g,' ').slice(0,450));};
+   let r=await post('/auth/check','invalid-test-credential-000000000000',{});check('bloqueio código inválido',r.status===401,r);
+   r=await post('/auth/check',code,{});check('autenticação válida',r.status===200&&r.data.authenticated===true&&r.data.ready===true,r);
+   const send=async(q,ctx=fixture)=>{await wait(1300);const r=await post('/chat',code,{question:q,context:ctx,session:sid});if(r.status===200&&typeof r.data.session==='string')sid=r.data.session;return r;};
+   const good=r=>r.status===200&&typeof r.data.answer==='string'&&r.data.answer.trim()&&!/não consegui concluir|temporariamente indisponível|não consegui conectar/i.test(r.data.answer);
+   r=await send('Oi, como pode me ajudar?');check('conversa livre Gemini',good(r)&&r.data.source==='gemini',r);
+   r=await send('Meu carro faz 10 km por litro e a gasolina custa 6 reais.');check('configuração veículo',good(r)&&['motor','motor+gemini'].includes(r.data.source)&&/10/.test(r.data.answer)&&/6/.test(r.data.answer),r);
+   r=await send('Uma oferta de R$ 36,70, busca de 1,5 km e 6 minutos, viagem de 22,5 km e 33 minutos. Qual saldo após combustível?');check('memória + cálculo original',good(r)&&['motor','motor+gemini'].includes(r.data.source)&&/22,30/.test(r.data.answer)&&/14,40/.test(r.data.answer),r);
+   r=await send('Quanto faturei hoje?');check('dashboard faturamento 170',good(r)&&r.data.source==='motor'&&/170,00/.test(r.data.answer),r);
+   r=await send('Quanto faturei hoje?',{...fixture,drive:{faturamento_bruto_brl:210,corridas_finalizadas:4}});check('atualização automática 210',good(r)&&r.data.source==='motor'&&/210,00/.test(r.data.answer),r);
+   r=await send('Quanto falta para minha meta?');check('meta real do contexto 330',good(r)&&r.data.source==='motor'&&/330,00/.test(r.data.answer),r);
+   r=await send('Qual meu plano de ação hoje?');check('plano de ação livre',good(r)&&r.data.source==='gemini',r);
+   r=await send('Me conte sobre futebol');check('controle de escopo',good(r)&&/apenas com corridas|somente.*corridas/i.test(r.data.answer),r);
+   write('RODADA '+round+': '+ok+'/'+n+' aprovados');
+   await wait(1500);
+  }
+  write('\nFINAL: '+all+'/'+total+' ('+Math.round(all/total*100)+'%)');
+ }finally{$('run').disabled=false;}
+};
+})();
+</script></html>
