@@ -34,7 +34,7 @@ async function ask(q,stt=false,quick=null){
  try{
   const readData=()=>Vexo.invoke('auraDados');
   let result;
-  const dashboard=await AuraDashTools.handle(q,{readData});
+  const dashboard=await AuraDashTools.handle(q,{readData,history:history.slice(0,-1)});
   if(!current())return;
   if(dashboard){lastReply=dashboard.text;append('aura',dashboard.text,dashboard.source);setStatus('Copiloto · pronta');record(stt?q:null,'DASHBOARD_TOOL',performance.now()-started,'LOCAL_QUERY',timing);if(voice||stt)speak(dashboard.text);return;}
   const local=quick?null:AuraAdapter.resolvePending(q,pending,previous);
