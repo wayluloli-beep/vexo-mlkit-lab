@@ -1,0 +1,10 @@
+const fs=require('node:fs'),vm=require('node:vm'),assert=require('node:assert/strict');
+const mem=new Map(),window={addEventListener(){},dispatchEvent(){}},ctx=vm.createContext({window,localStorage:{getItem:k=>mem.get(k)??null,setItem:(k,v)=>mem.set(k,v)},navigator:{},console,Event:class{},crypto:require('node:crypto').webcrypto});
+vm.runInContext(fs.readFileSync('vexo-web-pwa/data.js','utf8'),ctx);
+vm.runInContext(fs.readFileSync('vexo-web-pwa/aura-core.js','utf8'),ctx);
+vm.runInContext(fs.readFileSync('vexo-web-pwa/aura-dashboard-context.js','utf8'),ctx);
+(async()=>{const d=await window.Vexo.invoke('auraDados'),r=d.finance;assert(r.rides.length>=420);assert(r.fills.length>=10);assert(r.expenses.length>=50);assert(r.rides.every(x=>x[0].startsWith('LAB-')));await window.Vexo.invoke('backupExport');ctx.bundle=d;
+const p=vm.runInContext('AuraDashboardContext.project(bundle,AuraCore)',ctx);assert.equal(p.drive.corridas_finalizadas,12);assert(p.drive.faturamento_bruto_brl>0);assert(p.finance.meta_mensal_brl>0);
+const query=vm.runInContext('AuraDashboardContext.localWire("Quantas corridas eu fiz?",AuraCore)',ctx);assert.equal(query.data_queries[0].metric,'RIDE_COUNT');
+const before=mem.get('vexo-data-v2');await window.Vexo.invoke('auraDados');assert.equal(mem.get('vexo-data-v2'),before);
+console.log('LAB_SEED_CHECK '+JSON.stringify({rides:r.rides.length,finished:r.rides.filter(x=>x[1]==='finished').length,fills:r.fills.length,expenses:r.expenses.length,today:p,retained:true}));})().catch(e=>{console.error(e);process.exitCode=1;});
