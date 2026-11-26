@@ -86,25 +86,72 @@ function analyze(q,b,prior=null,now=new Date()){
  if(/dias ativos|corridas por dia|receita media diaria|tempo medio|duracao media|distancia media/.test(t)){const x=summarize(driver);return out(x.active+' dias ativos · '+num(div(x.count,x.active))+' corridas/dia · '+money(x.daily)+'/dia · '+num(div(x.sec/60,x.count))+' min/corrida · '+num(div(x.km,x.count))+' km/corrida.','Driver');}
  return null;
 }
+
+/* Calendar and metric context: queries run against full local history, not the last API summary. */
+const monthNames=['janeiro','fevereiro','marco','abril','maio','junho','julho','agosto','setembro','outubro','novembro','dezembro'];
+const dateIso=d=>[d.getFullYear(),String(d.getMonth()+1).padStart(2,'0'),String(d.getDate()).padStart(2,'0')].join('-');
+function calendar(t,now){
+ const m=t.match(/\b(?:mes (?:anterior|passado)|ultimo mes)\b/);let year=now.getFullYear(),month=now.getMonth();
+ if(m){month--;return {from:dateIso(new Date(year,month,1)),to:dateIso(new Date(year,month+1,0)),label:'mês anterior'};}
+ const named=monthNames.findIndex(x=>new RegExp('\\b'+x+'\\b').test(t));
+ if(named>=0){const y=t.match(/\b(20\d{2})\b/);if(y)year=+y[1];else if(named>month)year--;return {from:dateIso(new Date(year,named,1)),to:dateIso(new Date(year,named+1,0)),label:monthNames[named]+'/'+year};}
+ if(/\b(?:este mes|nesse mes|neste mes|mes atual|no mes|mensal)\b/.test(t)){return {from:dateIso(new Date(year,month,1)),to:dateIso(now),label:'mês atual'};}
+ if(/\b(?:todo (?:o )?(?:historico|periodo)|desde sempre|historico completo|total geral|tudo|acumulado geral)\b/.test(t))return {from:'0001-01-01',to:dateIso(now),label:'histórico completo'};
+ if(/\b(?:hoje|hj|ontem|(?:7|15|30) dias|semana)\b/.test(t)){const p=period(t,null,now),[from,to]=AuraCore.range(p,now);return {from,to,label:p};}
+ const dates=[...t.matchAll(/\b(\d{1,2})\/(\d{1,2})(?:\/(\d{4}))?\b/g)];
+ if(dates.length){const [from,to]=dateRange(t,'hoje',now);return {from,to,label:'período solicitado'};}
+ return null;
+}
+function metricOf(t){
+ if(/(?:quantas|numero de|total de|quantidade de) corridas/.test(t))return 'corridas';
+ if(/ticket|valor medio por corrida/.test(t))return 'ticket';
+ if(/saldo|caixa|sobrou|sobrando/.test(t))return 'saldo';
+ if(/lucro|lucrei|resultado operacional/.test(t))return 'lucro';
+ if(/(?:gastei|gastos?|paguei|desembolso).*(?:combustivel|gasolina|etanol|diesel)|(?:combustivel|gasolina|etanol|diesel).*(?:gastos?|pago)/.test(t))return 'combustivel_gasto';
+ if(/(?:quantos|volume de|total de) litros/.test(t))return 'litros';
+ if(/(?:quantos|quantas|numero de|total de) abastec/.test(t))return 'abastecimentos';
+ if(/quanto (?:eu )?(?:ganhei|faturei|recebi|fiz)|\b(?:faturamento|receita|ganhos)\b|(?:eu )?fiz\s+(?:r\$\s*)?\d+(?:[,.]\d+)?\s*(?:mil|reais|conto)/.test(t)&&!/por (?:hora|km|dia|minuto)|melhor|mapa de calor|evolucao|meta|compar|uber.*99|99.*uber/.test(t))return 'ganhos';
+ return null;
+}
+function getPrior(history,now){
+ for(const item of [...(history||[])].reverse()){
+  if(item.role!=='user')continue;const t=norm(item.text),metric=metricOf(t);
+  if(metric)return {metric,range:calendar(t,now)};
+ }
+ return null;
+}
+function historyQuery(q,b,prior,now,history){
+ const t=norm(q),metric=metricOf(t),range=calendar(t,now);
+ const follow=/^(?:e\s+)?(?:no|na|em|nesse|neste|nessa|nesta|de|do|da)?\s*(?:mes anterior|mes passado|ultimo mes|mes atual|mes|hoje|ontem|semana|(?:7|15|30) dias|janeiro|fevereiro|marco|abril|maio|junho|julho|agosto|setembro|outubro|novembro|dezembro|historico completo|todo o periodo)(?:\s+(?:de\s+)?20\d{2})?[?.! ]*$/.test(t);
+ const last=prior?.metric?prior:getPrior(history,now),selected=metric||(follow?last?.metric:null);
+ if(!selected||!range&&!/(?:eu )?fiz\s+(?:r\$\s*)?\d+(?:[,.]\d+)?\s*(?:mil|reais|conto)/.test(t)&&!follow)return null;
+ if(/\b(?:uber|99)\b/.test(t)||/por (?:hora|km|dia|semana)|melhor|mapa de calor|evolucao|meta|compar|por categoria|lista|historico de/.test(t))return null;
+ const calc=r=>{const s=AuraCore.snapshot(b.finance,b.rates,{from:r.from,to:r.to},now),from=r.from==='0001-01-01'?([...b.finance.rides.map(x=>x[2]?.slice(0,10)),...b.finance.fills.map(x=>x[1]?.slice(0,10)),...b.finance.expenses.map(x=>x[1])].filter(x=>x&&x<=r.to).sort()[0]||r.to):r.from;return {s,from,to:r.to,text:AuraCore.answer(selected,s)}};
+ const fmt=d=>d.split('-').reverse().join('/');
+ const label=x=>fmt(x.from)+' a '+fmt(x.to);
+ if(!range){const total=calc({from:'0001-01-01',to:dateIso(now)}),current=calc({from:dateIso(new Date(now.getFullYear(),now.getMonth(),1)),to:dateIso(now)});return {text:'No histórico completo ('+label(total)+'): '+total.text+'\nNeste mês ('+label(current)+'): '+current.text+'\nQual período você quer conferir?',source:'VEXO LAB · consulta ao histórico',kind:'success',context:{metric:selected,range:null}};}
+ const x=calc(range);return {text:'De '+label(x)+': '+x.text,source:'VEXO LAB · histórico consultado',kind:'success',context:{metric:selected,range}};
+}
+
 let memory=null;
-async function handle(q,{readData,now=new Date()}){
+async function handle(q,{readData,now=new Date(),history=[]}){
  const t=norm(q);
  if(write(t)||/^(?:quero|preciso|pode|voce pode|vamos)\s+(?:registrar|adicionar|colocar|salvar|alterar|lancar|apagar|cadastrar)\b/.test(t)||/^(?:gastei|paguei|recebi|ganhei|faturei|abasteci)\s+(?:r\$\s*)?\d/.test(t)||/^\d+(?:[,.]\d+)?$/.test(t)){
   if(!/ganh|fatur|meta|combustivel|abastec|despes|pedagio|manutenc|pessoal|saldo/.test(t))return {text:'Esse valor é ganho de corridas, combustível, outra despesa ou meta? Nenhum registro foi alterado.',source:'Aura · confirmação necessária',kind:'clarify'};
   return {text:'Entendi a categoria, mas a gravação por chat ainda não foi habilitada. Use o dashboard correspondente para salvar. Nenhum dado foi alterado.',source:'Aura · somente leitura',kind:'clarify'};
  }
  if(/^(?:sim|confirmo|pode salvar|pode registrar|combustivel|ganhos?|meta|despesa)[.! ]*$/.test(t))return {text:'Nenhuma alteração está pendente. Para registrar valores, use o dashboard correspondente.',source:'Aura · somente leitura',kind:'clarify'};
- if(!scope(t)&&!(/^(?:e )?(?:ontem|hoje|na 99|na uber|essa semana|esse mes|e o total|mais detalhes)[?! ]*$/.test(t)&&memory))return null;
+ if(!scope(t)&&!metricOf(t)&&!(/^(?:e )?(?:ontem|hoje|na 99|na uber|essa semana|esse mes|e o total|mais detalhes)[?! ]*$/.test(t)&&memory))return null;
  // Leave offer calculations, vehicle parameter statements, general strategy and unrelated conversation to LFX.
  if(/^(?:meu carro|meu consumo|a gasolina custa|o etanol custa)/.test(t)||/\b(oferta|simule|simular)\b/.test(t)||AuraDashboardContext.isStrategy(q))return null;
  if(!/\?|^(?:quanto|quantos|quantas|qual|quais|como|onde|quando|me mostre|mostra|liste|lista|resumo|historico|e |consumo|ticket|faturamento|saldo|lucro|despesas|corridas|ganhos|meta|abastecimentos|mapa de calor|custo|receita|melhor|horario|dias|total)\b/.test(t))return null;
- const b=await readData();let r=analyze(q,b,memory,now);if(r){memory={period:r.context.period,domain:r.context.domain};return r;}
+ const b=await readData();const historical=historyQuery(q,b,memory,now,history);if(historical){memory={...historical.context,period:period(t,memory,now)};return historical;}if(calendar(t,now)&&/^(?:e\s+)?(?:no|na|em)\b/.test(t)&&!metricOf(t)&&!memory?.query)return {text:'Qual indicador você quer consultar nesse período: faturamento, corridas, despesas ou combustível?',source:'VEXO LAB · esclarecimento',kind:'clarify'};let r=analyze(q,b,memory,now);if(r){memory={period:r.context.period,domain:r.context.domain,metric:metricOf(t),range:calendar(t,now)};return r;}
  let parsed=AuraCore.parse(q,memory?.query||null,now);
  if(!parsed?.intent||['plano','saudacao','conversa','esclarecer'].includes(parsed.intent))return null;
  let s=AuraCore.snapshot(b.finance,b.rates,parsed.period,now);
  const text=AuraCore.answer(parsed.intent,s,parsed);
  if(!text)return null;
- memory={period:parsed.period,query:parsed};
+ memory={period:parsed.period,query:parsed,metric:metricOf(t)||(['ganhos','corridas','ticket','saldo','lucro','combustivel_gasto','litros','abastecimentos'].includes(parsed.intent)?parsed.intent:null),range:calendar(t,now)};
  return {text,source:'VEXO LAB · dados locais · '+s.from+' a '+s.to,kind:'success'};
 }
 return {handle,analyze};
