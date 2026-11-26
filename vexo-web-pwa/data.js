@@ -4,9 +4,41 @@
  const date=(d=new Date())=>new Date(d-d.getTimezoneOffset()*60000).toISOString().slice(0,19);
  const uid=p=>p+crypto.randomUUID(), cents=x=>Math.round((x+Number.EPSILON)*100)/100;
  const empty=()=>({rides:[],fills:[],expenses:[],goals:{revenue:0,cash:0,reserve:0.15},settings:{fuel:6.2,consumption:10,fixed:0},offer:null,seen:[]});
+
+ // Isolated lab origin: deterministic fictional records. Never replace existing data.
+ function labSeed(){
+   const d=empty();let seed=20261126;
+   const rnd=()=>{seed=(Math.imul(1664525,seed)+1013904223)>>>0;return seed/4294967296;};
+   const pick=a=>a[Math.floor(rnd()*a.length)],int=(a,b)=>a+Math.floor(rnd()*(b-a+1));
+   const today=new Date();today.setHours(0,0,0,0);
+   const dayAt=(offset,h=0,m=0)=>{const x=new Date(today);x.setDate(x.getDate()+offset);x.setHours(h,m,0,0);return x;};
+   const days=60,eff=11.5,price=6.19;let odo=84500,kmCycle=0,fillCount=0,rideCount=0,expenseCount=0;
+   d.settings={fuel:price,consumption:eff,fixed:4.5};d.goals={revenue:5500,cash:3500,reserve:.15};
+   const addFill=(at,liters,unit)=>d.fills.push(['LAB-F-'+(++fillCount),date(at),Math.round(odo),cents(liters),unit,'Gasolina',true,'Posto fictício '+(fillCount%4+1)]);
+   addFill(dayAt(-(days-1),5),32,price);
+   for(let day=-(days-1);day<=0;day++){
+     let at=dayAt(day,6,int(0,20));
+     const n=day===0?12:int(7,13);
+     for(let i=0;i<n;i++){
+       const pickupKm=cents(.5+rnd()*3),tripKm=cents(2+rnd()*15),km=cents(pickupKm+tripKm),mins=int(3,9)+Math.ceil(tripKm*2.8)+int(0,4),gross=cents(Math.max(9,km*(1.45+rnd()*1.15)+rnd()*6)),fuel=cents(km*price/eff),reserve=cents(km*.15),fixed=cents(mins*4.5/60);
+       const end=new Date(at.getTime()+mins*60000);
+       d.rides.push(['LAB-R-'+(++rideCount),'finished',date(at),date(end),mins*60,km,pick(['Paid by Company','Cash']),gross,pick(['99','99','Uber']),pickupKm,tripKm,fuel,reserve,fixed,cents(gross-fuel-reserve-fixed),'Embarque fictício '+int(1,20),'Destino fictício '+int(1,20),cents(4.4+rnd()*.6)]);
+       kmCycle+=km;odo+=km;at=new Date(end.getTime()+int(3,15)*60000);
+     }
+     if(day%4===0){const a=new Date(at.getTime()+60000);d.rides.push(['LAB-R-'+(++rideCount),'cancel trip',date(a),date(new Date(a.getTime()+180000)),180,0,'Paid by Company',0,'99',0,0,0,0,0,0,'Embarque fictício','Cancelada fictícia',4.8]);}
+     const addExpense=(cat,desc,val)=>d.expenses.push(['LAB-E-'+(++expenseCount),date(dayAt(day)).slice(0,10),cat,desc,cents(val),0,'']);
+     if(day%3===0)addExpense('Operacional','Lavagem e estacionamento fictícios',int(8,28));
+     if(day%7===0)addExpense('Manutenção','Manutenção fictícia',int(35,130));
+     if(day%2===0)addExpense('Pessoal','Alimentação fictícia',int(14,38));
+     if(day%5===0)addExpense('Pedágio','Pedágio fictício',int(4,18));
+     if(kmCycle>=270||day===0){addFill(new Date(at.getTime()+60000),Math.max(.01,kmCycle/eff),cents(price+(rnd()-.5)*.5));kmCycle=0;}
+   }
+   return d;
+ }
+
  let storageNotice='';
  function parseState(raw){const d=JSON.parse(raw);if(!d||!['rides','fills','expenses','seen'].every(k=>Array.isArray(d[k]))||!d.goals||!d.settings||!('offer' in d)||!['rides','fills','expenses'].every(k=>d[k].every(r=>Array.isArray(r)&&typeof r[0]==='string'&&r[0])))throw Error('Estrutura inválida.');return d;}
- function read(){const raw=localStorage.getItem(KEY);if(raw!==null){try{return parseState(raw);}catch{const backup=localStorage.getItem(BACKUP);try{const d=parseState(backup);localStorage.setItem(QUARANTINE,raw);localStorage.setItem(KEY,backup);storageNotice='Dados recuperados de uma cópia local; confira os últimos registros.';return d;}catch{throw Error('Dados locais danificados. Original preservado; recuperação segura indisponível.');}}}const backup=localStorage.getItem(BACKUP);if(backup!==null){try{const d=parseState(backup);localStorage.setItem(KEY,backup);storageNotice='Cópia local restaurada; confira os últimos registros.';return d;}catch{throw Error('Cópia local inválida. Dados preservados.');}}const d=empty();let old;try{old=JSON.parse(localStorage.getItem('vexo-pwa-state')||'null');}catch{throw Error('Histórico anterior inválido. Dados preservados.');}if(old){Object.assign(d.settings,old.settings);for(const r of old.runs||[])if(!d.rides.some(x=>x[0]===r.id)){const end=new Date();d.rides.push([r.id,'finished',date(new Date(end-r.min*60000)),date(end),r.min*60,r.km,'Paid by Company',r.gross]);}}return d;}
+ function read(){const raw=localStorage.getItem(KEY);if(raw!==null){try{return parseState(raw);}catch{const backup=localStorage.getItem(BACKUP);try{const d=parseState(backup);localStorage.setItem(QUARANTINE,raw);localStorage.setItem(KEY,backup);storageNotice='Dados recuperados de uma cópia local; confira os últimos registros.';return d;}catch{throw Error('Dados locais danificados. Original preservado; recuperação segura indisponível.');}}}const backup=localStorage.getItem(BACKUP);if(backup!==null){try{const d=parseState(backup);localStorage.setItem(KEY,backup);storageNotice='Cópia local restaurada; confira os últimos registros.';return d;}catch{throw Error('Cópia local inválida. Dados preservados.');}}const d=labSeed();localStorage.setItem(KEY,JSON.stringify(d));localStorage.setItem(BACKUP,JSON.stringify(d));return d;/* legacy migration disabled in isolated lab */ let old;try{old=JSON.parse(localStorage.getItem('vexo-pwa-state')||'null');}catch{throw Error('Histórico anterior inválido. Dados preservados.');}if(old){Object.assign(d.settings,old.settings);for(const r of old.runs||[])if(!d.rides.some(x=>x[0]===r.id)){const end=new Date();d.rides.push([r.id,'finished',date(new Date(end-r.min*60000)),date(end),r.min*60,r.km,'Paid by Company',r.gross]);}}return d;}
  const num=(n,min=0,max=1e9)=>{if(typeof n!=='number'||!Number.isFinite(n)||n<min||n>max)throw Error('Confira os valores numéricos.');return n;};
  const validDate=(s,kind)=>{if(typeof s!=='string'||!/^\d{4}-\d{2}-\d{2}(T\d{2}:\d{2}(:\d{2})?)?$/.test(s))throw Error('Data inválida.');const full=s.length===10?s+'T00:00:00':s.length===16?s+':00':s;const n=Date.parse(full+'Z');if(!Number.isFinite(n)||new Date(n).toISOString().slice(0,19)!==full||(kind==='day'&&s.length!==10)||(kind==='time'&&s.length===10))throw Error('Data inválida.');return s.length===10?s:full;};
  function rates(d){let anchor=null,liters=0,cost=0,km=0,total=0,totalL=0,cycles=0;for(const r of [...d.fills].sort((a,b)=>a[1].localeCompare(b[1]))){if(anchor){liters+=r[3];cost+=cents(r[3]*r[4]);}if(r[6]){if(anchor&&r[2]===anchor[2])continue;if(anchor&&r[2]>anchor[2]){km+=r[2]-anchor[2];total+=cost;totalL+=liters;cycles++;}anchor=r;liters=cost=0;}}return {fuel:km?total/km:d.settings.fuel/d.settings.consumption,eff:km?km/totalL:d.settings.consumption,reserve:d.goals.reserve,fixed:d.settings.fixed,cycles};}
