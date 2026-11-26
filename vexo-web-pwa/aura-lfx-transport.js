@@ -27,13 +27,20 @@ function disconnect(){
  try{sessionStorage.removeItem(accessKey);sessionStorage.removeItem(sessionKey);}catch{}
  paint('Aura online desconectada. Seus registros permanecem no aparelho.');
 }
-function activate(){
- const input=$('connection-code'),token=String(input?.value||'').trim();
+async function activate(){
+ const input=$('connection-code'),token=String(input?.value||'').trim(),button=$('connection-save');
  if(token.length<24){openFields('Código incompleto. Confira e tente novamente.');return;}
- access=token;session='';verified=false;expanded=false;
- try{sessionStorage.setItem(accessKey,access);sessionStorage.removeItem(sessionKey);}catch{}
- input.value='';paint('Código salvo nesta sessão. Envie sua primeira mensagem para confirmar a conexão.');
- $('question')?.focus();
+ button.disabled=true;paint('Verificando código com o servidor…');
+ try{
+  const resp=await fetch(endpoint.replace(/\/chat$/,'/auth/check'),{method:'POST',headers:{Authorization:'Bearer '+token},signal:AbortSignal.timeout(25000)});
+  if(resp.status===401){openFields('Código inválido. Cole novamente o código correto.');return;}
+  if(!resp.ok)throw Error('unavailable');
+  const result=await resp.json();if(result.authenticated!==true)throw Error('unavailable');
+  access=token;session='';verified=true;expanded=false;
+  try{sessionStorage.setItem(accessKey,access);sessionStorage.removeItem(sessionKey);}catch{}
+  input.value='';paint(result.ready?'Conexão verificada.':'Conexão verificada; servidor inicializando.');$('question')?.focus();
+ }catch{openFields('Não consegui verificar o acesso. Tente novamente.');}
+ finally{button.disabled=false;}
 }
 $('connection-toggle')?.addEventListener('click',()=>{
  if(access){disconnect();return;}
@@ -53,7 +60,7 @@ async function request(question,{readData,core,history=[],signal}={}){
  try{
   const response=await fetch(endpoint,{method:'POST',headers:{'Content-Type':'application/json','Authorization':'Bearer '+access},body:JSON.stringify({question,context,session,history:turns}),signal:ctrl.signal});
   if(response.status===401){disconnect();openFields('Código inválido. Confira o código e tente novamente.');throw Error('Acesso da Aura inválido.');}
-  if(!response.ok){paint('Serviço temporariamente indisponível. Tente enviar novamente.');throw Error('Aura online indisponível.');}
+  if(!response.ok){paint('Serviço temporariamente indisponível. Seu acesso e contexto foram preservados.');throw Error('Aura online indisponível ('+response.status+').');}
   const d=await response.json();
   if(typeof d.answer!=='string'||!d.answer.trim()||d.answer.length>12000||typeof d.session!=='string')throw Error('Resposta inválida.');
   session=d.session;verified=true;paint();try{sessionStorage.setItem(sessionKey,session);}catch{}
