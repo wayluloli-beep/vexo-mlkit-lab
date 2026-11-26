@@ -38,7 +38,7 @@ function localWire(question,core,now=new Date()){
  const patterns=[
  ['FINANCE','GROSS_REVENUE','(?:quanto (?:eu )?(?:ganhei|faturei)|qual (?:foi )?meu faturamento) '+suffix],
  ['FINANCE','NET_PROFIT','(?:qual (?:foi )?(?:o )?meu lucro|quanto (?:eu )?lucrei) '+suffix],
- ['RIDES','RIDE_COUNT','(?:quantas corridas (?:eu )?(?:fiz|finalizei)|quantas corridas) '+suffix],
+ ['RIDES','RIDE_COUNT','(?:quantas corridas (?:eu )?(?:fiz|finalizei)|quantas corridas)(?: '+suffix+')?'],
  ['FUEL','FUEL_SPENT','(?:quanto (?:eu )?gastei (?:com|de|em) combustivel|quanto paguei (?:de|em) combustivel) '+suffix],
  ['FUEL','FUEL_EFFICIENCY_KM_L','(?:qual (?:e )?(?:o )?meu consumo|quantos km por litro(?: meu carro faz)?)'],
  ['GOALS','GOAL_STATUS','(?:qual (?:e )?(?:a )?minha meta mensal|quanto falta para minha meta mensal)']
