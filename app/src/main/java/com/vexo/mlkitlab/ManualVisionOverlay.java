@@ -104,7 +104,7 @@ final class ManualVisionOverlay {
         telemetry=new TextView(context);
         telemetry.setTextSize(11);
         telemetry.setTextColor(0xff46d4f1);
-        telemetry.setMaxLines(3);
+        telemetry.setMaxLines(5);
         telemetry.setPadding(0,dp(4),0,dp(4));
         telemetry.setText("FRAMES — · FPS RECEBIDO —\nTRACK — · OCR —");
         panel.addView(telemetry);

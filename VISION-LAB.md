@@ -1,0 +1,3 @@
+# VEXO Vision Lab — teste isolado
+
+APK debug independente: com.vexo.visionlab.cv. O radar nativo usa captura autorizada MediaProjection, ML Kit e rastreador original. OpenCV 4.10 mede template matching em paralelo na região próxima ao último alvo; limiar experimental 0,77. A pontuação é correlação, não probabilidade. O texto 'acordo' exige IoU >= 0,75 com o rastreador original; não certifica OCR nem origem ativa. O OpenCV não altera as decisões do rastreador. Nenhuma integração com Telegram, 99, planilha ou rede foi adicionada. Use Auto ou marque alvo, ligue Ler e compare TRACK, OCR e CV. Teste parado, com prints/galeria e ofertas. Ainda não inclui MediaPipe nem PaddleOCR.

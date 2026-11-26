@@ -57,6 +57,8 @@ public final class ManualVisionService extends Service implements ManualVisionOv
     private final AtomicReference<DisplayState> latest = new AtomicReference<>();
     private final AtomicBoolean drawQueued = new AtomicBoolean();
     private final ManualTargetTracker tracker = new ManualTargetTracker();
+    private final OpenCvProbe cvProbe = new OpenCvProbe();
+    private String cvMetrics = "CV: sem referência";
     private final TargetReadingState reading = new TargetReadingState();
 
     // Main thread owns the overlay. The capture handler owns frames, tracker and OCR state.
@@ -378,17 +380,24 @@ public final class ManualVisionService extends Service implements ManualVisionOv
                     return;
                 }
                 tracked = selected;
+                cvMetrics = cvProbe.arm(pixels,selected) ? "CV: referência criada" : "CV: referência indisponível";
             } else {
+                OpenCvProbe.Match comparison = cvProbe.inspect(pixels,tracked);
+                long baselineStarted=SystemClock.elapsedRealtimeNanos();
                 tracked = tracker.track(pixels, geometry.dipInFrame(4), geometry.dipInFrame(3));
+                lastTrackingNanos=Math.max(0,SystemClock.elapsedRealtimeNanos()-baselineStarted);
+                cvMetrics=comparison.describe(tracked);
                 if (tracked == null) {
+                    String lostMetrics=cvMetrics;
                     clearTarget();
+                    cvMetrics=lostMetrics;
                     publish(autoEnabled?"AUTO: alvo perdido; procurando novamente":
                         "Alvo perdido · marque de novo");
                     return;
                 }
             }
             lastTrackAt = now;
-            lastTrackingNanos=Math.max(0,SystemClock.elapsedRealtimeNanos()-visualStarted);
+            if (lastTrackingNanos<0) lastTrackingNanos=Math.max(0,SystemClock.elapsedRealtimeNanos()-visualStarted);
             verifiedFrame = frameNumber;
             if (readEnabled) {
                 if (reading.observe(TargetReadingState.signature(pixels, tracked))) {
@@ -558,6 +567,9 @@ public final class ManualVisionService extends Service implements ManualVisionOv
         autoLayout=null;
         tracked = null;
         tracker.clear();
+        cvProbe.clear();
+        cvMetrics="CV: sem referência";
+        lastTrackingNanos=-1;
         lastTrackAt = -1;
         clearReading();
     }
@@ -581,7 +593,8 @@ public final class ManualVisionService extends Service implements ManualVisionOv
         String metrics="FRAMES "+frameNumber+" · FPS RECEBIDO "+(visible?receivedFps:0)
             +"\nTRACK "+(lastTrackingNanos<0?"—":
                 String.format(java.util.Locale.ROOT,"%.1f ms",lastTrackingNanos/1_000_000.0))
-            +" · OCR "+(lastOcrElapsedMs<0?"—":lastOcrElapsedMs+" ms");
+            +" · OCR "+(lastOcrElapsedMs<0?"—":lastOcrElapsedMs+" ms")
+             +"\n"+cvMetrics;
         latest.set(new DisplayState(selection, rectangle,price,origin,destination,
             message, metrics,text, visible));
         if (drawQueued.compareAndSet(false, true)) main.post(this::renderLatest);

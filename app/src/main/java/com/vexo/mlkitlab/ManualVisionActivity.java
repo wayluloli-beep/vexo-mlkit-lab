@@ -36,12 +36,12 @@ public final class ManualVisionActivity extends Activity {
         TextView title = label("VEXO", 36, 0xff23c6da);
         title.setTypeface(Typeface.DEFAULT, Typeface.BOLD);
         content.addView(title);
-        TextView heading = label("Rastreio ao vivo", 22, 0xfff3f6fa);
+        TextView heading = label("Vision Lab · OpenCV", 22, 0xfff3f6fa);
         heading.setTypeface(Typeface.DEFAULT, Typeface.BOLD);
         content.addView(heading);
 
         status = label("Autorize a tela inteira. Abra a tela que quer testar e toque em "
-            + "Marcar alvo no controle flutuante.", 16, 0xffbbcad7);
+            + "Marcar alvo no controle flutuante. Auto usa ML Kit. CV mede correspondência visual; acordo compara os dois rastreadores. Nenhum dado vai para a Aura.", 16, 0xffbbcad7);
         status.setPadding(0, dp(12), 0, dp(24));
         content.addView(status);
 
