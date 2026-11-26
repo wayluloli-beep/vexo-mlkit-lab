@@ -26,7 +26,7 @@ function stats(a,c){
 
 const norm=q=>String(q||'').normalize('NFD').replace(/[\u0300-\u036f]/g,'').toLowerCase().trim(),money=n=>Number.isFinite(n)?n.toLocaleString('pt-BR',{style:'currency',currency:'BRL'}):'indisponível',num=(n,d=2)=>Number.isFinite(n)?n.toLocaleString('pt-BR',{maximumFractionDigits:d,minimumFractionDigits:d}):'indisponível',day=x=>x.date.slice(0,10),hour=x=>+x.date.slice(11,13),wd=x=>new Date(day(x)+'T00:00:00Z').getUTCDay(),days=['domingo','segunda','terça','quarta','quinta','sexta','sábado'],group=(a,key)=>{const m=new Map();for(const x of a){const k=key(x);if(!m.has(k))m.set(k,[]);m.get(k).push(x)}return [...m];};
 const scope=q=>/\b(?:corrid|ganh|fatur|receit|lucro|caixa|saldo|meta|combustivel|gasolina|etanol|diesel|litro|abastec|posto|consumo|odometro|despes|gasto|pedagio|manutenc|reembolso|ticket|horari|dia|semana|mes|km|uber|99|heatmap|mapa de calor|jornada|cancel|pagamento|rentabil|reserva)\w*\b/.test(q);
-const write=q=>/^(?:(?:por favor|aura)[, ]+)?(?:coloc[ae]|poe|bota|adicion[ae]|lan[cç]a|registr[ae]|salv[ae]|alter[ae]|mud[ae]|apag[ae]|exclu[ai]|delet[ae]|cadastr[ae]|atualiz[ae]|ajust[ae]|defin[ae])\b/.test(q);
+const write=q=>/^(?:(?:por favor|aura)[, ]+)?(?:coloc[ae]|coloque|poe|bota|bote|adicion[ae]|lan[cç]a|lance|registr[ae]|salv[ae]|alter[ae]|mud[ae]|apag[ae]|apague|exclu[ai]|delet[ae]|cadastr[ae]|atualiz[ae]|ajust[ae]|defin[ae])\b/.test(q);
 function period(q,prior,now){const t=norm(q),p=/\b(?:desde sempre|todo o periodo|historico completo|total geral)\b/.test(t)?'total':/\b(?:30|trinta) dias\b/.test(t)?'trinta':/\b(?:15|quinze) dias\b/.test(t)?'quinze':/\b(?:semana|7 dias)\b/.test(t)?'semana':/\b(?:mes|mensal)\b/.test(t)?'mes':/\bontem\b/.test(t)?'ontem':/\b(?:hoje|hj)\b/.test(t)?'hoje':null;return p||prior?.period||'hoje';}
 function dateRange(q,p,now){const m=[...q.matchAll(/\b(\d{1,2})\/(\d{1,2})(?:\/(\d{4}))?\b/g)].slice(0,2);if(!m.length)return AuraCore.range(p,now);const ds=m.map(a=>(a[3]||now.getFullYear())+'-'+a[2].padStart(2,'0')+'-'+a[1].padStart(2,'0'));if(ds.some(x=>!Number.isFinite(Date.parse(x+'T00:00:00Z'))||new Date(x+'T00:00:00Z').toISOString().slice(0,10)!==x)||ds.length===2&&ds[0]>ds[1])throw Error('Data inválida');return [ds[0],ds[1]||ds[0]];}
 const fuelMetrics=['abastecimentos','dias abastecidos','compras por semana','litros comprados','preço médio ponderado','consumo medido por ciclo','custo/km','distância medida','valor médio por compra','postos e preços','tipos de combustível','ciclos completos','histórico','mapa de calor de compras','evolução mensal','meta ilustrativa de economia'];
@@ -38,10 +38,12 @@ function analyze(q,b,prior=null,now=new Date()){
  const F=Core.normalize(raw),s=Core.stats(F,from,to),f=normalize(raw.fills),fc=buildCycles(f),a=f.filter(inside),c=fc.filter(inside);
  const fuelType=/\betanol\b/.test(t)?'Etanol':/\bgasolina\b/.test(t)?'Gasolina':/\bdiesel\b/.test(t)?'Diesel':/\bmisto\b/.test(t)?'Misto':null;
  const af=fuelType?a.filter(x=>x.fuel===fuelType):a,cf=fuelType?c.filter(x=>x.fuel===fuelType):c,ft=stats(af,cf);
- const driver=s.r,ar=s.e;
+ const platform=/\buber\b/.test(t)&&!/\b99\b/.test(t)?'Uber':/\b99\b/.test(t)&&!/\buber\b/.test(t)?'99':null;
+ const platformIds=new Set(raw.rides.filter(r=>r[8]===platform).map(r=>r[0]));
+ const driver=platform?s.r.filter(r=>platformIds.has(r.id)):s.r,ar=s.e;
  const span=Math.round((Date.parse(to)-Date.parse(from))/86400000)+1;
  const dateLabel=from===to?from:from+' a '+to;
- const out=(text,domain)=>({text,source:'VEXO LAB · '+domain+' · '+dateLabel,context:{period:p,domain},kind:'success'});
+ const out=(text,domain)=>({text,source:'VEXO LAB · '+domain+(domain==='Driver'&&platform?' · '+platform:'')+' · '+dateLabel,context:{period:p,domain},kind:'success'});
  if(/(?:quais|que|o que).*(?:dados|funcoes|indicadores|consegue|consultar)/.test(t))return out('Driver: corridas, receita, ticket, distância, duração, pagamentos, horários, dias, mapas de calor, mensal e estratégia.\nFuel: '+fuelMetrics.join(', ')+'.\nFinanceiro: caixa, despesas, reembolsos, margem, resultado, cobertura, metas e reserva. Consultas são somente leitura.','Catálogo');
  if(/(?:posto|abastec|combustivel|gasolina|etanol|diesel|litro|consumo|ciclo|odometro)/.test(t)){
   if(/posto/.test(t)&&/preco|barat|caro|melhor|compar|lista|qual/.test(t)){const z=group(af,x=>x.station+' · '+x.fuel).map(([k,r])=>[k,stats(r,[])]).sort((a,b)=>a[1].price-b[1].price);return out(z.length?z.slice(0,15).map(([k,r])=>k+': '+money(r.price)+'/L · '+r.n+' compras · '+money(r.cost)).join('\n'):'Sem compras no período.','Fuel');}
@@ -84,11 +86,10 @@ function analyze(q,b,prior=null,now=new Date()){
  if(/dias ativos|corridas por dia|receita media diaria|tempo medio|duracao media|distancia media/.test(t)){const x=summarize(driver);return out(x.active+' dias ativos · '+num(div(x.count,x.active))+' corridas/dia · '+money(x.daily)+'/dia · '+num(div(x.sec/60,x.count))+' min/corrida · '+num(div(x.km,x.count))+' km/corrida.','Driver');}
  return null;
 }
-let memory=null,pending=null;
+let memory=null;
 async function handle(q,{readData,now=new Date()}){
  const t=norm(q);
- if(write(t)||/^\d+(?:[,.]\d+)?$/.test(t)){
-  pending=null;
+ if(write(t)||/^(?:quero|preciso|pode|voce pode|vamos)\s+(?:registrar|adicionar|colocar|salvar|alterar|lancar|apagar|cadastrar)\b/.test(t)||/^(?:gastei|paguei|recebi|ganhei|faturei|abasteci)\s+(?:r\$\s*)?\d/.test(t)||/^\d+(?:[,.]\d+)?$/.test(t)){
   if(!/ganh|fatur|meta|combustivel|abastec|despes|pedagio|manutenc|pessoal|saldo/.test(t))return {text:'Esse valor é ganho de corridas, combustível, outra despesa ou meta? Nenhum registro foi alterado.',source:'Aura · confirmação necessária',kind:'clarify'};
   return {text:'Entendi a categoria, mas a gravação por chat ainda não foi habilitada. Use o dashboard correspondente para salvar. Nenhum dado foi alterado.',source:'Aura · somente leitura',kind:'clarify'};
  }
