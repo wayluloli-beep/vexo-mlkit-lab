@@ -47,11 +47,21 @@ async function ask(q,stt=false,quick=null){
    intent='QUERY_DATA';active.intent=intent;status='LOCAL_QUERY';
    result=await AuraAdapter.execute(localQuery,previous,{engine:AuraQueryEngine,core:AuraCore,readData});
    result={...result,source:'Dados locais · sem consumo de API'};
-  }else if(!quick&&typeof window.VexoAuraAdviceTransport==='function'&&AuraDashboardContext.isStrategy(q)){
-   intent='ADVICE';active.intent=intent;
-   try{result=await AuraDashboardContext.advise(q,{readData,core:AuraCore,transport:window.VexoAuraAdviceTransport,signal:controller.signal});if(!result)throw Error('Advice unavailable');}
-   catch(e){if(!current())return;status='ADVICE_LOCAL_FALLBACK';result=await AuraAdvisor.resolve(q,null,{readData,core:AuraCore})||{text:'Não consegui consultar a orientação online. Posso consultar seus indicadores locais.',source:'Aura · modo local',kind:'unavailable'};}
-   result={...result,context:previous,intent};
+  }else if((!quick||quick==='plano')&&window.VexoAuraLfx){
+   intent='AURA_LFX';active.intent=intent;
+   try{
+    result=await window.VexoAuraLfx.request(q,{readData,core:AuraCore,history,signal:controller.signal});
+    if(!result)throw Error('Online not authorized');
+    result={...result,context:previous,intent};
+   }catch(e){
+    if(!current())return;
+    status='LFX_LOCAL_FALLBACK';
+    if(quick||AuraDashboardContext.isStrategy(q)){
+      result=await AuraAdvisor.resolve(q,null,{readData,core:AuraCore})||{text:'Não consegui conectar a Aura online. Consulte seus indicadores locais.',source:'Aura · modo local',kind:'unavailable',context:previous};
+    }else{
+      result={text:'Não consegui conectar a conversa online. As consultas diretas aos seus indicadores continuam disponíveis.',source:'Aura · modo local',kind:'unavailable',context:previous};
+    }
+   }
   }else if(quick){const b=await readData(),s=AuraCore.snapshot(b.finance,b.rates,'hoje');result={text:AuraCore.answer(quick,s),source:'Dados locais · atalho',kind:'concept',context:previous,intent:'LOCAL_SHORTCUT'};}
   else{
    const response=await AuraMobileTransport.run((signal,attempt)=>{timing.push({request_id:requestId,attempt,client_send_ms:Date.now(),server_receive_ms:null,gemini_api_ms:null,server_total_ms:null});return fetch(PROXY,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({protocol:5,question:q,context:previous,request_id:requestId,attempt}),signal});},{signal:controller.signal,onAttempt:(attempt,meta)=>{const t=timing.find(x=>x.attempt===attempt);if(t)Object.assign(t,meta);},onSlow:()=>{if(current())setStatus('Calculando…')}});
